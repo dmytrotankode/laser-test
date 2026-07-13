@@ -6,6 +6,31 @@ import cv2
 import numpy as np
 from rembg import remove
 
+def remove_stand(mask, cam):
+    if cam != "back":
+        return mask
+        
+    h, w = mask.shape
+    y_indices, x_indices = np.where(mask > 0)
+    if len(y_indices) == 0:
+        return mask
+        
+    bottom_y = np.max(y_indices)
+    top_y = np.min(y_indices)
+    
+    # scan from bottom up
+    for y in range(bottom_y, top_y, -1):
+        row_x = np.where(mask[y, :] > 0)[0]
+        if len(row_x) > 0:
+            width = row_x[-1] - row_x[0]
+            if width > w * 0.4:
+                # Helmet found. Remove everything below this y (with a small buffer).
+                cutoff_y = min(bottom_y, y + int(h * 0.015))
+                mask[cutoff_y:, :] = 0
+                break
+                
+    return mask
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--session', required=True)
@@ -58,6 +83,9 @@ def main():
         _, mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+        
+        # Remove stand for back camera
+        mask = remove_stand(mask, cam)
         
         # Create RGBA (Cropped)
         rgba = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
