@@ -28,6 +28,10 @@ def serve_results(session_id, filename):
 def serve_inputs(filename):
     return send_from_directory(INPUT_DIR, filename)
 
+@app.route('/files/model_3d/<filename>')
+def serve_model(filename):
+    return send_from_directory(os.path.join(INPUT_DIR, 'model_3d'), filename)
+
 @app.route('/api/start_session')
 def start_session():
     session_id = f"run_{time.strftime('%Y%m%d_%H%M%S')}"

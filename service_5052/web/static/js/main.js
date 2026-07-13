@@ -41,32 +41,32 @@ function createVisualizationBlock(id, title) {
     return document.getElementById(id);
 }
 
-function initThreeScene(container, pointsArrays) {
-    const width = container.clientWidth;
-    const height = container.clientHeight;
-    
+function initThreeScene(container, pointSets, stlOptions = null) {
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x1e1e1e);
+    scene.background = new THREE.Color(0x222222);
     
-    // Camera
-    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 10000);
+    // Add ambient light
+    const ambientLight = new THREE.AmbientLight(0x404040); // soft white light
+    scene.add(ambientLight);
     
-    // Renderer
+    // Add directional light for the STL
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+    directionalLight.position.set(1, 1, 1).normalize();
+    scene.add(directionalLight);
+
+    const camera = new THREE.PerspectiveCamera(45, container.clientWidth / 300, 0.1, 10000);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(width, height);
+    renderer.setSize(container.clientWidth, 300);
     container.appendChild(renderer.domElement);
-    
-    // Controls
+
     const controls = new THREE.OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     
-    // Add points
-    // pointsArrays is an array of objects: { points: [...], color: 0xff0000, size: 2 }
-    
     let center = new THREE.Vector3(0, 0, 0);
     let totalPoints = 0;
+    let allPoints = [];
     
-    pointsArrays.forEach(pa => {
+    pointSets.forEach(pa => {
         const geometry = new THREE.BufferGeometry();
         const positions = new Float32Array(pa.points.length * 3);
         for(let i=0; i<pa.points.length; i++) {
@@ -78,6 +78,7 @@ function initThreeScene(container, pointsArrays) {
             center.y += pa.points[i].y;
             center.z += pa.points[i].z;
             totalPoints++;
+            allPoints.push(pa.points[i]);
         }
         geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
         const material = new THREE.PointsMaterial({ color: pa.color, size: pa.size || 2 });
@@ -89,8 +90,29 @@ function initThreeScene(container, pointsArrays) {
         const lineObj = new THREE.Line(geometry, lineMat);
         scene.add(lineObj);
     });
-    
-    if (totalPoints > 0) {
+
+    if (stlOptions) {
+        const loader = new THREE.STLLoader();
+        loader.load(stlOptions.url, function (geom) {
+            const mat = new THREE.MeshPhongMaterial({ color: stlOptions.color || 0x888888, specular: 0x111111, shininess: 50, transparent: true, opacity: stlOptions.opacity || 0.6 });
+            const mesh = new THREE.Mesh(geom, mat);
+            
+            // set transform
+            mesh.position.set(stlOptions.tx, stlOptions.ty, stlOptions.tz);
+            // Euler rotation in THREE defaults to XYZ, my python Rz @ Ry @ Rx means ZYX.
+            mesh.rotation.set(
+                THREE.MathUtils.degToRad(stlOptions.rx),
+                THREE.MathUtils.degToRad(stlOptions.ry),
+                THREE.MathUtils.degToRad(stlOptions.rz),
+                'ZYX'
+            );
+            mesh.scale.set(stlOptions.scale, stlOptions.scale, stlOptions.scale);
+            
+            scene.add(mesh);
+        });
+    }
+
+    if (allPoints.length > 0) {
         center.divideScalar(totalPoints);
         controls.target.copy(center);
         camera.position.set(center.x, center.y - 400, center.z + 200);
@@ -205,11 +227,17 @@ function handleStep02Result(data) {
     
     const visCont = createVisualizationBlock('vis-02-align', 'Суміщення 3D-моделі з точками обрізки');
     
-    // Convert mesh to points for easy rendering or just render vertices
+    // We render the contour and rim points, but skip the full stl_mesh points
     initThreeScene(visCont, [
         { points: data.ls_contour, color: 0x00d2ff, size: 2 },
         { points: data.contact_points, color: 0xff0000, size: 4 },
-        { points: data.stl_mesh, color: 0x888888, size: 1 },
         { points: data.stl_rim, color: 0x00ff00, size: 3 }
-    ]);
+    ], {
+        url: `/files/model_3d/helmet_ref.stl`,
+        tx: data.tx, ty: data.ty, tz: data.tz,
+        rx: data.rx, ry: data.ry, rz: data.rz,
+        scale: data.scale,
+        color: 0x888888,
+        opacity: 0.6
+    });
 }
