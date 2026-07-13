@@ -46,13 +46,21 @@ function initThreeScene(container, pointSets, stlOptions = null) {
     scene.background = new THREE.Color(0x222222);
     
     // Add ambient light
-    const ambientLight = new THREE.AmbientLight(0x404040); // soft white light
+    const ambientLight = new THREE.AmbientLight(0x606060); // Brighter ambient
     scene.add(ambientLight);
     
-    // Add directional light for the STL
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
-    directionalLight.position.set(1, 1, 1).normalize();
-    scene.add(directionalLight);
+    // Add directional lights from multiple angles
+    const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.6);
+    dirLight1.position.set(1, 1, 1).normalize();
+    scene.add(dirLight1);
+
+    const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.6);
+    dirLight2.position.set(-1, 1, -1).normalize();
+    scene.add(dirLight2);
+
+    const dirLight3 = new THREE.DirectionalLight(0xffffff, 0.4);
+    dirLight3.position.set(0, -1, 1).normalize();
+    scene.add(dirLight3);
 
     const camera = new THREE.PerspectiveCamera(45, container.clientWidth / 300, 0.1, 10000);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
