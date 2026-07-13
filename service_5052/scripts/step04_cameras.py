@@ -32,7 +32,7 @@ def main():
             "distance": float(dist)
         }
         
-    result_file = os.path.join(results_dir, 'step03_result.json')
+    result_file = os.path.join(results_dir, 'step04_result.json')
     with open(result_file, 'w') as f:
         json.dump(results, f, indent=4)
         

@@ -311,62 +311,6 @@ async function runStep03() {
 }
 
 function handleStep03Result(data) {
-    const camerasArray = [];
-    for (const [cam, info] of Object.entries(data.cameras)) {
-        addMetric(`Камера ${cam.toUpperCase()}`, `Pos: [${info.pos.join(', ')}], Dist: ${info.distance.toFixed(1)} мм`);
-        camerasArray.push({ pos: info.pos });
-    }
-    
-    const visCont = createVisualizationBlock('vis-03-cameras', 'Розміщення камер');
-    
-    if (step02GlobalData) {
-        initThreeScene(visCont, [
-            { points: step02GlobalData.ls_contour, color: 0x00d2ff, size: 2, isLine: true },
-            { points: step02GlobalData.contact_points, color: 0xff0000, size: 4, isLine: true }
-        ], {
-            url: `/files/model_3d/helmet_ref.stl`,
-            tx: step02GlobalData.tx, ty: step02GlobalData.ty, tz: step02GlobalData.tz,
-            rx: step02GlobalData.rx, ry: step02GlobalData.ry, rz: step02GlobalData.rz,
-            scale: step02GlobalData.scale,
-            color: 0x888888,
-            opacity: 0.5
-        }, { cameras: camerasArray });
-    } else {
-        initThreeScene(visCont, [], null, { cameras: camerasArray });
-    }
-}
-
-// --- STEP 4 ---
-async function runStep04() {
-    if (!currentSessionId) return;
-    const btn = document.getElementById('btn-step04');
-    btn.disabled = true;
-    btn.innerText = "Обробка...";
-    
-    await fetch(`/api/step04?session_id=${currentSessionId}&action=start`);
-    
-    let poll = setInterval(async () => {
-        const res = await fetch(`/api/step04?session_id=${currentSessionId}&action=poll`);
-        const result = await res.json();
-        
-        if (result.status === 'done') {
-            clearInterval(poll);
-            btn.innerText = "Виконано";
-            btn.style.background = "#4CAF50";
-            handleStep04Result(result.data);
-            
-            document.getElementById('btn-step05').disabled = false;
-            document.getElementById('card-step05').classList.add('active');
-        } else if (result.status === 'error') {
-            clearInterval(poll);
-            btn.innerText = "Помилка";
-            btn.style.background = "#f44336";
-            alert("Помилка: " + result.message);
-        }
-    }, 1000);
-}
-
-function handleStep04Result(data) {
     const visZone = document.getElementById('visualizations');
     
     const panelCropped = document.createElement('div');
@@ -400,6 +344,62 @@ function handleStep04Result(data) {
     
     visZone.appendChild(panelCropped);
     visZone.appendChild(panelMasks);
+}
+
+// --- STEP 4 ---
+async function runStep04() {
+    if (!currentSessionId) return;
+    const btn = document.getElementById('btn-step04');
+    btn.disabled = true;
+    btn.innerText = "Обробка...";
+    
+    await fetch(`/api/step04?session_id=${currentSessionId}&action=start`);
+    
+    let poll = setInterval(async () => {
+        const res = await fetch(`/api/step04?session_id=${currentSessionId}&action=poll`);
+        const result = await res.json();
+        
+        if (result.status === 'done') {
+            clearInterval(poll);
+            btn.innerText = "Виконано";
+            btn.style.background = "#4CAF50";
+            handleStep04Result(result.data);
+            
+            document.getElementById('btn-step05').disabled = false;
+            document.getElementById('card-step05').classList.add('active');
+        } else if (result.status === 'error') {
+            clearInterval(poll);
+            btn.innerText = "Помилка";
+            btn.style.background = "#f44336";
+            alert("Помилка: " + result.message);
+        }
+    }, 1000);
+}
+
+function handleStep04Result(data) {
+    const camerasArray = [];
+    for (const [cam, info] of Object.entries(data.cameras)) {
+        addMetric(`Камера ${cam.toUpperCase()}`, `Pos: [${info.pos.join(', ')}], Dist: ${info.distance.toFixed(1)} мм`);
+        camerasArray.push({ pos: info.pos });
+    }
+    
+    const visCont = createVisualizationBlock('vis-04-cameras', 'Розміщення камер');
+    
+    if (step02GlobalData) {
+        initThreeScene(visCont, [
+            { points: step02GlobalData.ls_contour, color: 0x00d2ff, size: 2, isLine: true },
+            { points: step02GlobalData.contact_points, color: 0xff0000, size: 4, isLine: true }
+        ], {
+            url: `/files/model_3d/helmet_ref.stl`,
+            tx: step02GlobalData.tx, ty: step02GlobalData.ty, tz: step02GlobalData.tz,
+            rx: step02GlobalData.rx, ry: step02GlobalData.ry, rz: step02GlobalData.rz,
+            scale: step02GlobalData.scale,
+            color: 0x888888,
+            opacity: 0.5
+        }, { cameras: camerasArray });
+    } else {
+        initThreeScene(visCont, [], null, { cameras: camerasArray });
+    }
 }
 
 // --- STEP 5 ---

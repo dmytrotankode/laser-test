@@ -89,11 +89,11 @@ def api_step02():
 
 @app.route('/api/step03')
 def api_step03():
-    return generic_step_api("step03_cameras.py", request.args.get('session_id'), request.args.get('action'), "step03_result.json")
+    return generic_step_api("step03_segment.py", request.args.get('session_id'), request.args.get('action'), "step03_result.json")
 
 @app.route('/api/step04')
 def api_step04():
-    return generic_step_api("step04_segment.py", request.args.get('session_id'), request.args.get('action'), "step04_result.json")
+    return generic_step_api("step04_cameras.py", request.args.get('session_id'), request.args.get('action'), "step04_result.json")
 
 @app.route('/api/step05')
 def api_step05():
