@@ -53,26 +53,21 @@ def run_script_async(script_name, session_id):
                 f.write(str(e))
     threading.Thread(target=worker).start()
 
-@app.route('/api/step01')
-def api_step01():
-    session_id = request.args.get('session_id')
+def generic_step_api(step_script, session_id, action, result_filename):
     if not session_id:
         return jsonify({"error": "No session_id"}), 400
+        
+    done_file = os.path.join(RESULTS_DIR, session_id, f"{step_script}.done")
+    error_file = os.path.join(RESULTS_DIR, session_id, f"{step_script}.error")
+    result_file = os.path.join(RESULTS_DIR, session_id, result_filename)
     
-    # Check if we should start it or poll status
-    done_file = os.path.join(RESULTS_DIR, session_id, "step01_create_etalon_trim.py.done")
-    error_file = os.path.join(RESULTS_DIR, session_id, "step01_create_etalon_trim.py.error")
-    result_file = os.path.join(RESULTS_DIR, session_id, "step01_result.json")
-    
-    action = request.args.get('action')
     if action == 'start':
         if os.path.exists(done_file): os.remove(done_file)
         if os.path.exists(error_file): os.remove(error_file)
         if os.path.exists(result_file): os.remove(result_file)
-        run_script_async("step01_create_etalon_trim.py", session_id)
+        run_script_async(step_script, session_id)
         return jsonify({"status": "started"})
         
-    # Polling
     if os.path.exists(error_file):
         with open(error_file, 'r') as f: err = f.read()
         return jsonify({"status": "error", "message": err})
@@ -84,34 +79,25 @@ def api_step01():
         
     return jsonify({"status": "running"})
 
+@app.route('/api/step01')
+def api_step01():
+    return generic_step_api("step01_create_etalon_trim.py", request.args.get('session_id'), request.args.get('action'), "step01_result.json")
+
 @app.route('/api/step02')
 def api_step02():
-    session_id = request.args.get('session_id')
-    if not session_id:
-        return jsonify({"error": "No session_id"}), 400
-    
-    done_file = os.path.join(RESULTS_DIR, session_id, "step02_align_3d_to_trim.py.done")
-    error_file = os.path.join(RESULTS_DIR, session_id, "step02_align_3d_to_trim.py.error")
-    result_file = os.path.join(RESULTS_DIR, session_id, "step02_result.json")
-    
-    action = request.args.get('action')
-    if action == 'start':
-        if os.path.exists(done_file): os.remove(done_file)
-        if os.path.exists(error_file): os.remove(error_file)
-        if os.path.exists(result_file): os.remove(result_file)
-        run_script_async("step02_align_3d_to_trim.py", session_id)
-        return jsonify({"status": "started"})
-        
-    if os.path.exists(error_file):
-        with open(error_file, 'r') as f: err = f.read()
-        return jsonify({"status": "error", "message": err})
-        
-    if os.path.exists(done_file) and os.path.exists(result_file):
-        with open(result_file, 'r') as f:
-            data = json.load(f)
-        return jsonify({"status": "done", "data": data})
-        
-    return jsonify({"status": "running"})
+    return generic_step_api("step02_align_3d_to_trim.py", request.args.get('session_id'), request.args.get('action'), "step02_result.json")
+
+@app.route('/api/step03')
+def api_step03():
+    return generic_step_api("step03_cameras.py", request.args.get('session_id'), request.args.get('action'), "step03_result.json")
+
+@app.route('/api/step04')
+def api_step04():
+    return generic_step_api("step04_segment.py", request.args.get('session_id'), request.args.get('action'), "step04_result.json")
+
+@app.route('/api/step05')
+def api_step05():
+    return generic_step_api("step05_lighting.py", request.args.get('session_id'), request.args.get('action'), "step05_result.json")
 
 if __name__ == '__main__':
     print("Starting Service 5052...")

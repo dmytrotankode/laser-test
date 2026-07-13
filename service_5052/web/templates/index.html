@@ -32,6 +32,24 @@
             <p style="font-size: 0.85rem; color: #888;">Завантажує 3D модель, шукає край та накладає його на точки різу.</p>
             <button id="btn-run-02" onclick="runStep02()" disabled>Виконати етап 2</button>
         </div>
+
+        <div class="step-card" id="card-step03">
+            <h3>Крок 3: Розміщення камер</h3>
+            <p style="font-size: 0.85rem; color: #888;">Розрахунок положення камер (Back, Left, Top).</p>
+            <button id="btn-step03" onclick="runStep03()" disabled>Виконати етап 3</button>
+        </div>
+
+        <div class="step-card" id="card-step04">
+            <h3>Крок 4: Обрізка фото та маски</h3>
+            <p style="font-size: 0.85rem; color: #888;">Сегментація фотографій, створення прозорих та однотонних масок.</p>
+            <button id="btn-step04" onclick="runStep04()" disabled>Виконати етап 4</button>
+        </div>
+
+        <div class="step-card" id="card-step05">
+            <h3>Крок 5: Аналіз джерел світла</h3>
+            <p style="font-size: 0.85rem; color: #888;">Аналіз світлових відблисків на еталонних фото.</p>
+            <button id="btn-step05" onclick="runStep05()" disabled>Виконати етап 5</button>
+        </div>
     </div>
 
     <!-- MIDDLE ZONE -->

@@ -41,7 +41,7 @@ function createVisualizationBlock(id, title) {
     return document.getElementById(id);
 }
 
-function initThreeScene(container, pointSets, stlOptions = null) {
+function initThreeScene(container, pointSets, stlOptions = null, sceneOptions = {}) {
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x222222);
     
@@ -49,18 +49,26 @@ function initThreeScene(container, pointSets, stlOptions = null) {
     const ambientLight = new THREE.AmbientLight(0x606060); // Brighter ambient
     scene.add(ambientLight);
     
-    // Add directional lights from multiple angles
-    const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.6);
-    dirLight1.position.set(1, 1, 1).normalize();
-    scene.add(dirLight1);
+    // Add directional lights from multiple angles unless custom lights are provided
+    if (sceneOptions.customLights && sceneOptions.customLights.length > 0) {
+        sceneOptions.customLights.forEach(l => {
+            const dirLight = new THREE.DirectionalLight(l.color || 0xffffff, l.intensity);
+            dirLight.position.set(l.dir[0], l.dir[1], l.dir[2]).normalize();
+            scene.add(dirLight);
+        });
+    } else {
+        const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.6);
+        dirLight1.position.set(1, 1, 1).normalize();
+        scene.add(dirLight1);
 
-    const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.6);
-    dirLight2.position.set(-1, 1, -1).normalize();
-    scene.add(dirLight2);
+        const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.6);
+        dirLight2.position.set(-1, 1, -1).normalize();
+        scene.add(dirLight2);
 
-    const dirLight3 = new THREE.DirectionalLight(0xffffff, 0.4);
-    dirLight3.position.set(0, -1, 1).normalize();
-    scene.add(dirLight3);
+        const dirLight3 = new THREE.DirectionalLight(0xffffff, 0.4);
+        dirLight3.position.set(0, -1, 1).normalize();
+        scene.add(dirLight3);
+    }
 
     const camera = new THREE.PerspectiveCamera(45, container.clientWidth / 300, 0.1, 10000);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -119,6 +127,18 @@ function initThreeScene(container, pointSets, stlOptions = null) {
             mesh.scale.set(stlOptions.scale, stlOptions.scale, stlOptions.scale);
             
             scene.add(mesh);
+        });
+    }
+    
+    // Draw optional camera positions
+    if (sceneOptions.cameras && sceneOptions.cameras.length > 0) {
+        sceneOptions.cameras.forEach(c => {
+            const camGeom = new THREE.ConeGeometry(50, 100, 4);
+            const camMat = new THREE.MeshBasicMaterial({ color: 0xffff00, wireframe: true });
+            const camMesh = new THREE.Mesh(camGeom, camMat);
+            camMesh.position.set(c.pos[0], c.pos[1], c.pos[2]);
+            camMesh.lookAt(0, 0, 85); // look at helmet center
+            scene.add(camMesh);
         });
     }
 
@@ -189,7 +209,7 @@ function handleStep01Result(data) {
     // 2) Visualization 1: Original LS centered
     const visCont = createVisualizationBlock('vis-01-contour', 'Еталонний LS (X, Y, Z)');
     initThreeScene(visCont, [
-        { points: data.contour_points, color: 0x00d2ff, size: 2, isLine: true }
+        { points: data.original_points, color: 0x888888, size: 2, isLine: true }
     ]);
     
     // 3) Visualization 2: LS Contour + Offset Contact Points
@@ -250,4 +270,176 @@ function handleStep02Result(data) {
         color: 0x888888,
         opacity: 0.5 // Made 50% transparent
     });
+    
+    // Enable Step 3
+    document.getElementById('btn-step03').disabled = false;
+    document.getElementById('card-step03').classList.add('active');
 }
+
+// --- STEP 3 ---
+async function runStep03() {
+    if (!currentSessionId) return;
+    
+    const btn = document.getElementById('btn-step03');
+    btn.disabled = true;
+    btn.innerText = "Обробка...";
+    
+    await fetch(`/api/step03?session_id=${currentSessionId}&action=start`);
+    
+    let poll = setInterval(async () => {
+        const res = await fetch(`/api/step03?session_id=${currentSessionId}&action=poll`);
+        const result = await res.json();
+        
+        if (result.status === 'done') {
+            clearInterval(poll);
+            btn.innerText = "Виконано";
+            btn.style.background = "#4CAF50";
+            handleStep03Result(result.data);
+            
+            document.getElementById('btn-step04').disabled = false;
+            document.getElementById('card-step04').classList.add('active');
+        } else if (result.status === 'error') {
+            clearInterval(poll);
+            btn.innerText = "Помилка";
+            btn.style.background = "#f44336";
+            alert("Помилка: " + result.message);
+        }
+    }, 1000);
+}
+
+function handleStep03Result(data) {
+    const camerasArray = [];
+    for (const [cam, info] of Object.entries(data.cameras)) {
+        addMetric(`Камера ${cam.toUpperCase()}`, `Pos: [${info.pos.join(', ')}], Dist: ${info.distance.toFixed(1)} мм`);
+        camerasArray.push({ pos: info.pos });
+    }
+    
+    const visCont = createVisualizationBlock('vis-03-cameras', 'Розміщення камер');
+    initThreeScene(visCont, [], null, { cameras: camerasArray });
+}
+
+// --- STEP 4 ---
+async function runStep04() {
+    if (!currentSessionId) return;
+    const btn = document.getElementById('btn-step04');
+    btn.disabled = true;
+    btn.innerText = "Обробка...";
+    
+    await fetch(`/api/step04?session_id=${currentSessionId}&action=start`);
+    
+    let poll = setInterval(async () => {
+        const res = await fetch(`/api/step04?session_id=${currentSessionId}&action=poll`);
+        const result = await res.json();
+        
+        if (result.status === 'done') {
+            clearInterval(poll);
+            btn.innerText = "Виконано";
+            btn.style.background = "#4CAF50";
+            handleStep04Result(result.data);
+            
+            document.getElementById('btn-step05').disabled = false;
+            document.getElementById('card-step05').classList.add('active');
+        } else if (result.status === 'error') {
+            clearInterval(poll);
+            btn.innerText = "Помилка";
+            btn.style.background = "#f44336";
+            alert("Помилка: " + result.message);
+        }
+    }, 1000);
+}
+
+function handleStep04Result(data) {
+    const visZone = document.getElementById('visualizations');
+    
+    const panelCropped = document.createElement('div');
+    panelCropped.className = 'vis-panel';
+    panelCropped.innerHTML = `<h3>Обрізані фото еталона</h3><div style="display:flex; justify-content:space-around;"></div>`;
+    const rowCropped = panelCropped.querySelector('div');
+    
+    const panelMasks = document.createElement('div');
+    panelMasks.className = 'vis-panel';
+    panelMasks.innerHTML = `<h3>Однотонні маски еталона</h3><div style="display:flex; justify-content:space-around;"></div>`;
+    const rowMasks = panelMasks.querySelector('div');
+    
+    for (const [cam, info] of Object.entries(data)) {
+        addMetric(`Фото ${cam} (Обрізане)`, info.rgba_path);
+        addMetric(`Фото ${cam} (Маска)`, info.solid_path);
+        
+        // Add to cropped UI
+        const img1 = document.createElement('img');
+        img1.src = `/results/${currentSessionId}/${info.rgba_file}?t=${Date.now()}`;
+        img1.style.width = "30%";
+        img1.title = cam;
+        rowCropped.appendChild(img1);
+        
+        // Add to masks UI
+        const img2 = document.createElement('img');
+        img2.src = `/results/${currentSessionId}/${info.solid_file}?t=${Date.now()}`;
+        img2.style.width = "30%";
+        img2.title = cam;
+        rowMasks.appendChild(img2);
+    }
+    
+    visZone.appendChild(panelCropped);
+    visZone.appendChild(panelMasks);
+}
+
+// --- STEP 5 ---
+async function runStep05() {
+    if (!currentSessionId) return;
+    const btn = document.getElementById('btn-step05');
+    btn.disabled = true;
+    btn.innerText = "Обробка...";
+    
+    await fetch(`/api/step05?session_id=${currentSessionId}&action=start`);
+    
+    let poll = setInterval(async () => {
+        const res = await fetch(`/api/step05?session_id=${currentSessionId}&action=poll`);
+        const result = await res.json();
+        
+        if (result.status === 'done') {
+            clearInterval(poll);
+            btn.innerText = "Виконано";
+            btn.style.background = "#4CAF50";
+            handleStep05Result(result.data);
+        } else if (result.status === 'error') {
+            clearInterval(poll);
+            btn.innerText = "Помилка";
+            btn.style.background = "#f44336";
+            alert("Помилка: " + result.message);
+        }
+    }, 1000);
+}
+
+function handleStep05Result(data) {
+    let customLights = [];
+    let customCameras = [];
+    
+    // Add metrics
+    for (const [cam, lights] of Object.entries(data.lights)) {
+        addMetric(`Джерела світла (${cam})`, `${lights.length} знайдено`);
+        lights.forEach((l, i) => {
+            addMetric(`  Світло ${i+1}`, `Напрямок: [${l.dir.map(v=>v.toFixed(2)).join(', ')}], Яскравість: ${l.intensity.toFixed(2)}`);
+            customLights.push({ dir: l.dir, intensity: l.intensity });
+        });
+        
+        // We know standard camera pos roughly
+        if (cam === 'back') customCameras.push({pos: [0, 2500, 0]});
+        if (cam === 'left') customCameras.push({pos: [1650, 0, 0]});
+        if (cam === 'top') customCameras.push({pos: [0, 0, 2000]});
+    }
+    
+    const visCont = createVisualizationBlock('vis-05-lights', '3D Сцена з розрахованим освітленням та камерами');
+    
+    // We will render the STL helmet with the custom calculated lights.
+    // We don't have ls data locally inside this function easily unless we fetch it or store globally, 
+    // but we can at least render the STL with the new lights.
+    initThreeScene(visCont, [], {
+        url: `/files/model_3d/helmet_ref.stl`,
+        tx: 0, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0, scale: 1.0, color: 0xcccccc, opacity: 1.0
+    }, { 
+        customLights: customLights,
+        cameras: customCameras
+    });
+}
+
