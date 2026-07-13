@@ -47,8 +47,8 @@ def filter_contour_points(points):
         return points
         
     # Heuristic: the start and end of the actual cutting path
-    # Often, approach is 2-3 points, retreat is 2-3 points.
-    return points[3:-3]
+    # Remove exactly 1 point from each end
+    return points[1:-1]
 
 def calculate_trim_line(contour_points, tilt_down_deg=15, yaw_ccw_deg=15, offset_mm=10.0):
     """
