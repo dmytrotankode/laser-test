@@ -1,0 +1,7 @@
+flask
+numpy
+scipy
+opencv-python
+matplotlib
+numpy-stl
+rembg[cpu]

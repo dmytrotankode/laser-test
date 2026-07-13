@@ -1,6 +1,7 @@
 from flask import Flask, render_template, jsonify, send_from_directory, request
 import subprocess
 import os
+import sys
 import json
 
 app = Flask(__name__)
@@ -25,6 +26,10 @@ def form2_page():
 @app.route('/vis/step13')
 def vis_step13():
     return render_template('step13_vis.html')
+
+@app.route('/vis/compare')
+def vis_compare():
+    return render_template('ls_compare.html')
 
 @app.route('/files/<session_id>/<path:filename>')
 def serve_file(session_id, filename):
@@ -56,7 +61,7 @@ def run_script(script_name, session_id, extra_args=[]):
     script_path = os.path.join(SCRIPTS_DIR, script_name)
     args = ['--session', session_id] + extra_args
     try:
-        result = subprocess.run(['python', script_path] + args, capture_output=True, text=True, cwd=SCRIPTS_DIR)
+        result = subprocess.run([sys.executable, script_path] + args, capture_output=True, text=True, cwd=SCRIPTS_DIR)
         return {
             'success': result.returncode == 0,
             'stdout': result.stdout,
@@ -478,4 +483,4 @@ def session_state():
     return jsonify(state)
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5050)
+    app.run(debug=True, port=int(os.environ.get('PORT', 5050)))

@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "laser2-service5050",
+      "runtimeExecutable": "service_5050/venv/Scripts/python.exe",
+      "runtimeArgs": ["service_5050/web/app.py"],
+      "port": 5050,
+      "autoPort": true
+    }
+  ]
+}

@@ -3,3 +3,5 @@ __pycache__/
 *.pyo
 *.log
 results/
+venv/
+calibr_photo_1/

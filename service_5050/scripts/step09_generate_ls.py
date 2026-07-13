@@ -1,30 +1,3 @@
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--session', required=True)
-    args = parser.parse_args()
-    
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    logger = PipelineLogger(args.session, base_dir, "STEP 08: GENERATE LS FILE")
-    
-    config_path = os.path.join(base_dir, 'pipeline_config.json')
-    with open(config_path, 'r') as f:
-        config = json.load(f)
-        
-    # Load Final Current Pose
-    session_dir = os.path.join(base_dir, 'results', args.session)
-    pose_file = os.path.join(session_dir, 'step10_final_pose.json')
-    if not os.path.exists(pose_file):
-        logger.log(f"Error: {pose_file} not found! Cannot apply correction.")
-        return
-    with open(pose_file, 'r') as f:
-        delta_data = json.load(f)
-        
-    dx, dy, dz = delta_data['delta_translation']
-    from scipy.spatial.transform import Rotation
-    r = Rotation.from_rotvec(delta_data['delta_rotvec'])
-    delta_T = np.eye(4)
 import os
 import sys
 import json
@@ -51,37 +24,62 @@ def get_transform_matrix(tx, ty, tz, rx, ry, rz):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--session', required=True)
+    parser.add_argument('--source', default='step10_final_pose.json',
+                         help="Which *_pose_fit.json in the session dir to pull delta_translation/delta_rotvec from.")
+    parser.add_argument('--label', default='',
+                         help="Suffix for the output filename, e.g. 'mask' -> TORXL_corrected_mask.ls")
     args = parser.parse_args()
-    
+
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     logger = PipelineLogger(args.session, base_dir, "STEP 08: GENERATE LS FILE")
-    
+
     config_path = os.path.join(base_dir, 'pipeline_config.json')
     with open(config_path, 'r') as f:
         config = json.load(f)
-        
+
     # Load Final Current Pose
     session_dir = os.path.join(base_dir, 'results', args.session)
-    pose_file = os.path.join(session_dir, 'step10_final_pose.json')
+    pose_file = os.path.join(session_dir, args.source)
     if not os.path.exists(pose_file):
         logger.log(f"Error: {pose_file} not found! Cannot apply correction.")
-        return
+        sys.exit(1)
     with open(pose_file, 'r') as f:
         delta_data = json.load(f)
-        
+
     dx, dy, dz = delta_data['delta_translation']
     from scipy.spatial.transform import Rotation
     r = Rotation.from_rotvec(delta_data['delta_rotvec'])
-    delta_T = np.eye(4)
-    delta_T[:3, :3] = r.as_matrix()
-    delta_T[0, 3] = dx
-    delta_T[1, 3] = dy
-    delta_T[2, 3] = dz
+    R_delta = r.as_matrix()
+    t_delta = np.array([dx, dy, dz])
     drx, dry, drz = r.as_euler('xyz', degrees=True)
-    
+
     ls_in_path = os.path.join(base_dir, config['paths']['ls_file'])
     with open(ls_in_path, 'r') as f:
         lines = f.readlines()
+
+    # The delta pose (rotation + translation) describes how the helmet moved as a
+    # RIGID BODY. Rotating raw robot coordinates around the world origin (0,0,0) -
+    # which can be >1000mm away from the helmet - turns a few mm/deg of real motion
+    # into tens of mm of spurious lever-arm displacement. Rotation must pivot around
+    # the helmet's own center instead. We use the centroid of the original LS points
+    # as that pivot (same convention app.py already uses for etalon_center elsewhere).
+    coord_pattern = re.compile(
+        r"X\s*=\s*([-+]?\d*\.?\d+).*?Y\s*=\s*([-+]?\d*\.?\d+).*?Z\s*=\s*([-+]?\d*\.?\d+)",
+        re.DOTALL
+    )
+    raw_text = ''.join(lines)
+    all_xyz = []
+    for block in re.findall(r"P\[\d+\]\{(.*?)\}", raw_text, re.DOTALL):
+        cm = coord_pattern.search(block)
+        if cm:
+            all_xyz.append([float(cm.group(1)), float(cm.group(2)), float(cm.group(3))])
+    all_xyz = np.array(all_xyz, dtype=float)
+    if len(all_xyz) == 0:
+        logger.log("Error: could not parse any points from LS file to compute pivot center!")
+        sys.exit(1)
+    pivot_center = all_xyz.mean(axis=0)
+    logger.log(f"Rotation pivot (centroid of {len(all_xyz)} LS points): "
+               f"({pivot_center[0]:.2f}, {pivot_center[1]:.2f}, {pivot_center[2]:.2f})")
 
     # Process LS lines point by point, handling multi-line point definitions
     out_lines = []
@@ -122,9 +120,9 @@ def main():
                         r_val = float(m.group(1))
                 # Apply the pose correction if XYZ were found
                 if x is not None and y is not None and z is not None:
-                    pt_4d = np.array([x, y, z, 1.0])
-                    pt_new = delta_T @ pt_4d
-                    x_new, y_new, z_new = pt_new[:3]
+                    p_orig = np.array([x, y, z])
+                    p_new = pivot_center + R_delta @ (p_orig - pivot_center) + t_delta
+                    x_new, y_new, z_new = p_new
                     # Adjust orientation values
                     w_new = (w if w is not None else 0.0) + drx
                     p_new = (p if p is not None else 0.0) + dry
@@ -158,7 +156,8 @@ def main():
         # Lines outside point blocks are copied verbatim
         out_lines.append(line)
 
-    out_ls_path = os.path.join(logger.results_dir, 'TORXL_corrected.ls')
+    out_name = f'TORXL_corrected_{args.label}.ls' if args.label else 'TORXL_corrected.ls'
+    out_ls_path = os.path.join(logger.results_dir, out_name)
     with open(out_ls_path, 'w') as f:
         f.writelines(out_lines)
 

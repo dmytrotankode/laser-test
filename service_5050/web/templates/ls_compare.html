@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <title>Порівняння LS файлів</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.134.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        body { margin: 0; padding: 0; overflow: hidden; background: #121212; color: #e0e0e0; font-family: 'Segoe UI', Tahoma, sans-serif; }
+        #canvas-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; }
+
+        #panel {
+            position: absolute; top: 15px; left: 15px; width: 300px; max-height: calc(100vh - 30px);
+            background: rgba(26,26,26,0.92); border: 1px solid #333; border-radius: 8px;
+            padding: 15px; overflow-y: auto; z-index: 10;
+        }
+        #panel h2 { margin: 0 0 10px 0; font-size: 1.1rem; color: #00d2ff; }
+        #panel a { color: #00d2ff; }
+
+        .drop-zone {
+            border: 2px dashed #444; border-radius: 6px; padding: 20px 10px; text-align: center;
+            color: #888; cursor: pointer; transition: 0.2s; font-size: 0.9rem;
+        }
+        .drop-zone:hover, .drop-zone.dragover { border-color: #00d2ff; color: #00d2ff; background: #1a2a2e; }
+        input[type=file] { display: none; }
+
+        .file-list { margin-top: 15px; display: flex; flex-direction: column; gap: 8px; }
+        .file-row { background: #232323; border-radius: 6px; padding: 8px 10px; display: flex; align-items: center; gap: 8px; }
+        .color-swatch { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+        .file-name { flex-grow: 1; font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .file-count { font-size: 0.75rem; color: #888; }
+        .file-row button { background: transparent; border: none; color: #ff6666; cursor: pointer; font-size: 1rem; padding: 0 4px; }
+        .file-row button:hover { color: #ff2222; }
+        .file-row input[type=checkbox] { cursor: pointer; }
+
+        .diff-box { margin-top: 15px; background: #1a2a2e; border: 1px solid #00495a; border-radius: 6px; padding: 10px; font-size: 0.8rem; }
+        .diff-box div { margin-bottom: 4px; }
+        .diff-box b { color: #00d2ff; }
+
+        #empty-hint { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); color: #555; font-size: 1.1rem; text-align: center; pointer-events: none; }
+    </style>
+</head>
+<body>
+    <div id="canvas-container"></div>
+    <div id="empty-hint">Завантажте .ls файли, щоб побачити їх у 3D</div>
+
+    <div id="panel">
+        <h2>Порівняння LS файлів</h2>
+        <a href="/start">&larr; Назад</a>
+        <div class="drop-zone" id="drop-zone">
+            Перетягніть .ls файли сюди<br>або натисніть, щоб обрати<br>(можна декілька одразу)
+        </div>
+        <input type="file" id="file-input" accept=".ls,.txt" multiple>
+        <div class="file-list" id="file-list"></div>
+        <div class="diff-box" id="diff-box" style="display:none;"></div>
+    </div>
+
+    <script>
+        const PALETTE = [0xffff00, 0x00ffff, 0xff5555, 0x55ff55, 0xff9800, 0xba68c8, 0xffffff, 0x4fc3f7];
+        let colorIdx = 0;
+        const loaded = []; // {name, points:[{x,y,z}], color, group:THREE.Group, visible}
+
+        let scene, camera, renderer, controls;
+        initScene();
+
+        function initScene() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x121212);
+
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 20000);
+            camera.position.set(0, -500, 500);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.1;
+
+            const gridHelper = new THREE.GridHelper(2000, 40, 0x333333, 0x1e1e1e);
+            gridHelper.rotation.x = Math.PI / 2;
+            scene.add(gridHelper);
+
+            const axesHelper = new THREE.AxesHelper(300);
+            scene.add(axesHelper);
+
+            window.addEventListener('resize', onWindowResize, false);
+            animate();
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // --- File handling ---
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
+
+        ['dragover', 'dragenter'].forEach(evt => dropZone.addEventListener(evt, (e) => {
+            e.preventDefault(); dropZone.classList.add('dragover');
+        }));
+        ['dragleave', 'drop'].forEach(evt => dropZone.addEventListener(evt, (e) => {
+            e.preventDefault(); dropZone.classList.remove('dragover');
+        }));
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            handleFiles(e.dataTransfer.files);
+        });
+
+        function handleFiles(fileList) {
+            Array.from(fileList).forEach(file => {
+                const reader = new FileReader();
+                reader.onload = (e) => addLsFile(file.name, e.target.result);
+                reader.readAsText(file);
+            });
+        }
+
+        // Mirrors the server-side regex used in api/ls_as_json (app.py)
+        function parseLsPoints(text) {
+            const points = [];
+            const blockRe = /P\[\d+\]\{([\s\S]*?)\}/g;
+            let block;
+            while ((block = blockRe.exec(text)) !== null) {
+                const b = block[1];
+                const xm = /X\s*=\s*([-\d.]+)/i.exec(b);
+                const ym = /Y\s*=\s*([-\d.]+)/i.exec(b);
+                const zm = /Z\s*=\s*([-\d.]+)/i.exec(b);
+                if (xm && ym && zm) {
+                    points.push({ x: parseFloat(xm[1]), y: parseFloat(ym[1]), z: parseFloat(zm[1]) });
+                }
+            }
+            return points;
+        }
+
+        function addLsFile(name, text) {
+            const points = parseLsPoints(text);
+            if (points.length === 0) {
+                alert(`У файлі "${name}" не знайдено жодної точки P[..]{ X=.. Y=.. Z=.. }`);
+                return;
+            }
+            const color = PALETTE[colorIdx % PALETTE.length];
+            colorIdx++;
+
+            const group = new THREE.Group();
+
+            const geometry = new THREE.BufferGeometry();
+            const verts = [];
+            points.forEach(p => verts.push(p.x, p.y, p.z));
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+
+            const pointsObj = new THREE.Points(geometry, new THREE.PointsMaterial({ color, size: 4, sizeAttenuation: false }));
+            group.add(pointsObj);
+
+            const lineObj = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.5 }));
+            group.add(lineObj);
+
+            scene.add(group);
+
+            const entry = { name, points, color, group, visible: true };
+            loaded.push(entry);
+            renderFileList();
+            recenterCamera();
+            updateDiffBox();
+            document.getElementById('empty-hint').style.display = 'none';
+        }
+
+        function removeFile(idx) {
+            const entry = loaded[idx];
+            scene.remove(entry.group);
+            loaded.splice(idx, 1);
+            renderFileList();
+            updateDiffBox();
+            if (loaded.length === 0) document.getElementById('empty-hint').style.display = 'block';
+        }
+
+        function toggleFile(idx) {
+            const entry = loaded[idx];
+            entry.visible = !entry.visible;
+            entry.group.visible = entry.visible;
+            renderFileList();
+        }
+
+        function renderFileList() {
+            const list = document.getElementById('file-list');
+            list.innerHTML = '';
+            loaded.forEach((entry, idx) => {
+                const row = document.createElement('div');
+                row.className = 'file-row';
+                const colorHex = '#' + entry.color.toString(16).padStart(6, '0');
+                row.innerHTML = `
+                    <input type="checkbox" ${entry.visible ? 'checked' : ''} onchange="toggleFile(${idx})">
+                    <span class="color-swatch" style="background:${colorHex}"></span>
+                    <span class="file-name" title="${entry.name}">${entry.name}</span>
+                    <span class="file-count">${entry.points.length}т</span>
+                    <button onclick="removeFile(${idx})" title="Прибрати">&times;</button>
+                `;
+                list.appendChild(row);
+            });
+        }
+
+        function centroid(points) {
+            const c = { x: 0, y: 0, z: 0 };
+            points.forEach(p => { c.x += p.x; c.y += p.y; c.z += p.z; });
+            c.x /= points.length; c.y /= points.length; c.z /= points.length;
+            return c;
+        }
+
+        function recenterCamera() {
+            const all = loaded.flatMap(e => e.points);
+            if (all.length === 0) return;
+            const c = centroid(all);
+            controls.target.set(c.x, c.y, c.z);
+            camera.position.set(c.x, c.y - 500, c.z + 350);
+            controls.update();
+        }
+
+        // Show pairwise centroid offsets between loaded files (quick numeric sanity check
+        // alongside the visual comparison - same idea as delta_translation, just centroid-based).
+        function updateDiffBox() {
+            const box = document.getElementById('diff-box');
+            if (loaded.length < 2) { box.style.display = 'none'; return; }
+            box.style.display = 'block';
+            const base = loaded[0];
+            const baseC = centroid(base.points);
+            let html = `<div><b>Центроїд відносно "${base.name}":</b></div>`;
+            for (let i = 1; i < loaded.length; i++) {
+                const c = centroid(loaded[i].points);
+                const dx = c.x - baseC.x, dy = c.y - baseC.y, dz = c.z - baseC.z;
+                const mag = Math.sqrt(dx*dx + dy*dy + dz*dz);
+                html += `<div>${loaded[i].name}: dx=${dx.toFixed(2)} dy=${dy.toFixed(2)} dz=${dz.toFixed(2)} &nbsp;|&nbsp; |d|=${mag.toFixed(2)}мм</div>`;
+            }
+            box.innerHTML = html;
+        }
+    </script>
+</body>
+</html>
