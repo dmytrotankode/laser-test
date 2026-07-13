@@ -5,26 +5,32 @@ import math
 import argparse
 import numpy as np
 
+import re
+
 def load_ls_file(path):
     """
-    Load coordinates from an LS file.
-    Only extracts lines containing X, Y, Z, W, P, R.
+    Load coordinates from an LS file using regex.
     """
     points = []
     if not os.path.exists(path):
         raise FileNotFoundError(f"LS file not found: {path}")
         
     with open(path, 'r') as f:
-        for line in f:
-            if 'X:' in line and 'Y:' in line and 'Z:' in line:
-                try:
-                    parts = line.split()
-                    x = float(parts[parts.index('X:') + 1].strip(','))
-                    y = float(parts[parts.index('Y:') + 1].strip(','))
-                    z = float(parts[parts.index('Z:') + 1].strip(','))
-                    points.append({'x': x, 'y': y, 'z': z})
-                except Exception:
-                    pass
+        content = f.read()
+        
+    point_pattern = re.compile(
+        r'P\[(\d+)\]\{\s*GP1:\s*UF\s*:\s*(\d+),\s*UT\s*:\s*(\d+).*?X\s*=\s*([-\d.]+).*?Y\s*=\s*([-\d.]+).*?Z\s*=\s*([-\d.]+).*?W\s*=\s*([-\d.]+).*?P\s*=\s*([-\d.]+).*?R\s*=\s*([-\d.]+)',
+        re.DOTALL | re.IGNORECASE
+    )
+    
+    matches = point_pattern.findall(content)
+    for match in matches:
+        points.append({
+            'id': int(match[0]),
+            'x': float(match[3]),
+            'y': float(match[4]),
+            'z': float(match[5])
+        })
     return points
 
 def filter_contour_points(points):
