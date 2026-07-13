@@ -1,0 +1,75 @@
+{
+  "_comment": "DISTI Helmet Pipeline Configuration",
+
+  "paths": {
+    "ls_file":         "input/ls_file/TORXL_NEW_PROG.LS",
+    "model_step":      "input/model_3d/helmet_ref.step",
+    "model_stl":       "input/model_3d/helmet_ref.stl",
+    "photos_etalon":   "input/photos_etalon",
+    "photos_current":  "input/photos_current",
+    "results_dir":     "results"
+  },
+
+  "cameras": {
+    "_comment": "Real camera positions (confirmed by product owner). docs/readme.md has WRONG info!",
+    "back": {
+      "id": 1,
+      "file": "cam_back.png",
+      "position_mm": [0, 2500, 0],
+      "look_at":     [0, 0, 85],
+      "up_vector":   [0, 0, 1]
+    },
+    "left": {
+      "id": 2,
+      "file": "cam_left.png",
+      "position_mm": [1650, 0, 0],
+      "look_at":     [0, 0, 85],
+      "up_vector":   [0, 0, 1]
+    },
+    "top": {
+      "id": 3,
+      "file": "cam_top.png",
+      "position_mm": [0, 0, 2000],
+      "look_at":     [0, 0, 85],
+      "up_vector":   [-1, 0, 0]
+    }
+  },
+
+  "camera_intrinsics": {
+    "_comment": "Nominal focal length ~22000px derived from known helmet size + camera distances. Needs real calibration!",
+    "focal_length_px": 22000,
+    "image_width_px":  4096,
+    "image_height_px": 3000,
+    "_real_cameras":   "MV-CH120-10GM with MVL-KF7528M-12MP lenses"
+  },
+
+  "model_geometry": {
+    "_comment": "Helmet coordinate system: center at 0,0; bottom edge near Z=0; dome goes up to Z~170mm",
+    "dome_height_mm":        170,
+    "cut_zone_min_z_mm":     45,
+    "_comment2": "Triangles with Z > cut_zone_min_z_mm are used for silhouette fitting (excludes raw edge)"
+  },
+
+  "ls_robot": {
+    "_comment": "LS file uses UF:2 UT:2 robot coordinate system. UF2 matrix needed for correct mapping!",
+    "uframe": 2,
+    "utool":  2,
+    "uframe_matrix_known": false
+  },
+
+  "fitting": {
+    "optimizer":          "Powell",
+    "max_iterations":     500,
+    "tolerance":          1e-4,
+    "translation_penalty": 0.01,
+    "_comment": "translation_penalty > 0 prevents tilt-to-shift degeneracy (rx underestimation bug)",
+    "render_scale":        0.25,
+    "_comment2": "render_scale: fraction of full resolution for silhouette render (speed vs accuracy)"
+  },
+
+  "segmentation": {
+    "rembg_model":     "u2net",
+    "grabcut_iters":   5,
+    "morphology_k":    5
+  }
+}

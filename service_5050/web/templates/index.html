@@ -1,0 +1,1585 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <title>DISTI Pose Estimation Pipeline</title>
+    <!-- Include Three.js and OrbitControls -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.134.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.134.0/examples/js/loaders/STLLoader.js"></script>
+    
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #121212; color: #e0e0e0; margin: 0; padding: 20px; }
+        h1 { color: #00d2ff; text-align: center; margin-bottom: 5px; }
+        
+        .header-bar { display: flex; justify-content: center; align-items: center; gap: 20px; margin-bottom: 30px; }
+        .session-badge { background: #2a2a2a; padding: 5px 15px; border-radius: 20px; font-family: monospace; border: 1px solid #444; }
+        .btn-restart { background: #ff5555; }
+        .btn-restart:hover { background: #ff3333; }
+
+        .container { display: flex; flex-direction: column; max-width: 1000px; margin: auto; gap: 15px; }
+        .step-card { background: #1e1e1e; border: 1px solid #333; border-radius: 8px; padding: 20px; display: flex; flex-direction: column; opacity: 0.5; pointer-events: none; transition: all 0.3s; position: relative; }
+        .step-card.active { opacity: 1; pointer-events: auto; border-color: #00d2ff; }
+        .step-card.completed { opacity: 1; pointer-events: auto; border-color: #4caf50; }
+        
+        .step-header { display: flex; justify-content: space-between; align-items: center; }
+        .step-title-container { display: flex; flex-direction: column; }
+        .step-title { font-size: 1.2rem; font-weight: bold; margin: 0; color: #fff; }
+        .step-path { font-size: 0.8rem; color: #aaa; margin-top: 5px; font-family: monospace; }
+        
+        .button-group { display: flex; gap: 10px; }
+        button { background: #00d2ff; color: #000; border: none; padding: 10px 20px; border-radius: 4px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        button:hover { background: #00b0d4; }
+        button:disabled { background: #555; color: #888; cursor: not-allowed; }
+        
+        .btn-vis { background: #ff9800; display: none; }
+        .btn-vis:hover { background: #e68a00; }
+
+        .output-box { background: #000; color: #0f0; font-family: monospace; padding: 10px; border-radius: 4px; max-height: 200px; overflow-y: auto; margin-top: 10px; display: none; }
+        .visual-box { margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap; }
+        .visual-box img { max-width: 300px; border: 1px solid #555; border-radius: 4px; }
+        .data-box { background: #2a2a2a; padding: 10px; border-radius: 4px; margin-top: 10px; display: none; }
+        
+        .log-container { background: #111; border: 1px solid #444; border-radius: 8px; padding: 15px; margin-top: 30px; }
+        .log-title { color: #aaa; margin-top: 0; }
+        #global-log { background: #000; color: #0f0; font-family: monospace; height: 300px; overflow-y: auto; padding: 10px; white-space: pre-wrap; font-size: 0.9rem; }
+        
+        /* 3D Modal popup styles */
+        #modal-3d {
+            display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; 
+            background-color: rgba(0,0,0,0.8); align-items: center; justify-content: center;
+        }
+        #modal-content {
+            background: #1e1e1e; width: 80%; height: 80%; border-radius: 8px; border: 2px solid #00d2ff;
+            display: flex; flex-direction: column; overflow: hidden; position: relative;
+        }
+        #modal-header { padding: 15px; background: #2a2a2a; display: flex; justify-content: space-between; align-items: center; }
+        #modal-title { margin: 0; font-size: 1.2rem; font-weight: bold; color: #fff; }
+        .close-btn { color: #fff; background: transparent; border: none; font-size: 1.5rem; cursor: pointer; padding: 0; margin: 0; }
+        .close-btn:hover { color: #ff5555; }
+        #canvas-container { flex-grow: 1; width: 100%; height: 100%; position: relative; }
+    </style>
+</head>
+<body>
+    <h1>DISTI Pipeline: 3D Alignment & Correction</h1>
+    <div class="header-bar">
+        <div class="session-badge" id="session-badge">Session: ---</div>
+        <button class="btn-restart" onclick="startNewSession()">Начать заново</button>
+    </div>
+
+    <div class="container" id="pipeline-container">
+        
+        <!-- STEP 01 -->
+        <div class="step-card active" id="card-01">
+            <div class="step-header">
+                <div class="step-title-container">
+                    <p class="step-title">Крок 1: Парсинг LS-файлу</p>
+                    <p class="step-path">C:\__TARAS_\__DISTI__\helmet_pipeline\scripts\step01_parse_ls.py</p>
+                </div>
+                <div class="button-group">
+                    <button id="btn-vis-01" class="btn-vis" onclick="openVisualization(1)">Візуалізація 3D</button>
+                    <button id="btn-run-01" onclick="runStep('01')">Виконати</button>
+                </div>
+            </div>
+            <div class="output-box" id="out-01"></div>
+            <div class="data-box" id="data-01"></div>
+        </div>
+
+        <!-- STEP 02 -->
+        <div class="step-card" id="card-02">
+            <div class="step-header">
+                <div class="step-title-container">
+                    <p class="step-title">Крок 2: Суміщення 3D-моделі (STL) з LS-точками (Еталонна матриця)</p>
+                    <p class="step-desc" style="font-size: 0.85rem; color: #888; margin: 5px 0 0 0; line-height: 1.3;">Грубо суміщає 3D-модель шолома з хмарою LS-точок, розраховуючи базову матрицю трансформації.</p>
+                    <p class="step-path">C:\__TARAS_\__DISTI__\helmet_pipeline\scripts\step02_align_3d_to_ls.py</p>
+                </div>
+                <div class="button-group">
+                    <button id="btn-vis-02" class="btn-vis" onclick="openVisualization(2)">Візуалізація 3D</button>
+                    <button id="btn-run-02" onclick="runStep('02')">Виконати</button>
+                </div>
+            </div>
+            <div class="output-box" id="out-02"></div>
+            <div class="data-box" id="data-02"></div>
+            <div class="visual-box" id="vis-02"></div>
+        </div>
+
+        
+        <!-- STEP 03 -->
+        <div class="step-card" id="card-03">
+            <div class="step-header">
+                <div class="step-title-container">
+                    <p class="step-title">Крок 3: Фіксація 3D простору (Aligned Baseline)</p>
+                    <p class="step-desc" style="font-size: 0.85rem; color: #888; margin: 5px 0 0 0; line-height: 1.3;">Заморожує положення шолома у просторі та відкидає помилкові LS-точки (шум), фіксуючи еталон.</p>
+                    <p class="step-path">C:\__TARAS_\__DISTI__\helmet_pipeline\scripts\step03_freeze_space.py</p>
+                </div>
+                <div class="button-group">
+                    <button id="btn-vis-03" class="btn-vis" onclick="openVisualization(3)">Візуалізація 3D</button>
+                    <button id="btn-run-03" onclick="runStep('03')">Виконати</button>
+                </div>
+            </div>
+            <div class="output-box" id="out-03"></div>
+            <div class="data-box" id="data-03"></div>
+        </div>
+
+        <!-- STEP 04 -->
+        <div class="step-card" id="card-04">
+            <div class="step-header">
+                <div class="step-title-container">
+                    <p class="step-title">Крок 4: Сегментація Еталонних Фото</p>
+                    <p class="step-desc" style="font-size: 0.85rem; color: #888; margin: 5px 0 0 0; line-height: 1.3;">Використовує нейромережу для автоматичного вирізання шолома з еталонних фотографій, створюючи точні контурні маски.</p>
+                    <p class="step-path">C:\__TARAS_\__DISTI__\helmet_pipeline\scripts\step04_segment.py</p>
+                </div>
+                <div class="button-group">
+                    <button id="btn-run-04" onclick="runStep('04')">Виконати</button>
+                </div>
+            </div>
+            <div class="output-box" id="out-04"></div>
+            <div class="visual-box" id="vis-04"></div>
+        </div>
+
+        <!-- STEP 05 -->
+        <div class="step-card" id="card-05">
+            <div class="step-header">
+                <div class="step-title-container">
+                    <p class="step-title">Крок 5: Проекція 3D-Еталону (Калібрувальна)</p>
+                    <p class="step-desc" style="font-size: 0.85rem; color: #888; margin: 5px 0 0 0; line-height: 1.3;">Розраховує фізичне положення камер у 3D-просторі, проектуючи на них 3D-модель для перевірки напрямку зйомки.</p>
+                    <p class="step-path">C:\__TARAS_\__DISTI__\helmet_pipeline\scripts\step05_project.py</p>
+                </div>
+                <div class="button-group">
+                    <button id="btn-vis-05" class="btn-vis" onclick="openVisualization(5)">Візуалізація 3D (Камери)</button>
+                    <button id="btn-run-05" onclick="runStep('05')">Виконати</button>
+                </div>
+            </div>
+            <div class="output-box" id="out-05"></div>
+            <div class="data-box" id="data-05"></div>
+            <div class="visual-box" id="vis-05"></div>
+        </div>
+
+        
+
+        
+        
+        <!-- STEP 06 -->
+        <div class="step-card" id="card-06">
+            <div class="step-header">
+                <div class="step-title-container">
+                    <p class="step-title">Крок 6: Візуалізація проекцій (3D)</p>
+                    <p class="step-desc" style="font-size: 0.85rem; color: #888; margin: 5px 0 0 0; line-height: 1.3;">Розміщує 2D-маски у 3D-просторі на правильній глибині (в найширшій частині), щоб перевірити їх збіг з 3D-моделлю.</p>
+                    <p class="step-path">C:\__TARAS_\__DISTI__\helmet_pipeline\scripts\step06_place_projected.py</p>
+                </div>
+                <div class="button-group">
+                    <button id="btn-vis-06" class="btn-vis" onclick="openVisualization(6)">Візуалізація 3D</button>
+                    <button id="btn-run-06" onclick="runStep('06')">Виконати</button>
+                </div>
+            </div>
+            <div class="output-box" id="out-06"></div>
+            <div class="data-box" id="data-06"></div>
+        </div>
+
+        <!-- STEP 07 -->
+        <div class="step-card" id="card-07">
+            <div class="step-header">
+                <div class="step-title-container">
+                    <p class="step-title">Крок 7: Ітераційне суміщення (Etalon Fit)</p>
+                    <p class="step-desc" style="font-size: 0.85rem; color: #888; margin: 5px 0 0 0; line-height: 1.3;">Ітераційно (крок за кроком) алгоритмічно підганяє нахил і позицію 3D-моделі так, щоб її контури ідеально збігалися з масками з усіх камер. Це гарантує міліметрову точність еталону.</p>
+                    <p class="step-path">C:\__TARAS_\__DISTI__\helmet_pipeline\scripts\step07_fit_etalon.py</p>
+                </div>
+                <div class="button-group">
+                    <button id="btn-run-07" onclick="runStep('07')">Виконати</button>
+                </div>
+            </div>
+            <div class="output-box" id="out-07"></div>
+            <div class="data-box" id="data-07"></div>
+            <div class="visual-box overlap-vis" id="vis-07"></div>
+        </div>
+
+        <!-- STEP 08 -->
+        <div class="step-card" id="card-08">
+            <div class="step-header">
+                <div class="step-title-container">
+                    <p class="step-title">Крок 8: Сегментація Поточних Фотографій</p>
+                    <p class="step-desc" style="font-size: 0.85rem; color: #888; margin: 5px 0 0 0; line-height: 1.3;">Нейромережа вирізає контури шолома з поточних (нових) фотографій користувача для розрахунку відхилень.</p>
+                    <p class="step-path">C:\__TARAS_\__DISTI__\helmet_pipeline\scripts\step04_segment.py --mode current</p>
+                </div>
+                <div class="button-group">
+                    <button id="btn-run-08" onclick="runStep('08')">Виконати</button>
+                </div>
+            </div>
+            <div class="output-box" id="out-08"></div>
+            <div class="visual-box" id="vis-08"></div>
+        </div>
+
+        <!-- STEP 09 -->
+        <div class="step-card" id="card-09">
+            <div class="step-header">
+                <div class="step-title-container">
+                    <p class="step-title">Крок 9: Аналіз Відхилень (Current Pose Fit)</p>
+                    <p class="step-desc" style="font-size: 0.85rem; color: #888; margin: 5px 0 0 0; line-height: 1.3;">Аналізує зміщення поточних масок відносно еталонних, розраховуючи, як саме шолом був зсунутий або повернутий на нових фото.</p>
+                    <p class="step-path">C:\__TARAS_\__DISTI__\helmet_pipeline\scripts\step08_fit_pose.py</p>
+                </div>
+                <div class="button-group">
+                    <button id="btn-run-09" onclick="runStep('09')">Виконати</button>
+                    <button id="btn-vis-09" onclick="openVisualization(9)" style="display: none;">Відкрити 3D Візуалізацію</button>
+                </div>
+            </div>
+            <div class="output-box" id="out-09"></div>
+            <div class="data-box" id="data-09" style="padding: 15px; background: #2c2f33; border-radius: 8px; margin-top: 10px; display: none;">
+                <h4 style="margin-top: 0; color: #ff9800;">Розраховані Відхилення:</h4>
+                <div id="metrics-container" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; color: #fff;"></div>
+            </div>
+            <div class="visual-box overlap-vis" id="vis-09"></div>
+        </div>
+
+        <!-- STEP 10 -->
+        <div class="step-card" id="card-10">
+            <div class="step-header">
+                <div class="step-title-container">
+                    <p class="step-title">Крок 10: Аналіз Відхилень (Текстури / Об'єм)</p>
+                    <p class="step-desc" style="font-size: 0.85rem; color: #888; margin: 5px 0 0 0; line-height: 1.3;">Альтернативний розрахунок: аналізує тіні та текстури на фотографіях, щоб знайти візуальні зачіпки для точного розрахунку об'ємних зміщень.</p>
+                    <p class="step-path">C:\__TARAS_\__DISTI__\helmet_pipeline\scripts\step09b_texture_fit.py</p>
+                </div>
+                <div class="button-group">
+                    <button id="btn-run-10" onclick="runStep('10')">Виконати</button>
+                    <button id="btn-vis-10" onclick="openVisualization(10)" style="display: none;">Відкрити 3D Візуалізацію</button>
+                </div>
+            </div>
+            <div class="output-box" id="out-10"></div>
+            <div class="data-box" id="data-10" style="padding: 15px; background: #2c2f33; border-radius: 8px; margin-top: 10px; display: none;"></div>
+            <div class="visual-box overlap-vis" id="vis-10"></div>
+        </div>
+
+        <!-- STEP 11 -->
+        <div class="step-card" id="card-11">
+            <div class="step-header">
+                <div class="step-title-container">
+                    <p class="step-title">Крок 11: Аналіз Відхилень (Математика контурів)</p>
+                    <p class="step-desc" style="font-size: 0.85rem; color: #888; margin: 5px 0 0 0; line-height: 1.3;">Альтернативний розрахунок: фокусується лише на 75% верхніх контурів шолома ззаду/зліва та на 100% контуру зверху, нівелюючи деформації низу.</p>
+                    <p class="step-path">C:\__TARAS_\__DISTI__\helmet_pipeline\scripts\step09c_contour_fit.py</p>
+                </div>
+                <div class="button-group">
+                    <button id="btn-run-11" onclick="runStep('11')">Виконати</button>
+                    <button id="btn-vis-11" onclick="openVisualization(11)" style="display: none;">Відкрити 3D Візуалізацію</button>
+                </div>
+            </div>
+            <div class="output-box" id="out-11"></div>
+            <div class="data-box" id="data-11" style="padding: 15px; background: #2c2f33; border-radius: 8px; margin-top: 10px; display: none;"></div>
+            <div class="visual-box overlap-vis" id="vis-11"></div>
+        </div>
+
+        <!-- STEP 11B -->
+        <div class="step-card" id="card-11b">
+            <div class="step-header">
+                <div class="step-title-container">
+                    <p class="step-title">Крок 11b: Нейромережева 3D реконструкція шолома (AI Model)</p>
+                    <p class="step-desc" style="font-size: 0.85rem; color: #888; margin: 5px 0 0 0; line-height: 1.3;">Сучасна нейромережева 3D реконструкція форми шолома за 3-ма ракурсами фото. Алгоритм використовує глибокі візуальні фічі DINOv2 та Zero-1-to-3 для обчислення 3D-мешу та його точного просторового зіставлення з еталоном.</p>
+                    <p class="step-path">C:\__TARAS_\__DISTI__\helmet_pipeline\scripts\step09d_ai_reconstruct_fit.py</p>
+                </div>
+                <div class="button-group">
+                    <button id="btn-run-11b" onclick="runStep('11b')">Виконати</button>
+                    <button id="btn-vis-11b" onclick="openVisualization('11b')" style="display: none;">Відкрити 3D Візуалізацію</button>
+                </div>
+            </div>
+            <div class="output-box" id="out-11b"></div>
+            <div class="data-box" id="data-11b" style="padding: 15px; background: #2c2f33; border-radius: 8px; margin-top: 10px; display: none;"></div>
+            <div class="visual-box overlap-vis" id="vis-11b"></div>
+        </div>
+
+        <!-- STEP 12 -->
+        <div class="step-card" id="card-12">
+            <div class="step-header">
+                <div class="step-title-container">
+                    <p class="step-title">Крок 12: Аналіз та вибір підсумкових відхилень</p>
+                    <p class="step-desc" style="font-size: 0.85rem; color: #888; margin: 5px 0 0 0; line-height: 1.3;">Збирає результати Кроків 9, 10 та 11, відкидає викиди та усереднює результати, щоб отримати максимально надійне підсумкове зміщення. Візуалізація показує лише вихідні (жовті) та фінальні скориговані (червоні) точки.</p>
+                    <p class="step-path">C:\__TARAS_\__DISTI__\helmet_pipeline\scripts\step10_analyze_results.py</p>
+                </div>
+                <div class="button-group">
+                    <button id="btn-run-12" onclick="runStep('12')">Виконати</button>
+                    <button id="btn-vis-12" onclick="openVisualization(12)" style="display: none;">Відкрити 3D Візуалізацію</button>
+                </div>
+            </div>
+            <div class="output-box" id="out-12"></div>
+            <div class="data-box" id="data-12" style="padding: 15px; background: #2c2f33; border-radius: 8px; margin-top: 10px; display: none;"></div>
+        </div>
+
+        <!-- STEP 13 -->
+        <div class="step-card" id="card-13">
+            <div class="step-header">
+                <div class="step-title-container">
+                    <p class="step-title">Крок 13: Генерація скоригованого LS-файлу</p>
+                    <p class="step-desc" style="font-size: 0.85rem; color: #888; margin: 5px 0 0 0; line-height: 1.3;">Застосовує розраховане зміщення (з кроку 12) до оригінальних LS-точок, генеруючи новий скоригований LS-файл для робота.</p>
+                    <p class="step-path">C:\__TARAS_\__DISTI__\helmet_pipeline\scripts\step09_generate_ls.py</p>
+                </div>
+                <div class="button-group">
+                    <button id="btn-run-13" onclick="runStep('13')">Виконати</button>
+                    <button id="btn-vis-13" onclick="openVisualization13()" style="display:none; background: linear-gradient(135deg,#ff6b35,#f7931e);">Відкрити 3D Візуалізацію</button>
+                </div>
+            </div>
+            <div class="output-box" id="out-13"></div>
+            <div class="data-box" id="data-13"></div>
+        </div>
+<div class="log-container">
+            <h3 class="log-title" id="log-title-text">Глобальний лог виконання</h3>
+            <div id="global-log">Лог порожній...</div>
+        </div>
+    </div>
+
+    <!-- 3D Modal Popup -->
+    <div id="modal-3d">
+        <div id="modal-content">
+
+            <div id="modal-header">
+                <p id="modal-title">3D Візуалізація</p>
+                <div id="camera-buttons" style="display:none; gap:10px;">
+                    <button onclick="lookThroughCamera('back')">Камера Back</button>
+                    <button onclick="lookThroughCamera('left')">Камера Left</button>
+                    <button onclick="lookThroughCamera('top')">Камера Top</button>
+                </div>
+                <button class="close-btn" onclick="closeVisualization()">×</button>
+            </div>
+
+            <div id="canvas-container"></div>
+            
+            <div id="layer-controls" style="position: absolute; top: 20px; left: 20px; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 5px; color: white; display: none; z-index: 100;">
+                <b style="color: #00d2ff;">Відображення:</b><br/>
+                <label><input type="checkbox" id="cb-helmet" checked> 3D Шолом</label><br/>
+                <label><input type="checkbox" id="cb-ls" checked> LS Точки</label><br/>
+                <label><input type="checkbox" id="cb-back" checked> Маска (Back)</label><br/>
+                <label><input type="checkbox" id="cb-left" checked> Маска (Left)</label><br/>
+                <label><input type="checkbox" id="cb-top" checked> Маска (Top)</label><br/>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Image Zoom Popup -->
+    <div id="image-popup" style="display: none; position: fixed; z-index: 1001; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.9); flex-direction: column;">
+        <div style="padding: 15px; background: #2a2a2a; display: flex; justify-content: space-between; align-items: center;">
+            <p style="margin: 0; font-size: 1.2rem; font-weight: bold; color: #fff;">Детальний перегляд (Коліщатко - масштаб, ЛКМ - перетягування)</p>
+            <button class="close-btn" onclick="closePopup()">×</button>
+        </div>
+        <div id="panzoom-container" style="flex-grow: 1; overflow: hidden; position: relative; display: flex; align-items: center; justify-content: center; cursor: grab;">
+            <img id="popup-img" src="" style="max-width: 90%; max-height: 90%; object-fit: contain; transform-origin: center center; pointer-events: none; transition: transform 0.1s ease-out;" />
+        </div>
+    </div>
+
+    <script>
+        let currentSessionId = "";
+        let logPollInterval = null;
+
+        
+        // Pan and Zoom logic
+        let pzState = { scale: 1, panX: 0, panY: 0, isDragging: false, startX: 0, startY: 0 };
+        function openZoom(src) {
+            document.getElementById('image-popup').style.display = 'flex';
+            const img = document.getElementById('popup-img');
+            img.src = src;
+            pzState = { scale: 1, panX: 0, panY: 0, isDragging: false, startX: 0, startY: 0 };
+            updatePZ();
+        }
+        function closePopup() {
+            document.getElementById('image-popup').style.display = 'none';
+        }
+        function updatePZ() {
+            document.getElementById('popup-img').style.transform = `translate(${pzState.panX}px, ${pzState.panY}px) scale(${pzState.scale})`;
+        }
+        const pzCont = document.getElementById('panzoom-container');
+        if (pzCont) {
+            pzCont.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const zoomFactor = 0.1;
+                if (e.deltaY < 0) pzState.scale += zoomFactor;
+                else pzState.scale = Math.max(0.1, pzState.scale - zoomFactor);
+                updatePZ();
+            });
+            pzCont.addEventListener('mousedown', (e) => {
+                pzState.isDragging = true;
+                pzState.startX = e.clientX - pzState.panX;
+                pzState.startY = e.clientY - pzState.panY;
+                pzCont.style.cursor = 'grabbing';
+            });
+            window.addEventListener('mouseup', () => {
+                pzState.isDragging = false;
+                if(pzCont) pzCont.style.cursor = 'grab';
+            });
+            window.addEventListener('mousemove', (e) => {
+                if (!pzState.isDragging) return;
+                pzState.panX = e.clientX - pzState.startX;
+                pzState.panY = e.clientY - pzState.startY;
+                updatePZ();
+            });
+        }
+
+        function startNewSession() {
+            const now = new Date();
+            const ts = now.getFullYear().toString() +
+                       (now.getMonth() + 1).toString().padStart(2, '0') +
+                       now.getDate().toString().padStart(2, '0') + "_" +
+                       now.getHours().toString().padStart(2, '0') +
+                       now.getMinutes().toString().padStart(2, '0') +
+                       now.getSeconds().toString().padStart(2, '0');
+            
+            currentSessionId = "run_" + ts;
+            localStorage.setItem('disti_session_id', currentSessionId);
+            
+            document.getElementById('session-badge').innerText = `Session: ${currentSessionId}`;
+            document.getElementById('log-title-text').innerText = `Глобальний лог виконання (log_${currentSessionId}.txt)`;
+            
+            const stepList = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '11b', '12', '13'];
+            for(let i = 0; i < stepList.length; i++) {
+                const step = stepList[i];
+                const card = document.getElementById(`card-${step}`);
+                if (card) {
+                    card.className = "step-card";
+                    if (i === 0) card.classList.add("active");
+                    
+                    const btnRun = document.getElementById(`btn-run-${step}`);
+                    if (btnRun) {
+                        btnRun.disabled = false;
+                        btnRun.innerText = "Виконати";
+                    }
+                    
+                    const btnVis = document.getElementById(`btn-vis-${step}`);
+                    if (btnVis) btnVis.style.display = "none";
+                    
+                    const outBox = document.getElementById(`out-${step}`);
+                    if (outBox) {
+                        outBox.style.display = "none";
+                        outBox.innerText = "";
+                    }
+                    
+                    const visBox = document.getElementById(`vis-${step}`);
+                    if (visBox) visBox.innerHTML = "";
+                    
+                    const dataBox = document.getElementById(`data-${step}`);
+                    if (dataBox) {
+                        dataBox.style.display = "none";
+                        dataBox.innerHTML = "";
+                    }
+                }
+            }
+            
+            document.getElementById('global-log').innerText = "Лог порожній...";
+            
+            if (logPollInterval) clearInterval(logPollInterval);
+            logPollInterval = setInterval(pollLog, 2000);
+        }
+
+        async function pollLog() {
+            if (!currentSessionId) return;
+            try {
+                const res = await fetch(`/api/log?session_id=${currentSessionId}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.log) {
+                        const logDiv = document.getElementById('global-log');
+                        const isScrolledToBottom = logDiv.scrollHeight - logDiv.clientHeight <= logDiv.scrollTop + 10;
+                        logDiv.innerText = data.log;
+                        if (isScrolledToBottom) {
+                            logDiv.scrollTop = logDiv.scrollHeight;
+                        }
+                    }
+                }
+            } catch (e) {
+                // Ignore network errors on polling
+            }
+        }
+
+        async function restoreSessionState() {
+            document.getElementById('session-badge').innerText = `Session: ${currentSessionId}`;
+            document.getElementById('log-title-text').innerText = `Глобальний лог виконання (log_${currentSessionId}.txt)`;
+            
+            if (logPollInterval) clearInterval(logPollInterval);
+            logPollInterval = setInterval(pollLog, 2000);
+            
+            try {
+                const res = await fetch(`/api/session_state?session_id=${currentSessionId}`);
+                if (res.ok) {
+                    const state = await res.json();
+                    
+                    let highestCompleted = 0;
+                    
+                    const stepList = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '11b', '12', '13'];
+                    for(let i = 0; i < stepList.length; i++) {
+                        const stepStr = stepList[i];
+                        const data = state[stepStr];
+                        if (data && data.completed) {
+                            highestCompleted = i;
+                            
+                            document.getElementById(`card-${stepStr}`).classList.add('completed');
+                            document.getElementById(`btn-run-${stepStr}`).innerText = "Перерахувати";
+                            
+                            const btnVis = document.getElementById(`btn-vis-${stepStr}`);
+                            if (btnVis && ['01', '02', '03', '05', '06', '08', '09', '10', '11', '11b', '12', '13'].includes(stepStr)) {
+                                btnVis.style.display = "inline-block";
+                            }
+                            
+                            const dataBox = document.getElementById(`data-${stepStr}`);
+                            if (data.data && dataBox && stepStr !== '01') {
+                                if (stepStr === '12' && data.data.metrics) {
+                                    dataBox.style.display = "block";
+                                    try {
+                                        const metricsRes = await fetch(`/api/step12_metrics?session_id=${currentSessionId}&t=${Date.now()}`);
+                                        const cData = await metricsRes.json();
+                                        const m = data.data.metrics;
+                                        const t = data.data.delta_translation || [0,0,0];
+                                        const r = data.data.delta_rotvec || [0,0,0];
+                                        const rotAngle = Math.sqrt(r[0]*r[0] + r[1]*r[1] + r[2]*r[2]) * 180 / Math.PI;
+                                        const ce = cData.etalon_center || {x:0,y:0,z:0};
+                                        const cc = cData.current_center || {x:0,y:0,z:0};
+                                        dataBox.innerHTML = `
+                                            <div style="font-family: monospace; font-size: 0.95rem; line-height: 1.4; color: #e0e0e0; background: #1a1a1a; padding: 15px; border: 1px solid #333; border-radius: 6px;">
+                                                <div style="color: #00d2ff; font-weight: bold; margin-bottom: 5px;">Метод: Підсумковий (ШІ)</div>
+                                                <div style="color: #888; margin-bottom: 10px;">Файл: step10_final_pose.json</div>
+                                                <div style="color: #ff9800; font-weight: bold; margin-top: 10px;">Центри розрахунку</div>
+                                                <div style="display: grid; grid-template-columns: 180px 1fr; border-bottom: 1px solid #333; padding-bottom: 5px;">
+                                                    <span>CE Еталон (біл.)</span><span>(${ce.x.toFixed(1)}, ${ce.y.toFixed(1)}, ${ce.z.toFixed(1)}) мм</span>
+                                                    <span>CC Поточний (блак.)</span><span>(${cc.x.toFixed(1)}, ${cc.y.toFixed(1)}, ${cc.z.toFixed(1)}) мм</span>
+                                                </div>
+                                                <div style="color: #ff9800; font-weight: bold; margin-top: 10px;">Вектори трансформації</div>
+                                                <div style="display: grid; grid-template-columns: 180px 1fr; border-bottom: 1px solid #333; padding-bottom: 5px;">
+                                                    <span>Δt (зміщення)</span><span>[${t[0].toFixed(3)}, ${t[1].toFixed(3)}, ${t[2].toFixed(3)}] мм</span>
+                                                    <span>Δr (ротація рад)</span><span>[${r[0].toFixed(4)}, ${r[1].toFixed(4)}, ${r[2].toFixed(4)}]</span>
+                                                    <span>Кут повороту</span><span>${rotAngle.toFixed(3)}°</span>
+                                                </div>
+                                                <div style="color: #ff9800; font-weight: bold; margin-top: 10px;">Розраховані відхилення</div>
+                                                <div style="display: grid; grid-template-columns: 180px 1fr; border-bottom: 1px solid #333; padding-bottom: 5px;">
+                                                    <span>↔ Горизонталь</span><span>${m.shift_horizontal_mm} мм</span>
+                                                    <span>↕ Вертикаль</span><span>${m.shift_vertical_mm} мм</span>
+                                                    <span>⟷ Глибина</span><span>${m.shift_depth_mm} мм</span>
+                                                    <span>↻ Нахил вперед/назад</span><span>${m.tilt_pitch_deg}°</span>
+                                                    <span>↻ Нахил вліво/вправо</span><span>${m.tilt_roll_deg}°</span>
+                                                    <span>↻ Поворот осі</span><span>${m.tilt_yaw_deg}°</span>
+                                                </div>
+                                                <div style="color: #4caf50; font-weight: bold; margin-top: 10px;">Обраний метод: ${data.data.chosen_method || ''}</div>
+                                            </div>
+                                        `;
+                                    } catch(e) {
+                                        console.error(e);
+                                    }
+                                } else if (['09', '10', '11', '11b'].includes(stepStr) && data.data.metrics) {
+                                    dataBox.style.display = "block";
+                                    const m = data.data.metrics;
+                                    dataBox.innerHTML = `
+                                        <h4 style="margin-top: 0; color: #ff9800;">Розраховані Відхилення:</h4>
+                                        <div id="metrics-container" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; color: #fff;">
+                                            <div><strong>Зміщення по горизонталі:</strong> ${m.shift_horizontal_mm} мм</div>
+                                            <div><strong>Зміщення по вертикалі:</strong> ${m.shift_vertical_mm} мм</div>
+                                            <div><strong>Зміщення по глибині:</strong> ${m.shift_depth_mm} мм</div>
+                                            <div><strong>Нахил вперед/назад:</strong> ${m.tilt_pitch_deg}°</div>
+                                            <div><strong>Нахил вліво/вправо:</strong> ${m.tilt_roll_deg}°</div>
+                                            <div><strong>Поворот осі:</strong> ${m.tilt_yaw_deg}°</div>
+                                        </div>
+                                    `;
+                                } else {
+                                    dataBox.style.display = "block";
+                                    dataBox.innerHTML = `<pre>${JSON.stringify(data.data, null, 2)}</pre>`;
+                                }
+                            }
+                            if (data.file && dataBox) {
+                                dataBox.style.display = "block";
+                                dataBox.innerHTML = `<a href="${data.file}" download style="color:#00d2ff; font-size:1.2rem;">⬇️ Завантажити скоригований LS-файл</a>`;
+                            }
+                            
+                            const visBox = document.getElementById(`vis-${stepStr}`);
+                            if (data.image && visBox) {
+                                visBox.innerHTML = `<img src="${data.image}" loading="lazy" />`;
+                            }
+                            if (data.images && visBox) {
+                                visBox.innerHTML = data.images.map(img => `<img src="${img}?t=${Date.now()}" loading="lazy" onclick="openZoom(this.src)" style="cursor:zoom-in; border: 2px solid transparent;" onmouseover="this.style.borderColor='#00d2ff'" onmouseout="this.style.borderColor='transparent'" />`).join('');
+                            }
+                        }
+                    }
+                    
+                    // Activate the next available step
+                    if (highestCompleted < stepList.length - 1) {
+                        const nextStep = stepList[highestCompleted + 1];
+                        const nextCard = document.getElementById(`card-${nextStep}`);
+                        if (nextCard) nextCard.classList.add('active');
+                    }
+                    
+                    // Activate all previously completed steps
+                    for(let i = 0; i <= highestCompleted; i++) {
+                        const stepStr = stepList[i];
+                        const card = document.getElementById(`card-${stepStr}`);
+                        if (card) card.classList.add('active');
+                    }
+                }
+            } catch (err) {
+                console.error("Error restoring session state:", err);
+            }
+        }
+
+        window.onload = () => {
+            const savedSession = localStorage.getItem('disti_session_id');
+            if (savedSession) {
+                currentSessionId = savedSession;
+                restoreSessionState();
+            } else {
+                startNewSession();
+            }
+        };
+
+        let scene, camera, renderer, controls;
+        let animationId;
+
+        let currentCameras = {};
+        let helmetMesh, lsPoints, contactPoints;
+        let etalonMesh, currentMeshGroup, currentLsGroup, currentContactGroup, calcCenterPoint, currentCalcCenterPoint;
+        let maskPlanes = {};
+
+        function setupLayerControls(stepNum) {
+            const get = id => document.getElementById(id);
+            if (stepNum === 9 || stepNum === 10 || stepNum === 11 || stepNum === 12) {
+                const cb1 = get('cb-etalon-ls'); if(cb1) cb1.onchange = e => { if (lsPoints) lsPoints.visible = e.target.checked; };
+                const cb2 = get('cb-etalon-helmet'); if(cb2) cb2.onchange = e => { if (etalonMesh) etalonMesh.visible = e.target.checked; };
+                const cb3 = get('cb-current-helmet'); if(cb3) cb3.onchange = e => { if (currentMeshGroup) currentMeshGroup.visible = e.target.checked; };
+                const cb4 = get('cb-current-ls'); if(cb4) cb4.onchange = e => { if (currentLsGroup) currentLsGroup.visible = e.target.checked; };
+                const cb5 = get('cb-etalon-cut'); if(cb5) cb5.onchange = e => { if (contactPoints) contactPoints.visible = e.target.checked; };
+                const cb6 = get('cb-current-cut'); if(cb6) cb6.onchange = e => { if (currentContactGroup) currentContactGroup.visible = e.target.checked; };
+                const cb7 = get('cb-center-point'); if(cb7) cb7.onchange = e => {
+                    if (calcCenterPoint) calcCenterPoint.visible = e.target.checked;
+                };
+                const cb8 = get('cb-center-current'); if(cb8) cb8.onchange = e => {
+                    if (currentCalcCenterPoint) currentCalcCenterPoint.visible = e.target.checked;
+                    if (calcCenterPoint && calcCenterPoint.userData.centerLine) calcCenterPoint.userData.centerLine.visible = e.target.checked;
+                };
+            } else if (stepNum === 13) {
+                // Step 13: original vs corrected LS toggles
+                const cbOrig = get('cb-ls-original');
+                if (cbOrig) cbOrig.onchange = e => {
+                    if (window._ls13Original) window._ls13Original.visible = e.target.checked;
+                };
+                const cbCorr = get('cb-ls-corrected');
+                if (cbCorr) cbCorr.onchange = e => {
+                    if (window._ls13Corrected) window._ls13Corrected.visible = e.target.checked;
+                };
+            } else {
+                const cbHelmet = get('cb-helmet');
+                if(cbHelmet) cbHelmet.onchange = e => { if (helmetMesh) helmetMesh.visible = e.target.checked; };
+                const cbLs = get('cb-ls');
+                if(cbLs) cbLs.onchange = e => { if (lsPoints) lsPoints.visible = e.target.checked; };
+                ['back', 'left', 'top'].forEach(cam => {
+                    const cb = get(`cb-${cam}`);
+                    if(cb) cb.onchange = e => {
+                        if (maskPlanes[cam]) maskPlanes[cam].visible = e.target.checked;
+                    };
+                });
+            }
+        }
+
+        
+        function resetLayerControls() {
+            ['cb-helmet', 'cb-ls', 'cb-back', 'cb-left', 'cb-top', 'cb-etalon-ls', 'cb-etalon-helmet', 'cb-current-helmet', 'cb-current-ls', 'cb-etalon-cut', 'cb-current-cut', 'cb-center-point', 'cb-center-current'].forEach(id => {
+                const cb = document.getElementById(id);
+                if (cb) cb.checked = true;
+            });
+            maskPlanes = {};
+        }
+
+        function lookThroughCamera(camName) {
+            if (currentCameras[camName]) {
+                const c = currentCameras[camName];
+                camera.position.set(c.position[0], c.position[1], c.position[2]);
+                if (c.up) camera.up.set(c.up[0], c.up[1], c.up[2]);
+                camera.lookAt(c.look_at[0], c.look_at[1], c.look_at[2]);
+                // Set FOV to ~7.8 degrees (physical equivalent)
+                camera.fov = 7.79;
+                camera.updateProjectionMatrix();
+                controls.target.set(c.look_at[0], c.look_at[1], c.look_at[2]);
+                controls.update();
+            }
+        }
+
+
+        async function runStep(stepStr) {
+            if (!currentSessionId) {
+                alert("Сесія не ініціалізована. Натисніть 'Начать заново'.");
+                return;
+            }
+
+            const btnRun = document.getElementById(`btn-run-${stepStr}`);
+            const btnVis = document.getElementById(`btn-vis-${stepStr}`);
+            const outBox = document.getElementById(`out-${stepStr}`);
+            const dataBox = document.getElementById(`data-${stepStr}`);
+            const visBox = document.getElementById(`vis-${stepStr}`);
+            
+            btnRun.disabled = true;
+            btnRun.innerText = "Обробка...";
+            outBox.style.display = "block";
+            outBox.innerText = "Зачекайте, скрипт виконується...";
+
+            try {
+                const res = await fetch(`/api/step${stepStr}?session_id=${currentSessionId}`);
+                const data = await res.json();
+                
+                outBox.innerText = data.result.stdout + "\n" + data.result.stderr;
+                
+                if (data.result.success) {
+                    document.getElementById(`card-${stepStr}`).classList.add('completed');
+                    btnRun.innerText = "Перерахувати";
+                    btnRun.disabled = false;
+
+                    if (['01', '02', '03', '05', '06', '08', '09', '10', '11', '11b', '12', '13'].includes(stepStr)) {
+                        if (btnVis) btnVis.style.display = "inline-block";
+                    }
+                    
+                    let nextStep;
+                    if (stepStr === '11') {
+                        nextStep = '11b';
+                    } else if (stepStr === '11b') {
+                        nextStep = '12';
+                    } else {
+                        nextStep = String(parseInt(stepStr) + 1).padStart(2, '0');
+                    }
+                    const nextCard = document.getElementById(`card-${nextStep}`);
+                    if (nextCard) nextCard.classList.add('active');
+
+                            if (data.data && dataBox && stepStr !== '01') {
+                                if (stepStr === '12' && data.data.metrics) {
+                                    dataBox.style.display = "block";
+                                    try {
+                                        const metricsRes = await fetch(`/api/step12_metrics?session_id=${currentSessionId}&t=${Date.now()}`);
+                                        const cData = await metricsRes.json();
+                                        const m = data.data.metrics;
+                                        const t = data.data.delta_translation || [0,0,0];
+                                        const r = data.data.delta_rotvec || [0,0,0];
+                                        const rotAngle = Math.sqrt(r[0]*r[0] + r[1]*r[1] + r[2]*r[2]) * 180 / Math.PI;
+                                        const ce = cData.etalon_center || {x:0,y:0,z:0};
+                                        const cc = cData.current_center || {x:0,y:0,z:0};
+                                        dataBox.innerHTML = `
+                                            <div style="font-family: monospace; font-size: 0.95rem; line-height: 1.4; color: #e0e0e0; background: #1a1a1a; padding: 15px; border: 1px solid #333; border-radius: 6px;">
+                                                <div style="color: #00d2ff; font-weight: bold; margin-bottom: 5px;">Метод: Підсумковий (ШІ)</div>
+                                                <div style="color: #888; margin-bottom: 10px;">Файл: step10_final_pose.json</div>
+                                                <div style="color: #ff9800; font-weight: bold; margin-top: 10px;">Центри розрахунку</div>
+                                                <div style="display: grid; grid-template-columns: 180px 1fr; border-bottom: 1px solid #333; padding-bottom: 5px;">
+                                                    <span>CE Еталон (біл.)</span><span>(${ce.x.toFixed(1)}, ${ce.y.toFixed(1)}, ${ce.z.toFixed(1)}) мм</span>
+                                                    <span>CC Поточний (блак.)</span><span>(${cc.x.toFixed(1)}, ${cc.y.toFixed(1)}, ${cc.z.toFixed(1)}) мм</span>
+                                                </div>
+                                                <div style="color: #ff9800; font-weight: bold; margin-top: 10px;">Вектори трансформації</div>
+                                                <div style="display: grid; grid-template-columns: 180px 1fr; border-bottom: 1px solid #333; padding-bottom: 5px;">
+                                                    <span>Δt (зміщення)</span><span>[${t[0].toFixed(3)}, ${t[1].toFixed(3)}, ${t[2].toFixed(3)}] мм</span>
+                                                    <span>Δr (ротація рад)</span><span>[${r[0].toFixed(4)}, ${r[1].toFixed(4)}, ${r[2].toFixed(4)}]</span>
+                                                    <span>Кут повороту</span><span>${rotAngle.toFixed(3)}°</span>
+                                                </div>
+                                                <div style="color: #ff9800; font-weight: bold; margin-top: 10px;">Розраховані відхилення</div>
+                                                <div style="display: grid; grid-template-columns: 180px 1fr; border-bottom: 1px solid #333; padding-bottom: 5px;">
+                                                    <span>↔ Горизонталь</span><span>${m.shift_horizontal_mm} мм</span>
+                                                    <span>↕ Вертикаль</span><span>${m.shift_vertical_mm} мм</span>
+                                                    <span>⟷ Глибина</span><span>${m.shift_depth_mm} мм</span>
+                                                    <span>↻ Нахил вперед/назад</span><span>${m.tilt_pitch_deg}°</span>
+                                                    <span>↻ Нахил вліво/вправо</span><span>${m.tilt_roll_deg}°</span>
+                                                    <span>↻ Поворот осі</span><span>${m.tilt_yaw_deg}°</span>
+                                                </div>
+                                                <div style="color: #4caf50; font-weight: bold; margin-top: 10px;">Обраний метод: ${data.data.chosen_method || ''}</div>
+                                            </div>
+                                        `;
+                                    } catch(e) {
+                                        console.error(e);
+                                    }
+                                } else if (['09', '10', '11'].includes(stepStr) && data.data.metrics) {
+                                    dataBox.style.display = "block";
+                                    const m = data.data.metrics;
+                                    const chosenMethod = data.data.chosen_method ? `<div style="grid-column:1/-1; margin-top:8px; padding:6px 0; border-top:1px solid #444; color:#00d2ff;"><strong>Обраний метод (ШІ):</strong> ${data.data.chosen_method}</div>` : '';
+                                    const reasoning = data.data.reasoning ? `<div style="grid-column:1/-1; margin-top:8px; padding:8px; background:rgba(0,210,255,0.07); border-left:3px solid #00d2ff; border-radius:4px; color:#ccc; font-size:0.92em; line-height:1.5;"><strong style="color:#00d2ff;">Коментар аналізу:</strong><br>${data.data.reasoning}</div>` : '';
+                                    dataBox.innerHTML = `
+                                        <h4 style="margin-top: 0; color: #ff9800;">Розраховані Відхилення:</h4>
+                                        <div id="metrics-container" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; color: #fff;">
+                                            <div><strong>Зміщення по горизонталі:</strong> ${m.shift_horizontal_mm} мм</div>
+                                            <div><strong>Зміщення по вертикалі:</strong> ${m.shift_vertical_mm} мм</div>
+                                            <div><strong>Зміщення по глибині:</strong> ${m.shift_depth_mm} мм</div>
+                                            <div><strong>Нахил вперед/назад:</strong> ${m.tilt_pitch_deg}°</div>
+                                            <div><strong>Нахил вліво/вправо:</strong> ${m.tilt_roll_deg}°</div>
+                                            <div><strong>Поворот осі:</strong> ${m.tilt_yaw_deg}°</div>
+                                            ${chosenMethod}
+                                            ${reasoning}
+                                        </div>
+                                    `;
+                                } else {
+                                    dataBox.style.display = "block";
+                                    dataBox.innerHTML = `<pre>${JSON.stringify(data.data, null, 2)}</pre>`;
+                                }
+                            }
+                    
+                    if (data.image && visBox) {
+                        visBox.innerHTML = `<img src="${data.image}?t=${Date.now()}" />`;
+                    }
+                    if (data.images && visBox) {
+                        visBox.innerHTML = data.images.map(img => `<img src="${img}?t=${Date.now()}" onclick="openZoom(this.src)" style="cursor:zoom-in; border: 2px solid transparent;" onmouseover="this.style.borderColor='#00d2ff'" onmouseout="this.style.borderColor='transparent'" />`).join('');
+                    }
+                    if (data.file && dataBox) {
+                        dataBox.style.display = "block";
+                        dataBox.innerHTML = `<a href="${data.file}" download style="color:#00d2ff; font-size:1.2rem;">⬇️ Завантажити скоригований LS-файл</a>`;
+                    }
+                } else {
+                    btnRun.innerText = "Помилка";
+                    btnRun.disabled = false;
+                    document.getElementById(`card-${stepStr}`).style.borderColor = "red";
+                }
+            } catch (err) {
+                outBox.innerText = "Error calling API: " + err.message;
+                btnRun.innerText = "Помилка";
+                btnRun.disabled = false;
+            }
+        }
+
+        // --- 3D VISUALIZATION LOGIC ---
+
+        function init3D() {
+            const container = document.getElementById('canvas-container');
+            container.innerHTML = ''; 
+            
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1e1e1e);
+            
+            camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 1, 10000);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            container.appendChild(renderer.domElement);
+            
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            
+            const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambient);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(1000, 1000, 1000);
+            scene.add(directionalLight);
+            
+            const axesHelper = new THREE.AxesHelper(500);
+            scene.add(axesHelper);
+        }
+
+                async function fetchLSData(stepNum) {
+            const file = stepNum >= 3 ? 'step03_filtered_ls.json' : 'step01_ls_points.json';
+            const res = await fetch(`/files/${currentSessionId}/${file}`);
+            return await res.json();
+        }
+
+        async function openVisualization(stepNum) {
+            if (!currentSessionId) return;
+            document.getElementById('modal-3d').style.display = 'flex'; document.getElementById('camera-buttons').style.display = (stepNum===5||stepNum===6||stepNum===9) ? 'flex' : 'none';
+            let titleText = 'Візуалізація';
+            if (stepNum === 1) titleText = 'Візуалізація Кроку 1: Сирі LS Точки';
+            if (stepNum === 2) titleText = 'Візуалізація Кроку 2: LS Точки + 3D Модель (Вирівнювання)';
+            if (stepNum === 3) titleText = 'Візуалізація Кроку 3: Зафіксований 3D Простір (Відфільтровано)';
+            if (stepNum === 5) titleText = 'Візуалізація Кроку 5: Проекція камер (Схематично)';
+            if (stepNum === 6) titleText = 'Візуалізація Кроку 6: Проектовані маски (3D)';
+            if (stepNum === 9) titleText = 'Візуалізація Кроку 9: Аналіз Відхилень (Загальні Маски)';
+            if (stepNum === 10) titleText = 'Візуалізація Кроку 10: Аналіз Відхилень (Текстури)';
+            if (stepNum === 11) titleText = 'Візуалізація Кроку 11: Аналіз Відхилень (Контури)';
+            if (stepNum === '11b') titleText = 'Візуалізація Кроку 11b: Нейромережева 3D реконструкція шолома';
+            if (stepNum === 12) titleText = 'Візуалізація Кроку 12: Підсумковий розрахунок';
+            if (stepNum === 13) titleText = 'Візуалізація Кроку 13: Оригінальний LS vs Скоригований LS';
+            document.getElementById('modal-title').innerText = titleText;
+            
+            const showControls = (stepNum === 6 || stepNum === 9 || stepNum === 10 || stepNum === 11 || stepNum === '11b' || stepNum === 12 || stepNum === 13);
+            const lc = document.getElementById('layer-controls');
+            lc.style.display = showControls ? 'block' : 'none';
+            if (showControls) {
+                if (stepNum === 13) {
+                    lc.innerHTML = `
+                        <b style="color: #ff9800;">Відображення (Крок 13):</b><br/>
+                        <label><input type="checkbox" id="cb-ls-original" checked> 🟡 Оригінальний LS (жовтий)</label><br/>
+                        <label><input type="checkbox" id="cb-ls-corrected" checked> 🔴 Скоригований LS (червоний)</label><br/>
+                    `;
+                    resetLayerControls();
+                    setupLayerControls(stepNum);
+                } else {
+                    lc.innerHTML = `
+                        <b style="color: #00d2ff;">Відображення:</b><br/>
+                        <label><input type="checkbox" id="cb-etalon-ls" checked> LS точки еталона (сині)</label><br/>
+                        <label><input type="checkbox" id="cb-etalon-cut" checked> Лінія обрізки еталона (зелена)</label><br/>
+                        <label><input type="checkbox" id="cb-etalon-helmet" checked> 3D Шолом еталона (зелений)</label><br/>
+                        <label><input type="checkbox" id="cb-current-helmet" checked> 3D Шолом поточний (жовтий)</label><br/>
+                        <label><input type="checkbox" id="cb-current-ls" checked> LS точки поточні (червоні)</label><br/>
+                        <label><input type="checkbox" id="cb-current-cut" checked> Лінія обрізки поточна (жовта)</label><br/>
+                        <label><input type="checkbox" id="cb-center-point" checked> ⚪ Центр еталону Cᴇ (біла)</label><br/>
+                        <label><input type="checkbox" id="cb-center-current" checked> ⚪ Центр поточного Cᴄ + вектор (блакитна)</label><br/>
+                    `;
+                    resetLayerControls();
+                    setupLayerControls(stepNum);
+                }
+            }
+
+            
+            init3D();
+            window.addEventListener('resize', onWindowResize);
+
+            // ── STEP 13: Original LS (yellow) vs Corrected LS (red) ──
+            if (stepNum === 13) {
+                window._ls13Original = null;
+                window._ls13Corrected = null;
+
+                const makeLS = (pts, color) => {
+                    const g = new THREE.BufferGeometry();
+                    const pos = [];
+                    pts.forEach(p => pos.push(p.x, p.y, p.z));
+                    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+                    const ptsMat = new THREE.PointsMaterial({ color, size: 6, sizeAttenuation: false });
+                    const grp = new THREE.Group();
+                    grp.add(new THREE.Points(g, ptsMat));
+                    const lineMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.7 });
+                    grp.add(new THREE.LineLoop(g, lineMat));
+                    return grp;
+                };
+
+                const [origRes, corrRes] = await Promise.all([
+                    fetch(`/api/ls_as_json?session_id=${currentSessionId}&type=original`),
+                    fetch(`/api/ls_as_json?session_id=${currentSessionId}&type=corrected`)
+                ]);
+
+                if (!origRes.ok || !corrRes.ok) {
+                    document.getElementById('canvas-container').innerHTML =
+                        `<p style="color:red;padding:20px;">Помилка завантаження LS файлів. Переконайтесь що Крок 13 виконано.</p>`;
+                    animate(); return;
+                }
+
+                const origPts = await origRes.json();
+                const corrPts = await corrRes.json();
+
+                                window._ls13Original = makeLS(origPts, 0x0000ff); // Etalon LS points (blue)
+                                window._ls13Corrected = makeLS(corrPts, 0xff3333); // Corrected LS points (red)
+                scene.add(window._ls13Original);
+                scene.add(window._ls13Corrected);
+
+                // Camera look-at center of original LS
+                let cx=0,cy=0,cz=0;
+                origPts.forEach(p=>{cx+=p.x;cy+=p.y;cz+=p.z;});
+                cx/=origPts.length; cy/=origPts.length; cz/=origPts.length;
+                                // Compute centroids for Etalon (CE) and Corrected (CC)
+                const ce = new THREE.Vector3(cx, cy, cz); // Etalon centroid
+                let cx2 = 0, cy2 = 0, cz2 = 0;
+                corrPts.forEach(p => { cx2 += p.x; cy2 += p.y; cz2 += p.z; });
+                cx2 /= corrPts.length; cy2 /= corrPts.length; cz2 /= corrPts.length;
+                const cc = new THREE.Vector3(cx2, cy2, cz2);
+                // White sphere for Etalon center (CE)
+                const ceGeom = new THREE.SphereGeometry(5, 16, 16);
+                const ceMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+                const ceSphere = new THREE.Mesh(ceGeom, ceMat);
+                ceSphere.position.copy(ce);
+                scene.add(ceSphere);
+                // Blue sphere for Current center (CC)
+                const ccGeom = new THREE.SphereGeometry(5, 16, 16);
+                const ccMat = new THREE.MeshBasicMaterial({ color: 0x0000ff });
+                const ccSphere = new THREE.Mesh(ccGeom, ccMat);
+                ccSphere.position.copy(cc);
+                scene.add(ccSphere);
+                // Arrow from CE to CC
+                const dir = new THREE.Vector3().subVectors(cc, ce).normalize();
+                const length = new THREE.Vector3().subVectors(cc, ce).length();
+                const arrow = new THREE.ArrowHelper(dir, ce, length, 0x00ff00);
+                scene.add(arrow);
+                // Set camera target to Etalon centroid
+                controls.target.copy(ce);
+                camera.position.set(ce.x+300, ce.y-300, ce.z+200);
+                const refGeom = new THREE.SphereGeometry(5, 16, 16);
+                const refMat = new THREE.MeshBasicMaterial({ color: 0x0000ff });
+                const refSphere = new THREE.Mesh(refGeom, refMat);
+                refSphere.position.set(cx, cy, cz);
+                scene.add(refSphere);
+                controls.target.set(cx, cy, cz);
+                camera.position.set(cx+300, cy-300, cz+200);
+                controls.update();
+
+                // Info panel
+                let poseInfo = '';
+                try {
+                    const poseR = await fetch(`/files/${currentSessionId}/step10_final_pose.json`);
+                    if (poseR.ok) {
+                        const pd = await poseR.json();
+                        const m = pd.metrics || {};
+                        poseInfo = `
+                            <tr style="border-top:1px solid #333;"><td colspan="2" style="color:#7ec8e3;font-weight:bold;padding:4px 0 2px;">Відхилення (Крок 12)</td></tr>
+                            <tr><td style="color:#aaa;padding:1px 8px 1px 0;">↔ Горизонталь</td><td style="color:#ff6b6b;">${m.shift_horizontal_mm ?? '—'} мм</td></tr>
+                            <tr><td style="color:#aaa;padding:1px 8px 1px 0;">↕ Вертикаль</td><td style="color:#ff6b6b;">${m.shift_vertical_mm ?? '—'} мм</td></tr>
+                            <tr><td style="color:#aaa;padding:1px 8px 1px 0;">⟷ Глибина</td><td style="color:#ff6b6b;">${m.shift_depth_mm ?? '—'} мм</td></tr>
+                            <tr><td style="color:#aaa;padding:1px 8px 1px 0;">↻ Нахил вперед/назад</td><td style="color:#ffa500;">${m.tilt_pitch_deg ?? '—'}°</td></tr>
+                            <tr><td style="color:#aaa;padding:1px 8px 1px 0;">↻ Нахил вліво/вправо</td><td style="color:#ffa500;">${m.tilt_roll_deg ?? '—'}°</td></tr>
+                            <tr><td style="color:#aaa;padding:1px 8px 1px 0;">↻ Поворот осі</td><td style="color:#ffa500;">${m.tilt_yaw_deg ?? '—'}°</td></tr>
+                        `;
+                    }
+                } catch(e) {}
+
+                const container3d = document.getElementById('canvas-container');
+                let infoPanel = document.getElementById('vis-info-panel');
+                if (infoPanel) infoPanel.remove();
+                infoPanel = document.createElement('div');
+                infoPanel.id = 'vis-info-panel';
+                infoPanel.style.cssText = `
+                    position:absolute; bottom:12px; right:12px; z-index:100;
+                    background:rgba(10,15,25,0.88); border:1px solid #ff980044;
+                    border-radius:8px; padding:0; min-width:270px;
+                    font-family:monospace; font-size:11px; color:#ccc;
+                    box-shadow:0 4px 20px rgba(0,0,0,0.6); backdrop-filter:blur(6px);
+                `;
+                infoPanel.innerHTML = `
+                    <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:rgba(255,152,0,0.12);border-radius:8px 8px 0 0;border-bottom:1px solid #ff980033;" onclick="document.getElementById('vis13-body').style.display=document.getElementById('vis13-body').style.display==='none'?'block':'none';" style="cursor:pointer;">
+                        <b style="color:#ff9800;font-size:12px;">📊 Крок 13 — LS Порівняння</b>
+                        <span style="color:#ff9800;font-size:14px;cursor:pointer;">▼</span>
+                    </div>
+                    <div id="vis13-body" style="padding:8px 10px;">
+                    <table style="border-collapse:collapse;width:100%;">
+                        <tr><td style="color:#ffdd00;padding:2px 8px 2px 0;">🟡 Оригінальний LS</td><td style="color:#eee;">${origPts.length} точок</td></tr>
+                        <tr><td style="color:#ff3333;padding:2px 8px 2px 0;">🔴 Скоригований LS</td><td style="color:#eee;">${corrPts.length} точок</td></tr>
+                        ${poseInfo}
+                    </table>
+                    </div>
+                `;
+                container3d.style.position = 'relative';
+                container3d.appendChild(infoPanel);
+
+                // Setup checkbox callbacks now that objects exist
+                setupLayerControls(13);
+                animate();
+                return;
+            }
+
+            const lsData = await fetchLSData(stepNum);
+            
+            const geometry = new THREE.BufferGeometry();
+
+            const positions = [];
+            let centerX = 0, centerY = 0, centerZ = 0;
+            
+            lsData.forEach(p => {
+                positions.push(p.x, p.y, p.z);
+                centerX += p.x;
+                centerY += p.y;
+                centerZ += p.z;
+            });
+            
+            centerX /= lsData.length;
+            centerY /= lsData.length;
+            centerZ /= lsData.length;
+            
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            let lsColor = 0xffa500;
+            if (stepNum >= 9 && stepNum <= 12) lsColor = 0x0000ff; // Etalon LS points blue in Steps 9-12
+            const material = new THREE.PointsMaterial({ color: lsColor, size: 5, sizeAttenuation: false });
+            lsPoints = new THREE.Points(geometry, material);
+            const lsLineMat = new THREE.LineBasicMaterial({ color: lsColor, transparent: true, opacity: 0.6 });
+            lsPoints.add(new THREE.LineLoop(geometry, lsLineMat));
+            scene.add(lsPoints);
+            
+            if (stepNum >= 2) {
+                try {
+                    const contactRes = await fetch(`/files/${currentSessionId}/step02_contact_points.json`);
+                    if (contactRes.ok) {
+                        const contactData = await contactRes.json();
+                        const cGeom = new THREE.BufferGeometry();
+                        const cPos = [];
+                        contactData.forEach(p => cPos.push(p.x, p.y, p.z));
+                        cGeom.setAttribute('position', new THREE.Float32BufferAttribute(cPos, 3));
+                        const cMat = new THREE.PointsMaterial({ color: 0x00ff00, size: 5, sizeAttenuation: false });
+                        contactPoints = new THREE.Points(cGeom, cMat);
+                        const cLineMat = new THREE.LineBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.6 });
+                        contactPoints.add(new THREE.LineLoop(cGeom, cLineMat));
+                        scene.add(contactPoints);
+                    }
+                } catch (e) {
+                    console.log("No contact points found", e);
+                }
+            }
+            
+            controls.target.set(centerX, centerY, centerZ);
+            camera.position.set(centerX + 300, centerY - 300, centerZ + 200);
+            controls.update();
+
+            if (stepNum === 2) {
+                const alignRes = await fetch(`/files/${currentSessionId}/step02_alignment.json`);
+                const alignData = await alignRes.json();
+                const matArray = alignData.matrix_4x4;
+                const matrix = new THREE.Matrix4();
+                matrix.set(
+                    matArray[0][0], matArray[0][1], matArray[0][2], matArray[0][3],
+                    matArray[1][0], matArray[1][1], matArray[1][2], matArray[1][3],
+                    matArray[2][0], matArray[2][1], matArray[2][2], matArray[2][3],
+                    matArray[3][0], matArray[3][1], matArray[3][2], matArray[3][3]
+                );
+                const loader = new THREE.STLLoader();
+                loader.load(`/files/${currentSessionId}/helmet_ref.stl`, function (geom) {
+                    const mat = new THREE.MeshPhongMaterial({ color: 0xffff00, specular: 0x111111, shininess: 100, transparent: true, opacity: 0.6 });
+                    const mesh = new THREE.Mesh(geom, mat);
+                    mesh.applyMatrix4(matrix);
+                    scene.add(mesh);
+                });
+            } else if (stepNum >= 3) {
+                // New logic: load pre-aligned helmet directly
+                const loader = new THREE.STLLoader();
+                loader.load(`/files/${currentSessionId}/helmet_aligned.stl`, async function (geom) {
+                    if (stepNum >= 9 && stepNum <= 12) {
+                        // Etalon (Green Opaque in Steps 9-12)
+                        const etalonMat = new THREE.MeshPhongMaterial({ color: 0x00ff00, specular: 0x111111, shininess: 50 });
+                        etalonMesh = new THREE.Mesh(geom, etalonMat);
+                        scene.add(etalonMesh);
+
+                        // Compute etalon center C_E from bounding box
+                        geom.computeBoundingBox();
+                        const center = new THREE.Vector3();
+                        geom.boundingBox.getCenter(center);
+
+                        // Current
+                        let poseFileName = 'step08_current_pose_fit.json';
+                        if (stepNum === 10) poseFileName = 'step09b_current_pose_fit.json';
+                        if (stepNum === 11) poseFileName = 'step09c_current_pose_fit.json';
+                        if (stepNum === '11b') poseFileName = 'step09d_ai_reconstruct_fit.json';
+                        if (stepNum === 12) poseFileName = 'step10_final_pose.json';
+                        
+                        const poseRes = await fetch(`/files/${currentSessionId}/${poseFileName}`);
+                        if (poseRes.ok) {
+                            const poseData = await poseRes.json();
+                            if (poseData.delta_translation && poseData.delta_rotvec) {
+                                // Compute displacement vector first, so all groups rotate around C_C
+                                const dp = poseData.delta_translation;
+                                const currentCenter = new THREE.Vector3(
+                                    center.x + dp[0],
+                                    center.y + dp[1],
+                                    center.z + dp[2]
+                                );
+
+                                // Current mesh — local offset = -C_C so rotation is around C_C
+                                const currentMat = new THREE.MeshPhongMaterial({ color: 0xffff00, specular: 0x111111, shininess: 100 });
+                                const currentMeshLocal = new THREE.Mesh(geom, currentMat);
+                                currentMeshLocal.position.set(-currentCenter.x, -currentCenter.y, -currentCenter.z);
+                                currentMeshGroup = new THREE.Group();
+                                currentMeshGroup.position.copy(currentCenter);
+                                currentMeshGroup.add(currentMeshLocal);
+
+                                // Current LS points (Red) — rotated around C_C
+                                const currentLsMat = new THREE.PointsMaterial({ color: 0xff0000, size: 5, sizeAttenuation: false });
+                                const currentLsLocal = new THREE.Points(geometry, currentLsMat);
+                                const currentLsLineMat = new THREE.LineBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.6 });
+                                currentLsLocal.add(new THREE.LineLoop(geometry, currentLsLineMat));
+                                currentLsLocal.position.set(-currentCenter.x, -currentCenter.y, -currentCenter.z);
+                                currentLsGroup = new THREE.Group();
+                                currentLsGroup.position.copy(currentCenter);
+                                currentLsGroup.add(currentLsLocal);
+
+                                // Current Contact points (Yellow) — rotated around C_C
+                                if (contactPoints) {
+                                    const currentContactMat = new THREE.PointsMaterial({ color: 0xffff00, size: 5, sizeAttenuation: false });
+                                    const currentContactLocal = new THREE.Points(contactPoints.geometry, currentContactMat);
+                                    const currentContactLineMat = new THREE.LineBasicMaterial({ color: 0xffff00, transparent: true, opacity: 0.6 });
+                                    currentContactLocal.add(new THREE.LineLoop(contactPoints.geometry, currentContactLineMat));
+                                    currentContactLocal.position.set(-currentCenter.x, -currentCenter.y, -currentCenter.z);
+                                    currentContactGroup = new THREE.Group();
+                                    currentContactGroup.position.copy(currentCenter);
+                                    currentContactGroup.add(currentContactLocal);
+                                }
+
+                                // Apply rotation around C_C (current helmet's own center)
+                                const rv = poseData.delta_rotvec;
+                                const angle = Math.sqrt(rv[0]*rv[0] + rv[1]*rv[1] + rv[2]*rv[2]);
+                                if (angle > 0.0001) {
+                                    const axis = new THREE.Vector3(rv[0]/angle, rv[1]/angle, rv[2]/angle);
+                                    const q = new THREE.Quaternion().setFromAxisAngle(axis, angle);
+                                    currentMeshGroup.quaternion.copy(q);
+                                    currentLsGroup.quaternion.copy(q);
+                                    if (currentContactGroup) currentContactGroup.quaternion.copy(q);
+                                }
+
+                                if (currentContactGroup) scene.add(currentContactGroup);
+
+                                // White sphere: etalon center C_E (reference, fixed)
+                                calcCenterPoint = new THREE.Mesh(
+                                    new THREE.SphereGeometry(8, 16, 16),
+                                    new THREE.MeshBasicMaterial({ color: 0xffffff })
+                                );
+                                calcCenterPoint.position.copy(center);
+                                scene.add(calcCenterPoint);
+
+                                // Cyan sphere: current helmet center C_C = C_E + delta_translation
+                                currentCalcCenterPoint = new THREE.Mesh(
+                                    new THREE.SphereGeometry(8, 16, 16),
+                                    new THREE.MeshBasicMaterial({ color: 0x00ffff })
+                                );
+                                currentCalcCenterPoint.position.copy(currentCenter);
+                                scene.add(currentCalcCenterPoint);
+
+                                // Dashed line from C_E to C_C — shows the displacement vector
+                                const dispLineGeom = new THREE.BufferGeometry().setFromPoints([center.clone(), currentCenter.clone()]);
+                                const dispLine = new THREE.Line(dispLineGeom, new THREE.LineBasicMaterial({ color: 0x888888 }));
+                                calcCenterPoint.userData.centerLine = dispLine;
+                                scene.add(dispLine);
+
+                                scene.add(currentMeshGroup);
+                                scene.add(currentLsGroup);
+
+                                // ── Info panel: bottom-right overlay with all vis params ──
+                                const methodNames = {9:'Загальні маски',10:'Текстури',11:'Контури','11b':'AI 3D Реконструкція',12:'Підсумковий (ШІ)'};
+                                const dp0=dp[0], dp1=dp[1], dp2=dp[2];
+                                const rvArr = poseData.delta_rotvec;
+                                const angleDeg = (Math.sqrt(rvArr[0]**2+rvArr[1]**2+rvArr[2]**2)*180/Math.PI).toFixed(3);
+                                const m = poseData.metrics || {};
+                                const chosenRow = poseData.chosen_method ? `<tr><td colspan="2" style="color:#ffd700;padding-top:6px;border-top:1px solid #444;"><b>Обраний метод:</b> ${poseData.chosen_method}</td></tr>` : '';
+                                const container3d = document.getElementById('canvas-container');
+                                let infoPanel = document.getElementById('vis-info-panel');
+                                if (infoPanel) infoPanel.remove();
+                                infoPanel = document.createElement('div');
+                                infoPanel.id = 'vis-info-panel';
+                                infoPanel.style.cssText = `
+                                    position:absolute; bottom:12px; right:12px; z-index:100;
+                                    background:rgba(10,15,25,0.88); border:1px solid #00d2ff44;
+                                    border-radius:8px; padding:0; min-width:290px;
+                                    font-family:monospace; font-size:11px; color:#ccc;
+                                    box-shadow:0 4px 20px rgba(0,0,0,0.6); backdrop-filter:blur(6px);
+                                `;
+                                infoPanel.innerHTML = `
+                                    <div id="vis-panel-header" style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:rgba(0,210,255,0.1);border-radius:8px 8px 0 0;cursor:pointer;border-bottom:1px solid #00d2ff33;" onclick="document.getElementById('vis-panel-body').style.display=document.getElementById('vis-panel-body').style.display==='none'?'block':'none';this.querySelector('span').textContent=document.getElementById('vis-panel-body').style.display==='none'?'▲':'▼'">
+                                        <b style="color:#00d2ff;font-size:12px;">📊 Параметри візуалізації — Крок ${stepNum}</b>
+                                        <span style="color:#00d2ff;font-size:14px;">▼</span>
+                                    </div>
+                                    <div id="vis-panel-body" style="padding:8px 10px;">
+                                    <table style="border-collapse:collapse;width:100%;">
+                                        <tr><td colspan="2" style="color:#ff9800;font-weight:bold;padding:2px 0 4px;">Метод: ${methodNames[stepNum]||'—'}</td></tr>
+                                        <tr><td colspan="2" style="color:#888;font-size:10px;padding-bottom:5px;">Файл: ${poseFileName}</td></tr>
+                                        <tr style="border-top:1px solid #333;"><td colspan="2" style="color:#7ec8e3;font-weight:bold;padding:4px 0 2px;">Центри розрахунку</td></tr>
+                                        <tr><td style="color:#aaa;padding:1px 8px 1px 0;">C<sub>E</sub> Еталон (біл.)</td><td style="color:#eee;">(${center.x.toFixed(1)}, ${center.y.toFixed(1)}, ${center.z.toFixed(1)}) мм</td></tr>
+                                        <tr><td style="color:#aaa;padding:1px 8px 1px 0;">C<sub>C</sub> Поточний (блак.)</td><td style="color:#00ffff;">(${currentCenter.x.toFixed(1)}, ${currentCenter.y.toFixed(1)}, ${currentCenter.z.toFixed(1)}) мм</td></tr>
+                                        <tr style="border-top:1px solid #333;"><td colspan="2" style="color:#7ec8e3;font-weight:bold;padding:4px 0 2px;">Вектори трансформації</td></tr>
+                                        <tr><td style="color:#aaa;padding:1px 8px 1px 0;">Δt (зміщення)</td><td style="color:#eee;">[${dp0.toFixed(3)}, ${dp1.toFixed(3)}, ${dp2.toFixed(3)}] мм</td></tr>
+                                        <tr><td style="color:#aaa;padding:1px 8px 1px 0;">Δr (ротація рад)</td><td style="color:#eee;">[${rvArr[0].toFixed(4)}, ${rvArr[1].toFixed(4)}, ${rvArr[2].toFixed(4)}]</td></tr>
+                                        <tr><td style="color:#aaa;padding:1px 8px 1px 0;">Кут повороту</td><td style="color:#ffa500;">${angleDeg}°</td></tr>
+                                        <tr style="border-top:1px solid #333;"><td colspan="2" style="color:#7ec8e3;font-weight:bold;padding:4px 0 2px;">Розраховані відхилення</td></tr>
+                                        <tr><td style="color:#aaa;padding:1px 8px 1px 0;">↔ Горизонталь</td><td style="color:#ff6b6b;">${m.shift_horizontal_mm ?? '—'} мм</td></tr>
+                                        <tr><td style="color:#aaa;padding:1px 8px 1px 0;">↕ Вертикаль</td><td style="color:#ff6b6b;">${m.shift_vertical_mm ?? '—'} мм</td></tr>
+                                        <tr><td style="color:#aaa;padding:1px 8px 1px 0;">⟷ Глибина</td><td style="color:#ff6b6b;">${m.shift_depth_mm ?? '—'} мм</td></tr>
+                                        <tr><td style="color:#aaa;padding:1px 8px 1px 0;">↻ Нахил вперед/назад</td><td style="color:#ffa500;">${m.tilt_pitch_deg ?? '—'}°</td></tr>
+                                        <tr><td style="color:#aaa;padding:1px 8px 1px 0;">↻ Нахил вліво/вправо</td><td style="color:#ffa500;">${m.tilt_roll_deg ?? '—'}°</td></tr>
+                                        <tr><td style="color:#aaa;padding:1px 8px 1px 0;">↻ Поворот осі</td><td style="color:#ffa500;">${m.tilt_yaw_deg ?? '—'}°</td></tr>
+                                        ${chosenRow}
+                                    </table>
+                                    </div>
+                                `;
+                                container3d.style.position = 'relative';
+                                container3d.appendChild(infoPanel);
+
+                            }
+                        }
+                    } else {
+                        const mat = new THREE.MeshPhongMaterial({ color: 0xffff00, specular: 0x111111, shininess: 100, transparent: true, opacity: 0.6 });
+                        helmetMesh = new THREE.Mesh(geom, mat);
+                        scene.add(helmetMesh);
+                    }
+                    
+                    if (stepNum === 5 || stepNum === 6 || (stepNum >= 9 && stepNum <= 12)) {
+                        const camRes = await fetch(`/files/${currentSessionId}/step05_cameras.json`);
+                        const cameras = await camRes.json(); currentCameras = cameras;
+                        
+                        // Draw schematic cameras with colors and add a legend
+                        const coneGeom = new THREE.ConeGeometry(30, 80, 4);
+                        coneGeom.rotateX(Math.PI / 2); // point along Z
+                        
+                        const camColors = {
+                            'back': 0xff3333,
+                            'left': 0x33ff33,
+                            'top': 0x3333ff
+                        };
+                        const colorNames = {
+                            'back': 'Червоний',
+                            'left': 'Зелений',
+                            'top': 'Синій'
+                        };
+                        
+                        // Create a simple legend div overlay if it doesn't exist
+                        let legend = document.getElementById('camera-legend');
+                        if(!legend) {
+                            legend = document.createElement('div');
+                            legend.id = 'camera-legend';
+                            legend.style.position = 'absolute';
+                            legend.style.bottom = '20px';
+                            legend.style.left = '20px';
+                            legend.style.backgroundColor = 'rgba(0,0,0,0.7)';
+                            legend.style.padding = '10px';
+                            legend.style.borderRadius = '5px';
+                            legend.style.color = 'white';
+                            legend.style.pointerEvents = 'none';
+                            legend.style.zIndex = '100';
+                            document.getElementById('canvas-container').appendChild(legend);
+                        }
+                        
+                        let legendHTML = '<b>Камери:</b><br/>';
+                        
+                        Object.keys(cameras).forEach(camName => {
+                            const c = cameras[camName];
+                            const hexColor = camColors[camName] || 0xffffff;
+                            legendHTML += `<span style="color:#${hexColor.toString(16).padStart(6, '0')}">●</span> ${camName} (${colorNames[camName] || 'Білий'})<br/>`;
+                            
+                            const coneMat = new THREE.MeshPhongMaterial({ color: hexColor });
+                            const cone = new THREE.Mesh(coneGeom, coneMat);
+                            cone.position.set(c.position[0], c.position[1], c.position[2]);
+                            if (c.up) cone.up.set(c.up[0], c.up[1], c.up[2]);
+                            cone.lookAt(c.look_at[0], c.look_at[1], c.look_at[2]);
+                            scene.add(cone);
+                            
+                            // Draw connecting line to helmet center
+                            const points = [];
+                            points.push(new THREE.Vector3(c.position[0], c.position[1], c.position[2]));
+                            points.push(new THREE.Vector3(c.look_at[0], c.look_at[1], c.look_at[2]));
+                            const lineGeom = new THREE.BufferGeometry().setFromPoints(points);
+                            const lineMat = new THREE.LineBasicMaterial({ color: hexColor, transparent: true, opacity: 0.8 });
+                            scene.add(new THREE.Line(lineGeom, lineMat));
+                        });
+                        
+                        legend.innerHTML = legendHTML;
+                    }
+                    
+                    
+                    if (stepNum === 6) {
+                        const texLoader = new THREE.TextureLoader();
+                        const placeRes = await fetch(`/files/${currentSessionId}/step06_projected_placements.json`);
+                        const placements = await placeRes.json();
+                        
+                        Object.keys(placements).forEach(camName => {
+                            const p = placements[camName];
+                            texLoader.load(`/files/${currentSessionId}/step_etalon_projected/rgba_${camName}.png`, function(texture) {
+                                const planeGeom = new THREE.PlaneGeometry(p.width, p.height);
+                                const planeMat = new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
+                                const plane = new THREE.Mesh(planeGeom, planeMat);
+                                
+                                plane.position.set(p.position[0], p.position[1], p.position[2]);
+                                if (currentCameras[camName] && currentCameras[camName].up) {
+                                    plane.up.set(currentCameras[camName].up[0], currentCameras[camName].up[1], currentCameras[camName].up[2]);
+                                }
+                                plane.lookAt(p.look_at[0], p.look_at[1], p.look_at[2]);
+                                maskPlanes[camName] = plane;
+                                scene.add(plane);
+                            });
+                        });
+                    }
+
+
+                });
+            }
+
+            animate();
+        }
+
+        async function openVisualization13() {
+            document.getElementById('modal-3d').style.display = 'flex';
+            document.getElementById('layer-controls').style.display = 'none';
+            document.getElementById('camera-buttons').style.display = 'none';
+            document.getElementById('modal-title').innerText = "Крок 13: LS Точки (Еталон)";
+
+            const container = document.getElementById('canvas-container');
+            container.innerHTML = '';
+            
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a1a);
+
+            camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 1, 10000);
+            camera.position.set(0, -300, 300);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            container.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.1;
+
+            const gridHelper = new THREE.GridHelper(1000, 20, 0x444444, 0x222222);
+            gridHelper.rotation.x = Math.PI / 2;
+            scene.add(gridHelper);
+
+            const axesHelper = new THREE.AxesHelper(200);
+            scene.add(axesHelper);
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            window.addEventListener('resize', onWindowResize, false);
+            
+            let ce = {x:0, y:0, z:0};
+            let cc = {x:0, y:0, z:0};
+            let poseData = null;
+            try {
+                const metricsRes = await fetch(`/api/step12_metrics?session_id=${currentSessionId}&t=${Date.now()}`);
+                const cData = await metricsRes.json();
+                ce = cData.etalon_center || ce;
+                cc = cData.current_center || cc;
+                
+                const poseRes = await fetch(`/files/${currentSessionId}/step10_final_pose.json?t=${Date.now()}`);
+                poseData = await poseRes.json();
+            } catch(e) { console.error(e); }
+
+            let overlay = document.getElementById('step13-metrics-overlay');
+            if (!overlay) {
+                overlay = document.createElement('div');
+                overlay.id = 'step13-metrics-overlay';
+                overlay.style.position = 'absolute';
+                overlay.style.bottom = '20px';
+                overlay.style.right = '20px';
+                overlay.style.backgroundColor = 'rgba(20,20,20,0.85)';
+                overlay.style.border = '1px solid #444';
+                overlay.style.borderRadius = '8px';
+                overlay.style.padding = '15px';
+                overlay.style.color = '#fff';
+                overlay.style.fontFamily = 'monospace';
+                overlay.style.fontSize = '0.9rem';
+                overlay.style.pointerEvents = 'none';
+                overlay.style.zIndex = '1000';
+                document.getElementById('modal-3d').appendChild(overlay);
+            }
+            overlay.style.display = 'block';
+
+            if (poseData && poseData.metrics) {
+                const m = poseData.metrics;
+                const t = poseData.delta_translation || [0,0,0];
+                const r = poseData.delta_rotvec || [0,0,0];
+                const rotAngle = Math.sqrt(r[0]*r[0] + r[1]*r[1] + r[2]*r[2]) * 180 / Math.PI;
+                overlay.innerHTML = `
+                    <div style="color: #00d2ff; font-weight: bold; margin-bottom: 5px;">Показники Кроку 12</div>
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                        <tr><td style="color:#aaa; padding:2px 8px 2px 0;">CE Еталон (біл.)</td><td>(${ce.x.toFixed(1)}, ${ce.y.toFixed(1)}, ${ce.z.toFixed(1)})</td></tr>
+                        <tr><td style="color:#aaa; padding:2px 8px 2px 0;">CC Поточний (блак.)</td><td>(${cc.x.toFixed(1)}, ${cc.y.toFixed(1)}, ${cc.z.toFixed(1)})</td></tr>
+                        <tr><td colspan="2" style="border-bottom:1px solid #444; height:4px;"></td></tr>
+                        <tr><td style="color:#aaa; padding:6px 8px 2px 0;">Δt (зміщення)</td><td style="padding-top:4px;">[${t[0].toFixed(3)}, ${t[1].toFixed(3)}, ${t[2].toFixed(3)}] мм</td></tr>
+                        <tr><td style="color:#aaa; padding:2px 8px 2px 0;">Δr (ротація)</td><td>[${r[0].toFixed(4)}, ${r[1].toFixed(4)}, ${r[2].toFixed(4)}]</td></tr>
+                        <tr><td style="color:#aaa; padding:2px 8px 2px 0;">Кут повороту</td><td>${rotAngle.toFixed(3)}°</td></tr>
+                        <tr><td colspan="2" style="border-bottom:1px solid #444; height:4px;"></td></tr>
+                        <tr><td style="color:#aaa; padding:6px 8px 2px 0;">↔ Горизонталь</td><td style="padding-top:4px;">${m.shift_horizontal_mm} мм</td></tr>
+                        <tr><td style="color:#aaa; padding:2px 8px 2px 0;">↕ Вертикаль</td><td>${m.shift_vertical_mm} мм</td></tr>
+                        <tr><td style="color:#aaa; padding:2px 8px 2px 0;">⟷ Глибина</td><td>${m.shift_depth_mm} мм</td></tr>
+                        <tr><td style="color:#aaa; padding:2px 8px 2px 0;">↻ Нахил (Pitch)</td><td>${m.tilt_pitch_deg}°</td></tr>
+                        <tr><td style="color:#aaa; padding:2px 8px 2px 0;">↻ Нахил (Roll)</td><td>${m.tilt_roll_deg}°</td></tr>
+                        <tr><td style="color:#aaa; padding:2px 8px 2px 0;">↻ Поворот (Yaw)</td><td>${m.tilt_yaw_deg}°</td></tr>
+                    </table>
+                `;
+            } else {
+                overlay.innerHTML = "Дані відхилень не знайдено.";
+            }
+
+            // Add Centers to 3D Scene (smaller radius so they don't overlap)
+            const ceGeom = new THREE.SphereGeometry(2, 32, 32);
+            const ceMat = new THREE.MeshPhongMaterial({ color: 0xffffff });
+            const ceMesh = new THREE.Mesh(ceGeom, ceMat);
+            ceMesh.position.set(ce.x, ce.y, ce.z);
+            scene.add(ceMesh);
+
+            const ccGeom = new THREE.SphereGeometry(2, 32, 32);
+            const ccMat = new THREE.MeshPhongMaterial({ color: 0x00ffff }); // Cyan
+            const ccMesh = new THREE.Mesh(ccGeom, ccMat);
+            ccMesh.position.set(cc.x, cc.y, cc.z);
+            scene.add(ccMesh);
+            
+            // Draw a line connecting the two centers
+            const centerLineGeom = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(ce.x, ce.y, ce.z),
+                new THREE.Vector3(cc.x, cc.y, cc.z)
+            ]);
+            const centerLineMat = new THREE.LineBasicMaterial({ color: 0xff00ff, transparent: true, opacity: 0.8 });
+            scene.add(new THREE.Line(centerLineGeom, centerLineMat));
+
+            const pointLight = new THREE.PointLight(0xffffff, 1);
+            pointLight.position.set(ce.x, ce.y + 100, ce.z + 100);
+            scene.add(pointLight);
+            
+            // Setup Tooltip
+            if (!window.step13Tooltip) {
+                window.step13Tooltip = document.createElement('div');
+                window.step13Tooltip.style.position = 'absolute';
+                window.step13Tooltip.style.backgroundColor = 'rgba(0,0,0,0.85)';
+                window.step13Tooltip.style.color = '#fff';
+                window.step13Tooltip.style.padding = '5px 10px';
+                window.step13Tooltip.style.borderRadius = '4px';
+                window.step13Tooltip.style.pointerEvents = 'none';
+                window.step13Tooltip.style.display = 'none';
+                window.step13Tooltip.style.zIndex = '2000';
+                window.step13Tooltip.style.fontFamily = 'monospace';
+                window.step13Tooltip.style.border = '1px solid #444';
+                document.getElementById('modal-3d').appendChild(window.step13Tooltip);
+            }
+            
+            window.step13Raycaster = new THREE.Raycaster();
+            window.step13Raycaster.params.Points.threshold = 5;
+            window.step13Mouse = new THREE.Vector2();
+            
+            window.step13MouseMoveHandler = function(event) {
+                const container = document.getElementById('canvas-container');
+                const rect = container.getBoundingClientRect();
+                window.step13Mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+                window.step13Mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+                
+                window.step13Raycaster.setFromCamera(window.step13Mouse, camera);
+                if (window._ls13PointCloud) {
+                    const intersects = window.step13Raycaster.intersectObject(window._ls13PointCloud);
+                    if (intersects.length > 0) {
+                        const p = intersects[0].point;
+                        window.step13Tooltip.style.display = 'block';
+                        window.step13Tooltip.style.left = event.clientX + 15 + 'px';
+                        window.step13Tooltip.style.top = event.clientY + 15 + 'px';
+                        window.step13Tooltip.innerHTML = `<span style="color:#aaa;">LS Точка:</span><br>X: ${p.x.toFixed(2)}<br>Y: ${p.y.toFixed(2)}<br>Z: ${p.z.toFixed(2)}`;
+                    } else {
+                        window.step13Tooltip.style.display = 'none';
+                    }
+                }
+            };
+            document.getElementById('canvas-container').addEventListener('mousemove', window.step13MouseMoveHandler, false);
+
+            try {
+                const res = await fetch(`/api/ls_as_json?session_id=${currentSessionId}&type=original`);
+                const points = await res.json();
+                
+                if (points.error) {
+                    console.error(points.error);
+                } else {
+                    const geometry = new THREE.BufferGeometry();
+                    const vertices = [];
+                    points.forEach(p => { vertices.push(p.x, p.y, p.z); });
+                    geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+
+                    const material = new THREE.PointsMaterial({ color: 0xffff00, size: 3, sizeAttenuation: false });
+                    const pointCloud = new THREE.Points(geometry, material);
+                    window._ls13PointCloud = pointCloud;
+                    scene.add(pointCloud);
+
+                    if (points.length > 0) {
+                        let cx = 0, cy = 0, cz = 0;
+                        points.forEach(p => { cx += p.x; cy += p.y; cz += p.z; });
+                        cx /= points.length; cy /= points.length; cz /= points.length;
+                        controls.target.set(cx, cy, cz);
+                        camera.position.set(cx, cy - 300, cz + 200);
+                        controls.update();
+                    }
+                }
+            } catch (err) {
+                console.error(err);
+            }
+            
+            animate();
+        }
+
+        function closeVisualization() {
+            document.getElementById('modal-3d').style.display = 'none';
+            const overlay = document.getElementById('step13-metrics-overlay');
+            if (overlay) overlay.style.display = 'none';
+            if (window.step13Tooltip) window.step13Tooltip.style.display = 'none';
+            if (window.step13MouseMoveHandler) {
+                document.getElementById('canvas-container').removeEventListener('mousemove', window.step13MouseMoveHandler, false);
+                window.step13MouseMoveHandler = null;
+            }
+            cancelAnimationFrame(animationId);
+            window.removeEventListener('resize', onWindowResize);
+            if(renderer) {
+                renderer.dispose();
+                document.getElementById('canvas-container').innerHTML = '';
+            }
+        }
+
+        function onWindowResize() {
+            if(!camera || !renderer) return;
+            const container = document.getElementById('canvas-container');
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        }
+
+        function animate() {
+            animationId = requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
