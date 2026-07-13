@@ -54,8 +54,8 @@ def get_stl_outer_rim(stl_mesh, max_z_threshold=45):
     return np.array(outer_pts)
 
 def align_cost(params, ls_points, stl_rim_points):
-    tx, ty, tz, rx, ry, rz, s = params
-    T = get_transform_matrix(tx, ty, tz, rx, ry, rz, s)
+    tx, ty, tz, rx, ry, rz = params
+    T = get_transform_matrix(tx, ty, tz, rx, ry, rz, 1.0)
     transformed_stl = transform_points(stl_rim_points, T)
     from scipy.spatial.distance import cdist
     dists = cdist(ls_points, transformed_stl)
@@ -100,7 +100,7 @@ def main():
     
     for init_rx in [0, 180]:
         for init_rz in [0, 90, 180, 270]:
-            initial_guess = [tx_init, ty_init, tz_init, init_rx, 0.0, init_rz, 1.0]
+            initial_guess = [tx_init, ty_init, tz_init, init_rx, 0.0, init_rz]
             res = minimize(
                 align_cost, initial_guess, args=(contact_points, stl_rim),
                 method='Powell', options={'maxiter': 100}
@@ -109,7 +109,8 @@ def main():
                 best_cost = res.fun
                 best_res = res
                 
-    tx, ty, tz, rx, ry, rz, s = best_res.x
+    tx, ty, tz, rx, ry, rz = best_res.x
+    s = 1.0
     T_best = get_transform_matrix(tx, ty, tz, rx, ry, rz, s)
     
     transformed_stl = transform_points(stl_rim, T_best)

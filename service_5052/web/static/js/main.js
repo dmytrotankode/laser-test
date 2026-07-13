@@ -81,20 +81,22 @@ function initThreeScene(container, pointSets, stlOptions = null) {
             allPoints.push(pa.points[i]);
         }
         geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        const material = new THREE.PointsMaterial({ color: pa.color, size: pa.size || 2 });
-        const pointsObj = new THREE.Points(geometry, material);
-        scene.add(pointsObj);
         
-        // Add line connecting points
-        const lineMat = new THREE.LineBasicMaterial({ color: pa.color, transparent: true, opacity: 0.5 });
-        const lineObj = new THREE.Line(geometry, lineMat);
-        scene.add(lineObj);
+        if (pa.isLine) {
+            const lineMat = new THREE.LineBasicMaterial({ color: pa.color });
+            const lineObj = new THREE.Line(geometry, lineMat);
+            scene.add(lineObj);
+        } else {
+            const material = new THREE.PointsMaterial({ color: pa.color, size: pa.size || 2 });
+            const pointsObj = new THREE.Points(geometry, material);
+            scene.add(pointsObj);
+        }
     });
 
     if (stlOptions) {
         const loader = new THREE.STLLoader();
         loader.load(stlOptions.url, function (geom) {
-            const mat = new THREE.MeshPhongMaterial({ color: stlOptions.color || 0x888888, specular: 0x111111, shininess: 50, transparent: true, opacity: stlOptions.opacity || 0.6 });
+            const mat = new THREE.MeshPhongMaterial({ color: stlOptions.color || 0x888888, specular: 0x111111, shininess: 50, transparent: true, opacity: stlOptions.opacity || 0.9 });
             const mesh = new THREE.Mesh(geom, mat);
             
             // set transform
@@ -177,16 +179,16 @@ function handleStep01Result(data) {
     addMetric("Точок контуру (Відфільтровано)", data.contour_points.length);
     
     // 2) Visualization 1: Original LS centered
-    const vis1Cont = createVisualizationBlock('vis-01-original', 'Еталонний LS (Оригінал)');
-    initThreeScene(vis1Cont, [
-        { points: data.original_points, color: 0x888888, size: 2 }
+    const visCont = createVisualizationBlock('vis-01-contour', 'Еталонний LS (X, Y, Z)');
+    initThreeScene(visCont, [
+        { points: data.contour_points, color: 0x00d2ff, size: 2, isLine: true }
     ]);
     
     // 3) Visualization 2: LS Contour + Offset Contact Points
     const vis2Cont = createVisualizationBlock('vis-01-offset', 'Лінія обрізки (Contact Points)');
     initThreeScene(vis2Cont, [
-        { points: data.contour_points, color: 0x00d2ff, size: 2 }, // Cyan for original contour
-        { points: data.contact_points, color: 0xff0000, size: 3 }  // Red for actual trim line (offset)
+        { points: data.contour_points, color: 0x00d2ff, size: 2, isLine: true }, // Cyan for original contour
+        { points: data.contact_points, color: 0xff0000, size: 3, isLine: true }  // Red for actual trim line (offset)
     ]);
 }
 
@@ -229,15 +231,15 @@ function handleStep02Result(data) {
     
     // We render the contour and rim points, but skip the full stl_mesh points
     initThreeScene(visCont, [
-        { points: data.ls_contour, color: 0x00d2ff, size: 2 },
-        { points: data.contact_points, color: 0xff0000, size: 4 },
-        { points: data.stl_rim, color: 0x00ff00, size: 3 }
+        { points: data.ls_contour, color: 0x00d2ff, size: 2, isLine: true },
+        { points: data.contact_points, color: 0xff0000, size: 4, isLine: true },
+        { points: data.stl_rim, color: 0x00ff00, size: 3, isLine: false } // Green points, NOT lines
     ], {
         url: `/files/model_3d/helmet_ref.stl`,
         tx: data.tx, ty: data.ty, tz: data.tz,
         rx: data.rx, ry: data.ry, rz: data.rz,
         scale: data.scale,
         color: 0x888888,
-        opacity: 0.6
+        opacity: 0.9 // Made it more opaque
     });
 }
