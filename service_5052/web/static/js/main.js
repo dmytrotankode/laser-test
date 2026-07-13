@@ -240,6 +240,6 @@ function handleStep02Result(data) {
         rx: data.rx, ry: data.ry, rz: data.rz,
         scale: data.scale,
         color: 0x888888,
-        opacity: 0.9 // Made it more opaque
+        opacity: 0.5 // Made 50% transparent
     });
 }
