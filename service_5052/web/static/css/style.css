@@ -1,0 +1,121 @@
+body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Inter', sans-serif;
+    background-color: #121212;
+    color: #ffffff;
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+}
+
+.zone {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+    border-right: 1px solid #333;
+    overflow-y: auto;
+}
+
+.zone:last-child {
+    border-right: none;
+}
+
+h2 {
+    color: #00d2ff;
+    border-bottom: 2px solid #00d2ff;
+    padding-bottom: 10px;
+    margin-top: 0;
+}
+
+/* LEFT ZONE: Steps */
+.step-card {
+    background: #1e1e1e;
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 15px;
+    border-left: 4px solid #444;
+}
+
+.step-card.active {
+    border-left: 4px solid #00d2ff;
+}
+
+.step-card h3 {
+    margin-top: 0;
+    font-size: 1.1rem;
+}
+
+button {
+    background: #00d2ff;
+    color: #000;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: 0.2s;
+}
+
+button:hover {
+    background: #00a8cc;
+}
+
+button:disabled {
+    background: #555;
+    color: #888;
+    cursor: not-allowed;
+}
+
+.top-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+/* MIDDLE ZONE: Visualizations */
+.vis-panel {
+    background: #1e1e1e;
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 20px;
+    display: flex;
+    flex-direction: column;
+}
+
+.vis-panel h3 {
+    margin-top: 0;
+    text-align: center;
+    color: #ccc;
+    font-size: 1rem;
+}
+
+.canvas-container {
+    width: 100%;
+    height: 300px;
+    background: #000;
+    border-radius: 4px;
+}
+
+/* RIGHT ZONE: Metrics */
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+table th, table td {
+    padding: 12px;
+    text-align: left;
+    border-bottom: 1px solid #333;
+}
+
+table th {
+    background-color: #1e1e1e;
+    color: #00d2ff;
+}
+
+table tr:hover {
+    background-color: #1a1a1a;
+}

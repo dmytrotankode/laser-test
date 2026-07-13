@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Service 5052 - Laser V2</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <!-- Three.js and OrbitControls -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+
+    <!-- LEFT ZONE -->
+    <div class="zone left-zone">
+        <h2>Етапи (Управління)</h2>
+        <div class="top-bar">
+            <button id="btn-start-session" onclick="startSession()">Старт сесії</button>
+            <span id="session-label" style="color: #aaa;">Немає активної сесії</span>
+        </div>
+
+        <div class="step-card" id="card-01">
+            <h3>Крок 1: Створення еталонної лінії обрізки</h3>
+            <p style="font-size: 0.85rem; color: #888;">Завантажує еталонний LS, розраховує 10мм відступ та кути різака (15°).</p>
+            <button id="btn-run-01" onclick="runStep01()" disabled>Виконати етап 1</button>
+        </div>
+    </div>
+
+    <!-- MIDDLE ZONE -->
+    <div class="zone middle-zone">
+        <h2>Візуалізація</h2>
+        <div id="visualizations">
+            <p style="color: #666; text-align: center; margin-top: 50px;">Тут з'являться 3D-візуалізації після виконання етапів.</p>
+        </div>
+    </div>
+
+    <!-- RIGHT ZONE -->
+    <div class="zone right-zone">
+        <h2>Показники</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Параметр</th>
+                    <th>Значення</th>
+                </tr>
+            </thead>
+            <tbody id="metrics-table">
+                <!-- Metrics will be inserted here dynamically -->
+            </tbody>
+        </table>
+    </div>
+
+    <script src="/static/js/main.js"></script>
+</body>
+</html>
