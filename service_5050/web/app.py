@@ -348,6 +348,25 @@ def api_step13():
         pass
     return jsonify({'result': res, 'file': f'/files/{session_id}/TORXL_corrected.ls', 'vis_metrics': f'/files/{session_id}/step13_visualization.json'})
 
+# Generates a corrected LS file from a single pose-fit method, instead of the
+# auto-picked consensus (step10) - lets you export mask/texture/contour separately
+# for a physical A/B comparison rather than trusting the "closest pair" heuristic.
+STEP13_VARIANT_SOURCES = {
+    'mask': 'step08_current_pose_fit.json',
+    'texture': 'step09b_current_pose_fit.json',
+    'contour': 'step09c_current_pose_fit.json',
+}
+
+@app.route('/api/step13_variant')
+def api_step13_variant():
+    session_id = request.args.get('session_id')
+    method = request.args.get('method')
+    source = STEP13_VARIANT_SOURCES.get(method)
+    if not source:
+        return jsonify({'result': {'success': False, 'stdout': '', 'stderr': f'Unknown method: {method}'}}), 400
+    res = run_script('step09_generate_ls.py', session_id, ['--source', source, '--label', method])
+    return jsonify({'result': res, 'file': f'/files/{session_id}/TORXL_corrected_{method}.ls'})
+
 @app.route('/api/ls_as_json')
 def ls_as_json():
     """Parse a FANUC .ls file and return its XYZ points as JSON for 3D visualization."""

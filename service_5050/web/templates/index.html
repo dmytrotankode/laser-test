@@ -65,6 +65,7 @@
     <div class="header-bar">
         <div class="session-badge" id="session-badge">Session: ---</div>
         <button class="btn-restart" onclick="startNewSession()">Начать заново</button>
+        <button onclick="location.href='/vis/compare'">Порівняння LS файлів</button>
     </div>
 
     <div class="container" id="pipeline-container">
@@ -316,6 +317,19 @@
             </div>
             <div class="output-box" id="out-13"></div>
             <div class="data-box" id="data-13"></div>
+
+            <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #333;">
+                <p style="font-size: 0.85rem; color: #888; margin: 0 0 10px 0;">
+                    Окремо, для порівняння: згенерувати LS-файл по одному конкретному методу
+                    (замість авто-вибраного консенсусу вище), щоб перевірити кожен метод фізично.
+                </p>
+                <div class="button-group">
+                    <button onclick="runStep13Variant('mask')" id="btn-variant-mask">Mask</button>
+                    <button onclick="runStep13Variant('texture')" id="btn-variant-texture">Texture</button>
+                    <button onclick="runStep13Variant('contour')" id="btn-variant-contour">Contour</button>
+                </div>
+                <div id="variant-out-13" style="margin-top: 10px; font-size: 0.85rem;"></div>
+            </div>
         </div>
 <div class="log-container">
             <h3 class="log-title" id="log-title-text">Глобальний лог виконання</h3>
@@ -819,6 +833,37 @@
                 outBox.innerText = "Error calling API: " + err.message;
                 btnRun.innerText = "Помилка";
                 btnRun.disabled = false;
+            }
+        }
+
+        async function runStep13Variant(method) {
+            if (!currentSessionId) {
+                alert("Сесія не ініціалізована. Натисніть 'Начать заново'.");
+                return;
+            }
+            const btn = document.getElementById(`btn-variant-${method}`);
+            const outBox = document.getElementById('variant-out-13');
+            btn.disabled = true;
+            const originalText = btn.innerText;
+            btn.innerText = "Обробка...";
+
+            try {
+                const res = await fetch(`/api/step13_variant?session_id=${currentSessionId}&method=${method}`);
+                const data = await res.json();
+                const line = document.createElement('div');
+                if (data.result.success) {
+                    line.innerHTML = `<span style="color:#4caf50;">✓ ${method}:</span> <a href="${data.file}" target="_blank" style="color:#00d2ff;">${data.file.split('/').pop()}</a>`;
+                } else {
+                    line.innerHTML = `<span style="color:#ff5555;">✗ ${method}: ${(data.result.stderr || 'помилка').slice(0, 300)}</span>`;
+                }
+                outBox.prepend(line);
+            } catch (err) {
+                const line = document.createElement('div');
+                line.innerHTML = `<span style="color:#ff5555;">✗ ${method}: ${err.message}</span>`;
+                outBox.prepend(line);
+            } finally {
+                btn.disabled = false;
+                btn.innerText = originalText;
             }
         }
 
