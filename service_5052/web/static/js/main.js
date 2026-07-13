@@ -377,29 +377,24 @@ async function runStep04() {
 }
 
 function handleStep04Result(data) {
-    const camerasArray = [];
-    for (const [cam, info] of Object.entries(data.cameras)) {
-        addMetric(`Камера ${cam.toUpperCase()}`, `Pos: [${info.pos.join(', ')}], Dist: ${info.distance.toFixed(1)} мм`);
-        camerasArray.push({ pos: info.pos });
-    }
+    const visZone = document.getElementById('visualizations');
     
-    const visCont = createVisualizationBlock('vis-04-cameras', 'Розміщення камер');
+    const panel = document.createElement('div');
+    panel.className = 'vis-panel';
+    panel.innerHTML = `<h3>Проекція масок з 3D-моделі</h3><div style="display:flex; justify-content:space-around;"></div>`;
+    const row = panel.querySelector('div');
     
-    if (step02GlobalData) {
-        initThreeScene(visCont, [
-            { points: step02GlobalData.ls_contour, color: 0x00d2ff, size: 2, isLine: true },
-            { points: step02GlobalData.contact_points, color: 0xff0000, size: 4, isLine: true }
-        ], {
-            url: `/files/model_3d/helmet_ref.stl`,
-            tx: step02GlobalData.tx, ty: step02GlobalData.ty, tz: step02GlobalData.tz,
-            rx: step02GlobalData.rx, ry: step02GlobalData.ry, rz: step02GlobalData.rz,
-            scale: step02GlobalData.scale,
-            color: 0x888888,
-            opacity: 0.5
-        }, { cameras: camerasArray });
-    } else {
-        initThreeScene(visCont, [], null, { cameras: camerasArray });
+    for (const [cam, file] of Object.entries(data)) {
+        addMetric(`3D Проекція (${cam})`, file);
+        
+        const img = document.createElement('img');
+        img.src = `/files/${currentSessionId}/${file}?t=${Date.now()}`;
+        img.style.width = "30%";
+        img.title = cam;
+        img.style.background = "#fff"; // masks are white on transparent usually
+        row.appendChild(img);
     }
+    visZone.appendChild(panel);
 }
 
 // --- STEP 5 ---
@@ -420,6 +415,9 @@ async function runStep05() {
             btn.innerText = "Виконано";
             btn.style.background = "#4CAF50";
             handleStep05Result(result.data);
+            
+            document.getElementById('btn-step06').disabled = false;
+            document.getElementById('card-step06').classList.add('active');
         } else if (result.status === 'error') {
             clearInterval(poll);
             btn.innerText = "Помилка";
@@ -430,6 +428,110 @@ async function runStep05() {
 }
 
 function handleStep05Result(data) {
+    const visZone = document.getElementById('visualizations');
+    
+    const panel = document.createElement('div');
+    panel.className = 'vis-panel';
+    panel.innerHTML = `<h3>Суміщення масок (Еталон + 3D)</h3><div style="display:flex; justify-content:space-around;"></div>`;
+    const row = panel.querySelector('div');
+    
+    for (const [cam, info] of Object.entries(data)) {
+        addMetric(`Зсув X, Y (${cam})`, `${info.shift_x.toFixed(2)}, ${info.shift_y.toFixed(2)}`);
+        addMetric(`Поворот, Масштаб (${cam})`, `${info.rotation.toFixed(2)}°, ${info.scale.toFixed(4)}`);
+        
+        const img = document.createElement('img');
+        img.src = `/files/${currentSessionId}/${info.aligned_file}?t=${Date.now()}`;
+        img.style.width = "30%";
+        img.title = cam;
+        row.appendChild(img);
+    }
+    visZone.appendChild(panel);
+}
+
+// --- STEP 6 ---
+async function runStep06() {
+    if (!currentSessionId) return;
+    const btn = document.getElementById('btn-step06');
+    btn.disabled = true;
+    btn.innerText = "Обробка...";
+    
+    await fetch(`/api/step06?session_id=${currentSessionId}&action=start`);
+    
+    let poll = setInterval(async () => {
+        const res = await fetch(`/api/step06?session_id=${currentSessionId}&action=poll`);
+        const result = await res.json();
+        
+        if (result.status === 'done') {
+            clearInterval(poll);
+            btn.innerText = "Виконано";
+            btn.style.background = "#4CAF50";
+            handleStep06Result(result.data);
+            
+            document.getElementById('btn-step07').disabled = false;
+            document.getElementById('card-step07').classList.add('active');
+        } else if (result.status === 'error') {
+            clearInterval(poll);
+            btn.innerText = "Помилка";
+            btn.style.background = "#f44336";
+            alert("Помилка: " + result.message);
+        }
+    }, 1000);
+}
+
+function handleStep06Result(data) {
+    const camerasArray = [];
+    for (const [cam, info] of Object.entries(data.cameras)) {
+        addMetric(`Камера ${cam.toUpperCase()}`, `Pos: [${info.pos.join(', ')}], Dist: ${info.distance.toFixed(1)} мм`);
+        camerasArray.push({ pos: info.pos });
+    }
+    
+    const visCont = createVisualizationBlock('vis-06-cameras', 'Розміщення камер');
+    
+    if (step02GlobalData) {
+        initThreeScene(visCont, [
+            { points: step02GlobalData.ls_contour, color: 0x00d2ff, size: 2, isLine: true },
+            { points: step02GlobalData.contact_points, color: 0xff0000, size: 4, isLine: true }
+        ], {
+            url: `/files/model_3d/helmet_ref.stl`,
+            tx: step02GlobalData.tx, ty: step02GlobalData.ty, tz: step02GlobalData.tz,
+            rx: step02GlobalData.rx, ry: step02GlobalData.ry, rz: step02GlobalData.rz,
+            scale: step02GlobalData.scale,
+            color: 0x888888,
+            opacity: 0.5
+        }, { cameras: camerasArray });
+    } else {
+        initThreeScene(visCont, [], null, { cameras: camerasArray });
+    }
+}
+
+// --- STEP 7 ---
+async function runStep07() {
+    if (!currentSessionId) return;
+    const btn = document.getElementById('btn-step07');
+    btn.disabled = true;
+    btn.innerText = "Обробка...";
+    
+    await fetch(`/api/step07?session_id=${currentSessionId}&action=start`);
+    
+    let poll = setInterval(async () => {
+        const res = await fetch(`/api/step07?session_id=${currentSessionId}&action=poll`);
+        const result = await res.json();
+        
+        if (result.status === 'done') {
+            clearInterval(poll);
+            btn.innerText = "Виконано";
+            btn.style.background = "#4CAF50";
+            handleStep07Result(result.data);
+        } else if (result.status === 'error') {
+            clearInterval(poll);
+            btn.innerText = "Помилка";
+            btn.style.background = "#f44336";
+            alert("Помилка: " + result.message);
+        }
+    }, 1000);
+}
+
+function handleStep07Result(data) {
     let customLights = [];
     let customCameras = [];
     
@@ -447,7 +549,7 @@ function handleStep05Result(data) {
         if (cam === 'top') customCameras.push({pos: [0, 0, 2000]});
     }
     
-    const visCont = createVisualizationBlock('vis-05-lights', '3D Сцена з розрахованим освітленням та камерами');
+    const visCont = createVisualizationBlock('vis-07-lights', '3D Сцена з розрахованим освітленням та камерами');
     
     if (step02GlobalData) {
         initThreeScene(visCont, [

@@ -93,11 +93,19 @@ def api_step03():
 
 @app.route('/api/step04')
 def api_step04():
-    return generic_step_api("step04_cameras.py", request.args.get('session_id'), request.args.get('action'), "step04_result.json")
+    return generic_step_api("step04_project.py", request.args.get('session_id'), request.args.get('action'), "step04_result.json")
 
 @app.route('/api/step05')
 def api_step05():
-    return generic_step_api("step05_lighting.py", request.args.get('session_id'), request.args.get('action'), "step05_result.json")
+    return generic_step_api("step05_align_masks.py", request.args.get('session_id'), request.args.get('action'), "step05_result.json")
+
+@app.route('/api/step06')
+def api_step06():
+    return generic_step_api("step06_cameras.py", request.args.get('session_id'), request.args.get('action'), "step06_result.json")
+
+@app.route('/api/step07')
+def api_step07():
+    return generic_step_api("step07_lighting.py", request.args.get('session_id'), request.args.get('action'), "step07_result.json")
 
 if __name__ == '__main__':
     print("Starting Service 5052...")
