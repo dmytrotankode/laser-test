@@ -18,9 +18,9 @@ def main():
     input_dir = os.path.join(base_dir, 'input', 'photos_etalon')
     
     cameras = {
-        "back": "cam_back.png",
-        "left": "cam_left.png",
-        "top": "cam_top.png"
+        "back": "back.png",
+        "left": "left.png",
+        "top": "top.png"
     }
     
     colors = {

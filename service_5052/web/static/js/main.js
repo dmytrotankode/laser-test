@@ -1,5 +1,6 @@
 let currentSessionId = null;
 let stepPollInterval = null;
+let step02GlobalData = null;
 
 async function startSession() {
     const res = await fetch('/api/start_session');
@@ -255,6 +256,8 @@ function handleStep02Result(data) {
     addMetric("Масштаб", data.scale.toFixed(4));
     addMetric("Відхилення (Cost)", data.cost.toFixed(4));
     
+    step02GlobalData = data; // Save for later steps!
+    
     const visCont = createVisualizationBlock('vis-02-align', 'Суміщення 3D-моделі з точками обрізки');
     
     // We render the contour and rim points, but skip the full stl_mesh points
@@ -315,7 +318,22 @@ function handleStep03Result(data) {
     }
     
     const visCont = createVisualizationBlock('vis-03-cameras', 'Розміщення камер');
-    initThreeScene(visCont, [], null, { cameras: camerasArray });
+    
+    if (step02GlobalData) {
+        initThreeScene(visCont, [
+            { points: step02GlobalData.ls_contour, color: 0x00d2ff, size: 2, isLine: true },
+            { points: step02GlobalData.contact_points, color: 0xff0000, size: 4, isLine: true }
+        ], {
+            url: `/files/model_3d/helmet_ref.stl`,
+            tx: step02GlobalData.tx, ty: step02GlobalData.ty, tz: step02GlobalData.tz,
+            rx: step02GlobalData.rx, ry: step02GlobalData.ry, rz: step02GlobalData.rz,
+            scale: step02GlobalData.scale,
+            color: 0x888888,
+            opacity: 0.5
+        }, { cameras: camerasArray });
+    } else {
+        initThreeScene(visCont, [], null, { cameras: camerasArray });
+    }
 }
 
 // --- STEP 4 ---
@@ -431,15 +449,29 @@ function handleStep05Result(data) {
     
     const visCont = createVisualizationBlock('vis-05-lights', '3D Сцена з розрахованим освітленням та камерами');
     
-    // We will render the STL helmet with the custom calculated lights.
-    // We don't have ls data locally inside this function easily unless we fetch it or store globally, 
-    // but we can at least render the STL with the new lights.
-    initThreeScene(visCont, [], {
-        url: `/files/model_3d/helmet_ref.stl`,
-        tx: 0, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0, scale: 1.0, color: 0xcccccc, opacity: 1.0
-    }, { 
-        customLights: customLights,
-        cameras: customCameras
-    });
+    if (step02GlobalData) {
+        initThreeScene(visCont, [
+            { points: step02GlobalData.ls_contour, color: 0x00d2ff, size: 2, isLine: true },
+            { points: step02GlobalData.contact_points, color: 0xff0000, size: 4, isLine: true }
+        ], {
+            url: `/files/model_3d/helmet_ref.stl`,
+            tx: step02GlobalData.tx, ty: step02GlobalData.ty, tz: step02GlobalData.tz,
+            rx: step02GlobalData.rx, ry: step02GlobalData.ry, rz: step02GlobalData.rz,
+            scale: step02GlobalData.scale,
+            color: 0xcccccc, 
+            opacity: 1.0
+        }, { 
+            customLights: customLights,
+            cameras: customCameras
+        });
+    } else {
+        initThreeScene(visCont, [], {
+            url: `/files/model_3d/helmet_ref.stl`,
+            tx: 0, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0, scale: 1.0, color: 0xcccccc, opacity: 1.0
+        }, { 
+            customLights: customLights,
+            cameras: customCameras
+        });
+    }
 }
 

@@ -79,7 +79,7 @@ def main():
     results = {"lights": {}}
     
     for cam in cameras:
-        img_path = os.path.join(input_dir, f"cam_{cam}.png")
+        img_path = os.path.join(input_dir, f"{cam}.png")
         mask_path = os.path.join(results_dir, f"rgba_{cam}.png") # step 4 output
         
         if not os.path.exists(img_path) or not os.path.exists(mask_path):
