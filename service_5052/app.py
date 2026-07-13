@@ -80,6 +80,35 @@ def api_step01():
         
     return jsonify({"status": "running"})
 
+@app.route('/api/step02')
+def api_step02():
+    session_id = request.args.get('session_id')
+    if not session_id:
+        return jsonify({"error": "No session_id"}), 400
+    
+    done_file = os.path.join(RESULTS_DIR, session_id, "step02_align_3d_to_trim.py.done")
+    error_file = os.path.join(RESULTS_DIR, session_id, "step02_align_3d_to_trim.py.error")
+    result_file = os.path.join(RESULTS_DIR, session_id, "step02_result.json")
+    
+    action = request.args.get('action')
+    if action == 'start':
+        if os.path.exists(done_file): os.remove(done_file)
+        if os.path.exists(error_file): os.remove(error_file)
+        if os.path.exists(result_file): os.remove(result_file)
+        run_script_async("step02_align_3d_to_trim.py", session_id)
+        return jsonify({"status": "started"})
+        
+    if os.path.exists(error_file):
+        with open(error_file, 'r') as f: err = f.read()
+        return jsonify({"status": "error", "message": err})
+        
+    if os.path.exists(done_file) and os.path.exists(result_file):
+        with open(result_file, 'r') as f:
+            data = json.load(f)
+        return jsonify({"status": "done", "data": data})
+        
+    return jsonify({"status": "running"})
+
 if __name__ == '__main__':
     print("Starting Service 5052...")
     app.run(host='0.0.0.0', port=5052, debug=False)

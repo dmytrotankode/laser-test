@@ -13,6 +13,10 @@ async function startSession() {
     document.getElementById('btn-run-01').disabled = false;
     document.getElementById('card-01').classList.add('active');
     
+    // Enable Step 2 initially disabled until Step 1 completes
+    document.getElementById('btn-run-02').disabled = true;
+    document.getElementById('card-02').classList.remove('active');
+    
     // Clear zones
     document.getElementById('visualizations').innerHTML = '';
     document.getElementById('metrics-table').innerHTML = '';
@@ -127,6 +131,10 @@ async function runStep01() {
             // Render UI
             handleStep01Result(result.data);
             
+            // Enable Step 2
+            document.getElementById('btn-run-02').disabled = false;
+            document.getElementById('card-02').classList.add('active');
+            
         } else if (result.status === 'error') {
             clearInterval(stepPollInterval);
             btn.innerText = "Помилка";
@@ -157,5 +165,51 @@ function handleStep01Result(data) {
     initThreeScene(vis2Cont, [
         { points: data.contour_points, color: 0x00d2ff, size: 2 }, // Cyan for original contour
         { points: data.contact_points, color: 0xff0000, size: 3 }  // Red for actual trim line (offset)
+    ]);
+}
+
+async function runStep02() {
+    if (!currentSessionId) return;
+    
+    const btn = document.getElementById('btn-run-02');
+    btn.disabled = true;
+    btn.innerText = "Обробка...";
+    
+    await fetch(`/api/step02?session_id=${currentSessionId}&action=start`);
+    
+    let poll = setInterval(async () => {
+        const res = await fetch(`/api/step02?session_id=${currentSessionId}&action=poll`);
+        const result = await res.json();
+        
+        if (result.status === 'done') {
+            clearInterval(poll);
+            btn.innerText = "Виконано";
+            btn.style.background = "#4CAF50";
+            handleStep02Result(result.data);
+        } else if (result.status === 'error') {
+            clearInterval(poll);
+            btn.innerText = "Помилка";
+            btn.style.background = "#f44336";
+            console.error(result.message);
+            alert("Помилка: " + result.message);
+        }
+    }, 1000);
+}
+
+function handleStep02Result(data) {
+    addMetric("Шлях до 3D моделі", data.model_path);
+    addMetric("Зсув X, Y, Z (мм)", `${data.tx.toFixed(2)}, ${data.ty.toFixed(2)}, ${data.tz.toFixed(2)}`);
+    addMetric("Поворот X, Y, Z (град)", `${data.rx.toFixed(2)}, ${data.ry.toFixed(2)}, ${data.rz.toFixed(2)}`);
+    addMetric("Масштаб", data.scale.toFixed(4));
+    addMetric("Відхилення (Cost)", data.cost.toFixed(4));
+    
+    const visCont = createVisualizationBlock('vis-02-align', 'Суміщення 3D-моделі з точками обрізки');
+    
+    // Convert mesh to points for easy rendering or just render vertices
+    initThreeScene(visCont, [
+        { points: data.ls_contour, color: 0x00d2ff, size: 2 },
+        { points: data.contact_points, color: 0xff0000, size: 4 },
+        { points: data.stl_mesh, color: 0x888888, size: 1 },
+        { points: data.stl_rim, color: 0x00ff00, size: 3 }
     ]);
 }
