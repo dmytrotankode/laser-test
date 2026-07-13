@@ -329,14 +329,14 @@ function handleStep03Result(data) {
         
         // Add to cropped UI
         const img1 = document.createElement('img');
-        img1.src = `/results/${currentSessionId}/${info.rgba_file}?t=${Date.now()}`;
+        img1.src = `/files/${currentSessionId}/${info.rgba_file}?t=${Date.now()}`;
         img1.style.width = "30%";
         img1.title = cam;
         rowCropped.appendChild(img1);
         
         // Add to masks UI
         const img2 = document.createElement('img');
-        img2.src = `/results/${currentSessionId}/${info.solid_file}?t=${Date.now()}`;
+        img2.src = `/files/${currentSessionId}/${info.solid_file}?t=${Date.now()}`;
         img2.style.width = "30%";
         img2.title = cam;
         rowMasks.appendChild(img2);
