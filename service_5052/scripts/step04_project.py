@@ -87,7 +87,7 @@ def main():
     cameras = {
         "back": { "position_mm": [0, 2500, 0], "look_at": [0, 0, 0], "up_vector": [0, 0, 1] },
         "left": { "position_mm": [1650, 0, 0], "look_at": [0, 0, 0], "up_vector": [0, 0, 1] },
-        "top": { "position_mm": [0, 0, 2000], "look_at": [0, 0, 0], "up_vector": [1, 0, 0] }
+        "top": { "position_mm": [0, 0, 2000], "look_at": [0, 0, 0], "up_vector": [-1, 0, 0] }
     }
     
     out_dict = {}
