@@ -32,11 +32,11 @@ def main():
             "distance": float(dist)
         }
         
-    result_file = os.path.join(results_dir, 'step04_result.json')
+    result_file = os.path.join(results_dir, 'step06_result.json')
     with open(result_file, 'w') as f:
         json.dump(results, f, indent=4)
         
-    print(f"Saved step 3 results to {result_file}")
+    print(f"Saved step 6 results to {result_file}")
 
 if __name__ == '__main__':
     main()
