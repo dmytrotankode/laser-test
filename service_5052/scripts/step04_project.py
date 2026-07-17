@@ -153,15 +153,15 @@ def main():
             if len(y_tgt) > 0 and len(y_proj) > 0:
                 tgt_w = np.max(x_tgt) - np.min(x_tgt)
                 tgt_h = np.max(y_tgt) - np.min(y_tgt)
-                tgt_cx = (np.max(x_tgt) + np.min(x_tgt)) // 2
-                tgt_cy = (np.max(y_tgt) + np.min(y_tgt)) // 2
+                tgt_cx = float((np.max(x_tgt) + np.min(x_tgt)) / 2.0)
+                tgt_cy = float((np.max(y_tgt) + np.min(y_tgt)) / 2.0)
                 
                 proj_w = np.max(x_proj) - np.min(x_proj)
                 proj_h = np.max(y_proj) - np.min(y_proj)
-                proj_cx = (np.max(x_proj) + np.min(x_proj)) // 2
-                proj_cy = (np.max(y_proj) + np.min(y_proj)) // 2
+                proj_cx = float((np.max(x_proj) + np.min(x_proj)) / 2.0)
+                proj_cy = float((np.max(y_proj) + np.min(y_proj)) / 2.0)
                 
-                scale = min(tgt_w / max(1, proj_w), tgt_h / max(1, proj_h)) * 0.95 # slightly smaller
+                scale = float(min(tgt_w / max(1, proj_w), tgt_h / max(1, proj_h)) * 0.95) # slightly smaller
                 
                 M = cv2.getRotationMatrix2D((proj_cx, proj_cy), 0, scale)
                 M[0, 2] += (tgt_cx - proj_cx)
