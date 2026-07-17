@@ -184,8 +184,13 @@ def main():
         if not os.path.exists(mask_path):
             print(f"Error: Mask {mask_path} not found!")
             sys.exit(1)
-        target_masks[cam_name] = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
-        
+            
+        img_rgba = cv2.imread(mask_path, cv2.IMREAD_UNCHANGED)
+        if img_rgba.shape[2] == 4:
+            target_masks[cam_name] = img_rgba[:, :, 3]
+        else:
+            target_masks[cam_name] = cv2.cvtColor(img_rgba, cv2.COLOR_BGR2GRAY)
+            
         # Load from step 4 (3D projection)
         proj_path = os.path.join(session_dir, f"proj_{cam_name}.png")
         if not os.path.exists(proj_path):

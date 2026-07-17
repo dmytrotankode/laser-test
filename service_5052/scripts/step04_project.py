@@ -97,7 +97,11 @@ def main():
         
         target_path = os.path.join(results_dir, f"solid_{cam_name}.png")
         if os.path.exists(target_path):
-            target_mask = cv2.imread(target_path, cv2.IMREAD_GRAYSCALE)
+            img_rgba = cv2.imread(target_path, cv2.IMREAD_UNCHANGED)
+            if img_rgba.shape[2] == 4:
+                target_mask = img_rgba[:, :, 3]
+            else:
+                target_mask = cv2.cvtColor(img_rgba, cv2.COLOR_BGR2GRAY)
             target_h, target_w = target_mask.shape
         else:
             target_mask = None
