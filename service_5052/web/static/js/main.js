@@ -138,10 +138,31 @@ function initThreeScene(container, pointSets, stlOptions = null, sceneOptions = 
             const camMat = new THREE.MeshBasicMaterial({ color: 0xffff00, wireframe: true });
             const camMesh = new THREE.Mesh(camGeom, camMat);
             camMesh.position.set(c.pos[0], c.pos[1], c.pos[2]);
-            camMesh.lookAt(0, 0, 85); // look at helmet center
+            const lookAt = c.look_at ? new THREE.Vector3(c.look_at[0], c.look_at[1], c.look_at[2]) : new THREE.Vector3(0, 0, 85);
+            camMesh.lookAt(lookAt);
             scene.add(camMesh);
+            
+            if (c.look_at) {
+                const lineGeom = new THREE.BufferGeometry().setFromPoints([
+                    new THREE.Vector3(c.pos[0], c.pos[1], c.pos[2]),
+                    lookAt
+                ]);
+                const lineMat = new THREE.LineBasicMaterial({ color: 0x00ffff, opacity: 0.6, transparent: true });
+                const line = new THREE.Line(lineGeom, lineMat);
+                scene.add(line);
+            }
         });
     }
+
+    container.setCameraView = function(pos, look_at, up_vector) {
+        camera.position.set(pos[0], pos[1], pos[2]);
+        controls.target.set(look_at[0], look_at[1], look_at[2]);
+        if (up_vector) {
+            camera.up.set(up_vector[0], up_vector[1], up_vector[2]);
+        }
+        camera.lookAt(look_at[0], look_at[1], look_at[2]);
+        controls.update();
+    };
 
     if (allPoints.length > 0) {
         center.divideScalar(totalPoints);
@@ -483,11 +504,28 @@ async function runStep06() {
 function handleStep06Result(data) {
     const camerasArray = [];
     for (const [cam, info] of Object.entries(data.cameras)) {
-        addMetric(`Камера ${cam.toUpperCase()}`, `Pos: [${info.pos.join(', ')}], Dist: ${info.distance.toFixed(1)} мм`);
-        camerasArray.push({ pos: info.pos });
+        addMetric(`Камера ${cam.toUpperCase()}`, `Pos: [${info.pos.map(v=>v.toFixed(1)).join(', ')}], Dist: ${info.distance.toFixed(1)} мм`);
+        camerasArray.push({ pos: info.pos, look_at: info.look_at, up_vector: info.up_vector, name: cam });
     }
     
     const visCont = createVisualizationBlock('vis-06-cameras', 'Розміщення камер');
+    
+    const btnRow = document.createElement('div');
+    btnRow.style.display = 'flex';
+    btnRow.style.gap = '10px';
+    btnRow.style.marginBottom = '10px';
+    for (const [cam, info] of Object.entries(data.cameras)) {
+        const btn = document.createElement('button');
+        btn.innerText = `Вид: ${cam.toUpperCase()}`;
+        btn.style.padding = '5px 15px';
+        btn.onclick = () => {
+            if (visCont.setCameraView) {
+                visCont.setCameraView(info.pos, info.look_at, info.up_vector);
+            }
+        };
+        btnRow.appendChild(btn);
+    }
+    visCont.appendChild(btnRow);
     
     if (step02GlobalData) {
         initThreeScene(visCont, [
