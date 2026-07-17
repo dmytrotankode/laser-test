@@ -65,6 +65,12 @@ def render_silhouette(stl_mesh, cam_pos, cam_look, cam_up, camera_intrinsics):
         
     return img
 
+def get_iou(mask1, mask2):
+    intersection = np.logical_and(mask1 > 0, mask2 > 0)
+    union = np.logical_or(mask1 > 0, mask2 > 0)
+    if np.sum(union) == 0: return 0.0
+    return np.sum(intersection) / np.sum(union)
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--session', required=True)
@@ -81,7 +87,7 @@ def main():
     cameras = {
         "back": { "position_mm": [0, 2500, 0], "look_at": [0, 0, 0], "up_vector": [0, 0, 1] },
         "left": { "position_mm": [1650, 0, 0], "look_at": [0, 0, 0], "up_vector": [0, 0, 1] },
-        "top": { "position_mm": [0, 0, 2000], "look_at": [0, 0, 0], "up_vector": [0, -1, 0] }
+        "top": { "position_mm": [0, 0, 2000], "look_at": [0, 0, 0], "up_vector": [1, 0, 0] }
     }
     
     out_dict = {}
@@ -94,6 +100,7 @@ def main():
             target_mask = cv2.imread(target_path, cv2.IMREAD_GRAYSCALE)
             target_h, target_w = target_mask.shape
         else:
+            target_mask = None
             target_h, target_w = 512, 512
             
         camera_intrinsics = {
@@ -106,38 +113,72 @@ def main():
         cam_look = np.array(cam_info['look_at'], dtype=float)
         cam_up = np.array(cam_info['up_vector'], dtype=float)
         
-        # Render untransformed
         img = render_silhouette(helmet_mesh, cam_pos, cam_look, cam_up, camera_intrinsics)
         
-        # Fit bounding box to target mask
-        if os.path.exists(target_path):
+        best_img = img
+        best_angle = 0
+        best_iou = -1
+        
+        if target_mask is not None:
             y_tgt, x_tgt = np.where(target_mask > 0)
-            y_proj, x_proj = np.where(img > 0)
-            
-            if len(y_tgt) > 0 and len(y_proj) > 0:
-                tgt_w = np.max(x_tgt) - np.min(x_tgt)
-                tgt_h = np.max(y_tgt) - np.min(y_tgt)
+            if len(y_tgt) > 0:
                 tgt_cx = float((np.max(x_tgt) + np.min(x_tgt)) / 2.0)
                 tgt_cy = float((np.max(y_tgt) + np.min(y_tgt)) / 2.0)
+                tgt_w_box = np.max(x_tgt) - np.min(x_tgt)
+                tgt_h_box = np.max(y_tgt) - np.min(y_tgt)
                 
-                proj_w = np.max(x_proj) - np.min(x_proj)
-                proj_h = np.max(y_proj) - np.min(y_proj)
-                proj_cx = float((np.max(x_proj) + np.min(x_proj)) / 2.0)
-                proj_cy = float((np.max(y_proj) + np.min(y_proj)) / 2.0)
-                
-                scale = float(min(tgt_w / max(1, proj_w), tgt_h / max(1, proj_h)) * 0.95)
-                
-                M = cv2.getRotationMatrix2D((proj_cx, proj_cy), 0, scale)
-                M[0, 2] += (tgt_cx - proj_cx)
-                M[1, 2] += (tgt_cy - proj_cy)
-                
-                img = cv2.warpAffine(img, M, (target_w, target_h), flags=cv2.INTER_NEAREST)
-        
+                # Extract 3D mask bounding box
+                y_proj, x_proj = np.where(img > 0)
+                if len(y_proj) > 0:
+                    min_x, max_x = np.min(x_proj), np.max(x_proj)
+                    min_y, max_y = np.min(y_proj), np.max(y_proj)
+                    cropped_img = img[min_y:max_y+1, min_x:max_x+1]
+                    
+                    rot_crop = cropped_img
+                    rh, rw = rot_crop.shape
+                    
+                    # Scale to match target bounding box
+                    scale = float(min(tgt_w_box / max(1, rw), tgt_h_box / max(1, rh)) * 0.95)
+                    new_w, new_h = int(rw * scale), int(rh * scale)
+                    if new_w > 0 and new_h > 0:
+                        scaled_crop = cv2.resize(rot_crop, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+                        
+                        # Paste into empty image centered at tgt_cx, tgt_cy
+                        test_img = np.zeros((target_h, target_w), dtype=np.uint8)
+                        
+                        start_x = int(tgt_cx - new_w / 2.0)
+                        start_y = int(tgt_cy - new_h / 2.0)
+                        end_x = start_x + new_w
+                        end_y = start_y + new_h
+                        
+                        # Clip bounds
+                        src_sx = max(0, -start_x)
+                        src_sy = max(0, -start_y)
+                        dst_sx = max(0, start_x)
+                        dst_sy = max(0, start_y)
+                        
+                        src_ex = new_w - max(0, end_x - target_w)
+                        src_ey = new_h - max(0, end_y - target_h)
+                        dst_ex = min(target_w, end_x)
+                        dst_ey = min(target_h, end_y)
+                        
+                        if dst_ex > dst_sx and dst_ey > dst_sy:
+                            test_img[dst_sy:dst_ey, dst_sx:dst_ex] = scaled_crop[src_sy:src_ey, src_sx:src_ex]
+                            
+                        best_iou = get_iou(test_img, target_mask)
+                        best_img = test_img
+                        best_angle = 0
+                            
         proj_file = f"proj_{cam_name}.png"
         out_path = os.path.join(results_dir, proj_file)
-        cv2.imwrite(out_path, img)
+        cv2.imwrite(out_path, best_img)
         
-        out_dict[cam_name] = proj_file
+        out_dict[cam_name] = {
+            "file": proj_file,
+            "rotation_applied": best_angle,
+            "iou_score": float(best_iou)
+        }
+        print(f"  Best angle for {cam_name}: {best_angle}° (IoU: {best_iou:.3f})")
         
     result_file = os.path.join(results_dir, 'step04_result.json')
     with open(result_file, 'w') as f:
