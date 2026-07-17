@@ -6,16 +6,6 @@ import cv2
 from stl import mesh
 import argparse
 
-def get_transform_matrix(tx, ty, tz, rx_deg, ry_deg, rz_deg, scale=1.0):
-    from scipy.spatial.transform import Rotation
-    R = Rotation.from_euler('xyz', [rx_deg, ry_deg, rz_deg], degrees=True).as_matrix()
-    T = np.eye(4)
-    T[:3, :3] = R * scale
-    T[0, 3] = tx
-    T[1, 3] = ty
-    T[2, 3] = tz
-    return T
-
 def project_points_vectorized(points, cam_pos, cam_look, cam_up, focal_length, w, h):
     Z = cam_look - cam_pos
     norm_Z = np.linalg.norm(Z)
@@ -34,8 +24,7 @@ def project_points_vectorized(points, cam_pos, cam_look, cam_up, focal_length, w
     R = np.vstack([X, Y, Z])
     t = -R @ cam_pos
     
-    # points: (N, 3)
-    p_cam = (R @ points.T).T + t # (N, 3)
+    p_cam = (R @ points.T).T + t
     
     valid = p_cam[:, 2] > 0
     u = np.zeros(len(points))
@@ -47,20 +36,13 @@ def project_points_vectorized(points, cam_pos, cam_look, cam_up, focal_length, w
     
     return u, v, valid
 
-def render_silhouette(stl_mesh, T_model, cam_pos, cam_look, cam_up, camera_intrinsics):
+def render_silhouette(stl_mesh, cam_pos, cam_look, cam_up, camera_intrinsics):
     w = camera_intrinsics['image_width_px']
     h = camera_intrinsics['image_height_px']
     f = camera_intrinsics['focal_length_px']
     
     vertices = stl_mesh.vectors.reshape(-1, 3)
-    if not np.allclose(T_model, np.eye(4)):
-        ones = np.ones((vertices.shape[0], 1))
-        vertices_4d = np.hstack([vertices, ones])
-        transformed = (T_model @ vertices_4d.T).T[:, :3]
-    else:
-        transformed = vertices
-        
-    res = project_points_vectorized(transformed, cam_pos, cam_look, cam_up, f, w, h)
+    res = project_points_vectorized(vertices, cam_pos, cam_look, cam_up, f, w, h)
     
     img = np.zeros((h, w), dtype=np.uint8)
     if res is None: return img
@@ -96,20 +78,6 @@ def main():
     helmet_mesh = mesh.Mesh.from_file(stl_path)
     print(f"Loaded STL with {len(helmet_mesh.vectors)} triangles")
     
-    align_file = os.path.join(results_dir, 'step02_result.json')
-    if not os.path.exists(align_file):
-        print("Error: step02_result.json not found!")
-        sys.exit(1)
-        
-    with open(align_file, 'r') as f:
-        align_data = json.load(f)
-        
-    T_align = get_transform_matrix(
-        align_data['tx'], align_data['ty'], align_data['tz'],
-        align_data['rx'], align_data['ry'], align_data['rz'],
-        align_data['scale']
-    )
-    
     cameras = {
         "back": { "position_mm": [0, 2500, 0], "look_at": [0, 0, 0], "up_vector": [0, 0, 1] },
         "left": { "position_mm": [1650, 0, 0], "look_at": [0, 0, 0], "up_vector": [0, 0, 1] },
@@ -121,7 +89,6 @@ def main():
     for cam_name, cam_info in cameras.items():
         print(f"Projecting {cam_name}...")
         
-        # Load target mask to match dimensions
         target_path = os.path.join(results_dir, f"solid_{cam_name}.png")
         if os.path.exists(target_path):
             target_mask = cv2.imread(target_path, cv2.IMREAD_GRAYSCALE)
@@ -132,20 +99,17 @@ def main():
         camera_intrinsics = {
             "image_width_px": target_w,
             "image_height_px": target_h,
-            "focal_length_px": max(target_w, target_h) * 2.0  # approximate focal length
+            "focal_length_px": max(target_w, target_h) * 2.0
         }
         
-        cam_pos_4d = np.array([cam_info['position_mm'][0], cam_info['position_mm'][1], cam_info['position_mm'][2], 1.0])
-        cam_look_4d = np.array([cam_info['look_at'][0], cam_info['look_at'][1], cam_info['look_at'][2], 1.0])
-        cam_up_3d = np.array(cam_info['up_vector'], dtype=float)
+        cam_pos = np.array(cam_info['position_mm'], dtype=float)
+        cam_look = np.array(cam_info['look_at'], dtype=float)
+        cam_up = np.array(cam_info['up_vector'], dtype=float)
         
-        cam_pos_transformed = (T_align @ cam_pos_4d)[:3]
-        cam_look_transformed = (T_align @ cam_look_4d)[:3]
-        cam_up_transformed = T_align[:3, :3] @ cam_up_3d
+        # Render untransformed
+        img = render_silhouette(helmet_mesh, cam_pos, cam_look, cam_up, camera_intrinsics)
         
-        img = render_silhouette(helmet_mesh, np.eye(4), cam_pos_transformed, cam_look_transformed, cam_up_transformed, camera_intrinsics)
-        
-        # Dynamically scale 3D projection to match target mask bounding box
+        # Fit bounding box to target mask
         if os.path.exists(target_path):
             y_tgt, x_tgt = np.where(target_mask > 0)
             y_proj, x_proj = np.where(img > 0)
@@ -161,7 +125,7 @@ def main():
                 proj_cx = float((np.max(x_proj) + np.min(x_proj)) / 2.0)
                 proj_cy = float((np.max(y_proj) + np.min(y_proj)) / 2.0)
                 
-                scale = float(min(tgt_w / max(1, proj_w), tgt_h / max(1, proj_h)) * 0.95) # slightly smaller
+                scale = float(min(tgt_w / max(1, proj_w), tgt_h / max(1, proj_h)) * 0.95)
                 
                 M = cv2.getRotationMatrix2D((proj_cx, proj_cy), 0, scale)
                 M[0, 2] += (tgt_cx - proj_cx)
