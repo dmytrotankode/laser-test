@@ -14,6 +14,22 @@ def main():
     results_dir = os.path.join(base_dir, 'results', args.session)
     os.makedirs(results_dir, exist_ok=True)
     
+    # Load step 2 (for world transform)
+    step02_file = os.path.join(results_dir, 'step02_result.json')
+    tx, ty, tz, rx, ry, rz = 0, 0, 0, 0, 0, 0
+    if os.path.exists(step02_file):
+        with open(step02_file, 'r') as f:
+            step02 = json.load(f)
+            tx, ty, tz = step02.get('tx', 0), step02.get('ty', 0), step02.get('tz', 0)
+            rx, ry, rz = step02.get('rx', 0), step02.get('ry', 0), step02.get('rz', 0)
+            
+    rx_rad, ry_rad, rz_rad = np.radians(rx), np.radians(ry), np.radians(rz)
+    Rx = np.array([[1, 0, 0], [0, np.cos(rx_rad), -np.sin(rx_rad)], [0, np.sin(rx_rad), np.cos(rx_rad)]])
+    Ry = np.array([[np.cos(ry_rad), 0, np.sin(ry_rad)], [0, 1, 0], [-np.sin(ry_rad), 0, np.cos(ry_rad)]])
+    Rz = np.array([[np.cos(rz_rad), -np.sin(rz_rad), 0], [np.sin(rz_rad), np.cos(rz_rad), 0], [0, 0, 1]])
+    R_align = Rz @ Ry @ Rx
+    t_align = np.array([tx, ty, tz])
+    
     # Load step 5
     step5_file = os.path.join(results_dir, 'step05_result.json')
     step5_data = {}
@@ -63,12 +79,17 @@ def main():
                 rot_rad = np.radians(-rot)
                 R = Rotation.from_rotvec(rot_rad * Z_cam).as_matrix()
                 up = R @ up
+                
+        # Transform to world coordinates (robot cell)
+        world_pos = R_align @ pos + t_align
+        world_look = R_align @ look + t_align
+        world_up = R_align @ up
         
-        dist = np.linalg.norm(pos - look)
+        dist = np.linalg.norm(world_pos - world_look)
         results["cameras"][cam] = {
-            "pos": pos.tolist(),
-            "look_at": look.tolist(),
-            "up_vector": up.tolist(),
+            "pos": world_pos.tolist(),
+            "look_at": world_look.tolist(),
+            "up_vector": world_up.tolist(),
             "distance": float(dist)
         }
         
