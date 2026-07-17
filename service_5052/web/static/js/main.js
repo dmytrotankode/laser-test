@@ -384,11 +384,13 @@ function handleStep04Result(data) {
     panel.innerHTML = `<h3>Проекція масок з 3D-моделі</h3><div style="display:flex; justify-content:space-around;"></div>`;
     const row = panel.querySelector('div');
     
-    for (const [cam, file] of Object.entries(data)) {
-        addMetric(`3D Проекція (${cam})`, file);
+    for (const [cam, info] of Object.entries(data)) {
+        addMetric(`3D Проекція (${cam})`, info.file);
+        addMetric(`Поворот маски (${cam})`, `${info.rotation_applied}°`);
+        addMetric(`IoU Збіг (${cam})`, `${(info.iou_score * 100).toFixed(1)}%`);
         
         const img = document.createElement('img');
-        img.src = `/files/${currentSessionId}/${file}?t=${Date.now()}`;
+        img.src = `/files/${currentSessionId}/${info.file}?t=${Date.now()}`;
         img.style.width = "30%";
         img.title = cam;
         img.style.background = "#fff"; // masks are white on transparent usually
