@@ -71,10 +71,11 @@ def main():
                 
                 Y_cam = np.cross(Z_cam, X_cam)
                 
-                dp = (du * Z_dist / focal) * X_cam + (dv * Z_dist / focal) * Y_cam + Z_dist * (scale - 1) * Z_cam
+                dp_lateral = (du * Z_dist / focal) * X_cam + (dv * Z_dist / focal) * Y_cam
+                dp_z = Z_dist * (scale - 1) * Z_cam
                 
-                pos = pos - dp
-                look = look - dp
+                pos = pos - dp_lateral - dp_z
+                look = look - dp_lateral
                 
                 rot_rad = np.radians(-rot)
                 R = Rotation.from_rotvec(rot_rad * Z_cam).as_matrix()
