@@ -296,9 +296,9 @@ function handleStep02Result(data) {
     addMetric("Масштаб", data.scale.toFixed(4));
     addMetric("Відхилення (Cost)", data.cost.toFixed(4));
     
-    addMetric("Позиція камери (Сзади)", `Pos: (${(data.tx + 800).toFixed(0)}, ${data.ty.toFixed(0)}, ${data.tz.toFixed(0)}), Up: (0, 0, -1)`);
-    addMetric("Позиція камери (Слева)", `Pos: (${data.tx.toFixed(0)}, ${(data.ty + 800).toFixed(0)}, ${data.tz.toFixed(0)}), Up: (0, 0, -1)`);
-    addMetric("Позиція камери (Сверху)", `Pos: (${data.tx.toFixed(0)}, ${data.ty.toFixed(0)}, ${(data.tz - 800).toFixed(0)}), Up: (0, -1, 0)`);
+    addMetric("Позиція камери (Сзади)", `Pos: (${(data.tx + 450).toFixed(0)}, ${data.ty.toFixed(0)}, ${data.tz.toFixed(0)}), Up: (0, 0, -1)`);
+    addMetric("Позиція камери (Слева)", `Pos: (${data.tx.toFixed(0)}, ${(data.ty + 450).toFixed(0)}, ${data.tz.toFixed(0)}), Up: (0, 0, -1)`);
+    addMetric("Позиція камери (Сверху)", `Pos: (${data.tx.toFixed(0)}, ${data.ty.toFixed(0)}, ${(data.tz - 450).toFixed(0)}), Up: (0, -1, 0)`);
     
     step02GlobalData = data; // Save for later steps!
     
@@ -331,9 +331,9 @@ function handleStep02Result(data) {
             const oldUp = camera.up.clone();
 
             const views = [
-                { name: 'Сзади', pos: [data.tx + 800, data.ty, data.tz], up: [0, 0, -1] },
-                { name: 'Слева', pos: [data.tx, data.ty + 800, data.tz], up: [0, 0, -1] },
-                { name: 'Сверху', pos: [data.tx, data.ty, data.tz - 800], up: [0, -1, 0] }
+                { name: 'Сзади', pos: [data.tx + 450, data.ty, data.tz], up: [0, 0, -1] },
+                { name: 'Слева', pos: [data.tx, data.ty + 450, data.tz], up: [0, 0, -1] },
+                { name: 'Сверху', pos: [data.tx, data.ty, data.tz - 450], up: [0, -1, 0] }
             ];
 
             const panel = document.createElement('div');
@@ -501,7 +501,7 @@ function handleStep02Result(data) {
     btnBack.innerText = 'Сзади (Back)';
     btnBack.onclick = () => {
         // Assuming +X is left
-        if (visCont.setCameraView) visCont.setCameraView([data.tx + 800, data.ty, data.tz], [data.tx, data.ty, data.tz], [0, 0, -1]);
+        if (visCont.setCameraView) visCont.setCameraView([data.tx + 450, data.ty, data.tz], [data.tx, data.ty, data.tz], [0, 0, -1]);
     };
     btnRow.appendChild(btnBack);
     
@@ -510,7 +510,7 @@ function handleStep02Result(data) {
     btnLeft.innerText = 'Слева (Left)';
     btnLeft.onclick = () => {
         // If Y is forward, then back is +Y or -Y? Assuming +Y is back.
-        if (visCont.setCameraView) visCont.setCameraView([data.tx, data.ty + 800, data.tz], [data.tx, data.ty, data.tz], [0, 0, -1]);
+        if (visCont.setCameraView) visCont.setCameraView([data.tx, data.ty + 450, data.tz], [data.tx, data.ty, data.tz], [0, 0, -1]);
     };
     btnRow.appendChild(btnLeft);
     
@@ -518,7 +518,7 @@ function handleStep02Result(data) {
     const btnTop = document.createElement('button');
     btnTop.innerText = 'Сверху (Top)';
     btnTop.onclick = () => {
-        if (visCont.setCameraView) visCont.setCameraView([data.tx, data.ty, data.tz - 800], [data.tx, data.ty, data.tz], [0, -1, 0]);
+        if (visCont.setCameraView) visCont.setCameraView([data.tx, data.ty, data.tz - 450], [data.tx, data.ty, data.tz], [0, -1, 0]);
     };
     btnRow.appendChild(btnTop);
     
