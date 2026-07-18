@@ -365,15 +365,16 @@ function handleStep02Result(data) {
     btnRow.style.marginBottom = '10px';
     btnRow.style.justifyContent = 'center';
     
-    // Сверху
-    const btnTop = document.createElement('button');
-    btnTop.innerText = 'Сверху (Top)';
-    btnTop.onclick = () => {
-        if (visCont.setCameraView) visCont.setCameraView([data.tx, data.ty, data.tz - 800], [data.tx, data.ty, data.tz], [0, -1, 0]);
+    // Сзади (Back)
+    const btnBack = document.createElement('button');
+    btnBack.innerText = 'Сзади (Back)';
+    btnBack.onclick = () => {
+        // Assuming +X is left
+        if (visCont.setCameraView) visCont.setCameraView([data.tx + 800, data.ty, data.tz], [data.tx, data.ty, data.tz], [0, 0, -1]);
     };
-    btnRow.appendChild(btnTop);
+    btnRow.appendChild(btnBack);
     
-    // Слева (Left) -> was Back
+    // Слева (Left)
     const btnLeft = document.createElement('button');
     btnLeft.innerText = 'Слева (Left)';
     btnLeft.onclick = () => {
@@ -382,14 +383,13 @@ function handleStep02Result(data) {
     };
     btnRow.appendChild(btnLeft);
     
-    // Сзади (Back) -> was Left
-    const btnBack = document.createElement('button');
-    btnBack.innerText = 'Сзади (Back)';
-    btnBack.onclick = () => {
-        // Assuming +X is left
-        if (visCont.setCameraView) visCont.setCameraView([data.tx + 800, data.ty, data.tz], [data.tx, data.ty, data.tz], [0, 0, -1]);
+    // Сверху (Top)
+    const btnTop = document.createElement('button');
+    btnTop.innerText = 'Сверху (Top)';
+    btnTop.onclick = () => {
+        if (visCont.setCameraView) visCont.setCameraView([data.tx, data.ty, data.tz - 800], [data.tx, data.ty, data.tz], [0, -1, 0]);
     };
-    btnRow.appendChild(btnBack);
+    btnRow.appendChild(btnTop);
     
     visCont.insertBefore(btnRow, visCont.children[1]); // Insert under the title
     
