@@ -170,9 +170,9 @@ def main():
         overlap[only_model] = c_model
         overlap[both] = c_both
         
-        cv2.putText(overlap, f"BLUE: Etalon (s={scale:.2f}, r={rot:.1f})", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 2, c_etalon, 4)
-        cv2.putText(overlap, "ORANGE: 3D Model", (50, 180), cv2.FONT_HERSHEY_SIMPLEX, 2, c_model, 4)
-        cv2.putText(overlap, "GREEN: Match", (50, 260), cv2.FONT_HERSHEY_SIMPLEX, 2, c_both, 4)
+        cv2.putText(overlap, f"BLUE: Etalon (s={scale:.2f}, r={rot:.1f})", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, c_etalon, 2)
+        cv2.putText(overlap, "ORANGE: 3D Model", (20, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.8, c_model, 2)
+        cv2.putText(overlap, "GREEN: Match", (20, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.8, c_both, 2)
         
         out_path = os.path.join(results_dir, f'overlap_{cam}.png')
         is_success, im_buf_arr = cv2.imencode(".png", overlap)

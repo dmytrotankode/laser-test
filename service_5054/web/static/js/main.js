@@ -707,7 +707,10 @@ function handleStep04Result(data) {
     panel.innerHTML = `<h3>Накладення масок 3D-моделі на маски еталона (2D Fit)</h3><div style="display:flex; justify-content:space-around;"></div>`;
     const row = panel.querySelector('div');
     
-    for (const [cam, info] of Object.entries(data)) {
+    const order = ['Сзади', 'Слева', 'Сверху'];
+    for (const cam of order) {
+        if (!data[cam]) continue;
+        const info = data[cam];
         addMetric(`Зсув ${cam} (X, Y)`, `dx: ${info.du.toFixed(2)}px, dy: ${info.dv.toFixed(2)}px`);
         addMetric(`Масштаб ${cam}`, info.scale.toFixed(3));
         addMetric(`Поворот ${cam}`, `${info.rot.toFixed(2)}°`);
