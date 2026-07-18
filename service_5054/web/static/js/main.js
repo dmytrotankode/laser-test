@@ -81,7 +81,7 @@ function initThreeScene(container, pointSets, stlOptions = null, sceneOptions = 
 
     const camera = new THREE.PerspectiveCamera(45, container.clientWidth / 300, 0.1, 10000);
     camera.up.set(0, 0, -1); // Z is down in robot space, so -Z is UP on screen
-    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: true });
     renderer.setSize(container.clientWidth, 300);
     container.appendChild(renderer.domElement);
 
@@ -394,6 +394,7 @@ function handleStep02Result(data) {
                 img.src = dataURL;
                 img.style.width = '100%';
                 img.style.marginBottom = '5px';
+                img.style.background = '#000';
                 
                 const label = document.createElement('div');
                 label.innerText = v.name;
