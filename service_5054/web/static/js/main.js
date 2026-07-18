@@ -80,6 +80,7 @@ function initThreeScene(container, pointSets, stlOptions = null, sceneOptions = 
     }
 
     const camera = new THREE.PerspectiveCamera(45, container.clientWidth / 300, 0.1, 10000);
+    camera.up.set(0, 0, 1);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(container.clientWidth, 300);
     container.appendChild(renderer.domElement);
@@ -175,9 +176,9 @@ function initThreeScene(container, pointSets, stlOptions = null, sceneOptions = 
     if (allPoints.length > 0) {
         center.divideScalar(totalPoints);
         controls.target.copy(center);
-        camera.position.set(center.x, center.y - 400, center.z + 200);
+        camera.position.set(center.x + 800, center.y + 800, center.z + 800);
     } else {
-        camera.position.set(0, -400, 200);
+        camera.position.set(800, 800, 800);
     }
     
     controls.update();
@@ -303,6 +304,38 @@ function handleStep02Result(data) {
         color: 0x888888,
         opacity: 0.5 // Made 50% transparent
     });
+    
+    const btnRow = document.createElement('div');
+    btnRow.style.display = 'flex';
+    btnRow.style.gap = '10px';
+    btnRow.style.marginBottom = '10px';
+    btnRow.style.justifyContent = 'center';
+    
+    // Сверху
+    const btnTop = document.createElement('button');
+    btnTop.innerText = 'Сверху (Top)';
+    btnTop.onclick = () => {
+        if (visCont.setCameraView) visCont.setCameraView([data.tx, data.ty, data.tz + 800], [data.tx, data.ty, data.tz], [0, 1, 0]);
+    };
+    btnRow.appendChild(btnTop);
+    
+    // Сзади
+    const btnBack = document.createElement('button');
+    btnBack.innerText = 'Сзади (Back)';
+    btnBack.onclick = () => {
+        if (visCont.setCameraView) visCont.setCameraView([data.tx, data.ty + 800, data.tz], [data.tx, data.ty, data.tz], [0, 0, 1]);
+    };
+    btnRow.appendChild(btnBack);
+    
+    // Слева
+    const btnLeft = document.createElement('button');
+    btnLeft.innerText = 'Слева (Left)';
+    btnLeft.onclick = () => {
+        if (visCont.setCameraView) visCont.setCameraView([data.tx + 800, data.ty, data.tz], [data.tx, data.ty, data.tz], [0, 0, 1]);
+    };
+    btnRow.appendChild(btnLeft);
+    
+    visCont.insertBefore(btnRow, visCont.children[1]); // Insert under the title
     
     // Enable Step 3
     document.getElementById('btn-step03').disabled = false;
