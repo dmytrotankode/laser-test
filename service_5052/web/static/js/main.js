@@ -571,7 +571,7 @@ async function startAutoRun() {
         }
         
         // Are any steps currently running?
-        const isRunning = [1,2,3,4,5,6,7].some(i => {
+        const isRunning = [1,2,3,4,5,6].some(i => {
             const btn = document.getElementById(i < 3 ? 'btn-run-0' + i : 'btn-step0' + i);
             return btn && btn.innerText.includes('Обробка');
         });
@@ -579,7 +579,7 @@ async function startAutoRun() {
         if (isRunning) return; // Wait for current step to finish
         
         // Find next step to run
-        for (let i = 1; i <= 7; i++) {
+        for (let i = 1; i <= 6; i++) {
             const btn = document.getElementById(i < 3 ? 'btn-run-0' + i : 'btn-step0' + i);
             if (btn && !btn.disabled && btn.innerText.includes('Виконати')) {
                 btn.click();
@@ -588,7 +588,7 @@ async function startAutoRun() {
         }
         
         // Check if all done
-        const allDone = [1,2,3,4,5,6,7].every(i => {
+        const allDone = [1,2,3,4,5,6].every(i => {
             const btn = document.getElementById(i < 3 ? 'btn-run-0' + i : 'btn-step0' + i);
             return btn && (btn.innerText.includes('Виконано') || btn.innerText.includes('Готово'));
         });
