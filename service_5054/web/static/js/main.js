@@ -359,7 +359,7 @@ function handleStep02Result(data) {
             renderer.setClearColor(0x000000, 0);
 
             views.forEach(v => {
-                container.setCameraView(v.pos, [data.tx, data.ty, data.tz], v.up);
+                container.setCameraView(v.pos, [cx, cy, cz], v.up);
                 renderer.render(scene, camera);
                 const dataURL = renderer.domElement.toDataURL('image/png');
                 
