@@ -126,6 +126,7 @@ function initThreeScene(container, pointSets, stlOptions = null, sceneOptions = 
         loader.load(stlOptions.url, function (geom) {
             const mat = new THREE.MeshPhongMaterial({ color: stlOptions.color || 0x888888, specular: 0x111111, shininess: 50, transparent: true, opacity: stlOptions.opacity || 0.9, side: stlOptions.side || THREE.FrontSide });
             const mesh = new THREE.Mesh(geom, mat);
+            mesh.name = 'stl_mesh';
             
             // set transform
             mesh.position.set(stlOptions.tx, stlOptions.ty, stlOptions.tz);
@@ -346,6 +347,15 @@ function handleStep02Result(data) {
         if (visCont.toggleObject) visCont.toggleObject('stl_rim', e.target.checked);
     };
     toggleRow.appendChild(lblRim);
+    
+    // STL Mesh (Helmet)
+    const lblMesh = document.createElement('label');
+    lblMesh.style.cursor = 'pointer';
+    lblMesh.innerHTML = `<input type="checkbox" checked> 3D Шолом`;
+    lblMesh.querySelector('input').onchange = (e) => {
+        if (visCont.toggleObject) visCont.toggleObject('stl_mesh', e.target.checked);
+    };
+    toggleRow.appendChild(lblMesh);
 
     visCont.insertBefore(toggleRow, visCont.children[1]); // Insert under the title
     
