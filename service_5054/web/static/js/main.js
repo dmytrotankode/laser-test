@@ -446,6 +446,11 @@ function handleStep03Result(data) {
     panelMasks.innerHTML = `<h3>Однотонні маски еталона</h3><div style="display:flex; justify-content:space-around;"></div>`;
     const rowMasks = panelMasks.querySelector('div');
     
+    const panelOverlay = document.createElement('div');
+    panelOverlay.className = 'vis-panel';
+    panelOverlay.innerHTML = `<h3>Накладення маски на оригінал</h3><div style="display:flex; justify-content:space-around;"></div>`;
+    const rowOverlay = panelOverlay.querySelector('div');
+    
     for (const [cam, info] of Object.entries(data)) {
         addMetric(`Фото ${cam} (Обрізане)`, info.rgba_path);
         addMetric(`Фото ${cam} (Маска)`, info.solid_path);
@@ -470,11 +475,36 @@ function handleStep03Result(data) {
         img2.style.width = "30%";
         img2.title = cam;
         rowMasks.appendChild(img2);
+        
+        // Add to overlay UI
+        const overlayCont = document.createElement('div');
+        overlayCont.style.position = 'relative';
+        overlayCont.style.width = '30%';
+        overlayCont.title = cam;
+        
+        const imgBg = document.createElement('img');
+        imgBg.src = `/input/photos_etalon/${cam}.png`;
+        imgBg.style.width = '100%';
+        imgBg.style.display = 'block';
+        
+        const imgFg = document.createElement('img');
+        imgFg.src = `/files/${currentSessionId}/${info.solid_file}?t=${Date.now()}`;
+        imgFg.style.position = 'absolute';
+        imgFg.style.top = '0';
+        imgFg.style.left = '0';
+        imgFg.style.width = '100%';
+        imgFg.style.height = '100%';
+        imgFg.style.opacity = '0.5';
+        
+        overlayCont.appendChild(imgBg);
+        overlayCont.appendChild(imgFg);
+        rowOverlay.appendChild(overlayCont);
     }
     
     visZone.appendChild(panelOriginal);
     visZone.appendChild(panelCropped);
     visZone.appendChild(panelMasks);
+    visZone.appendChild(panelOverlay);
 }
 
 
