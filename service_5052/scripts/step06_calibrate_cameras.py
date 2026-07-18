@@ -14,7 +14,7 @@ def main():
     results_dir = os.path.join(base_dir, 'results', args.session)
     os.makedirs(results_dir, exist_ok=True)
     
-    # Load step 2 (for world transform)
+    # Load step 2 (for world transform, to know where the camera is looking)
     step02_file = os.path.join(results_dir, 'step02_result.json')
     tx, ty, tz, rx, ry, rz = 0, 0, 0, 0, 0, 0
     if os.path.exists(step02_file):
@@ -23,11 +23,6 @@ def main():
             tx, ty, tz = step02.get('tx', 0), step02.get('ty', 0), step02.get('tz', 0)
             rx, ry, rz = step02.get('rx', 0), step02.get('ry', 0), step02.get('rz', 0)
             
-    rx_rad, ry_rad, rz_rad = np.radians(rx), np.radians(ry), np.radians(rz)
-    Rx = np.array([[1, 0, 0], [0, np.cos(rx_rad), -np.sin(rx_rad)], [0, np.sin(rx_rad), np.cos(rx_rad)]])
-    Ry = np.array([[np.cos(ry_rad), 0, np.sin(ry_rad)], [0, 1, 0], [-np.sin(ry_rad), 0, np.cos(ry_rad)]])
-    Rz = np.array([[np.cos(rz_rad), -np.sin(rz_rad), 0], [np.sin(rz_rad), np.cos(rz_rad), 0], [0, 0, 1]])
-    R_align = Rz @ Ry @ Rx
     t_align = np.array([tx, ty, tz])
     
     # Load step 5
@@ -40,9 +35,9 @@ def main():
         step5_data = json.load(f)
         
     cameras = {
-        "back": { "position_mm": [0, 2500, 0], "look_at": [0, 0, 0], "up_vector": [0, 0, 1], "w": 512, "h": 512, "focal": 1024.0 },
-        "left": { "position_mm": [1650, 0, 0], "look_at": [0, 0, 0], "up_vector": [0, 0, 1], "w": 512, "h": 512, "focal": 1024.0 },
-        "top": { "position_mm": [0, 0, 2000], "look_at": [0, 0, 0], "up_vector": [-1, 0, 0], "w": 512, "h": 512, "focal": 1024.0 }
+        "back": { "position_mm": [0, 2500, 0], "up_vector": [0, 0, 1], "w": 512, "h": 512, "focal": 1024.0 },
+        "left": { "position_mm": [1650, 0, 0], "up_vector": [0, 0, 1], "w": 512, "h": 512, "focal": 1024.0 },
+        "top": { "position_mm": [0, 0, 2000], "up_vector": [-1, 0, 0], "w": 512, "h": 512, "focal": 1024.0 }
     }
     
     results = {
@@ -56,9 +51,9 @@ def main():
         if cam in cameras:
             cam_def = cameras[cam]
             
-            # Theoretical local positions
+            # Theoretical WORLD positions
             pos = np.array(cam_def['position_mm'], dtype=float)
-            look = np.array(cam_def['look_at'], dtype=float)
+            look = t_align # The camera looks at the helmet
             up = np.array(cam_def['up_vector'], dtype=float)
             focal = cam_def['focal']
             
@@ -86,25 +81,20 @@ def main():
                 dp_lateral = (du * Z_dist / focal) * X_cam + (dv * Z_dist / focal) * Y_cam
                 dp_z = Z_dist * (scale - 1) * Z_cam
                 
-                # Calibrated local positions (relative to helmet)
+                # Calibrated WORLD positions
                 pos = pos - dp_lateral - dp_z
                 look = look - dp_lateral
                 
                 rot_rad = np.radians(-rot)
                 R = Rotation.from_rotvec(rot_rad * Z_cam).as_matrix()
                 up = R @ up
-                
-        # Transform to absolute world coordinates (robot cell)
-        world_pos = R_align @ pos + t_align
-        world_look = R_align @ look + t_align
-        world_up = R_align @ up
         
-        dist = np.linalg.norm(world_pos - world_look)
+        dist = np.linalg.norm(pos - look)
         
         results["cameras"][cam] = {
-            "pos": world_pos.tolist(),
-            "look_at": world_look.tolist(),
-            "up_vector": world_up.tolist(),
+            "pos": pos.tolist(),
+            "look_at": look.tolist(),
+            "up_vector": up.tolist(),
             "distance": float(dist)
         }
         
