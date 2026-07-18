@@ -452,7 +452,7 @@ function handleStep03Result(data) {
         
         // Add to original UI
         const img0 = document.createElement('img');
-        img0.src = `/input/photos_ref/${cam}.png`;
+        img0.src = `/input/photos_etalon/${cam}.png`;
         img0.style.width = "30%";
         img0.title = cam;
         rowOriginal.appendChild(img0);
