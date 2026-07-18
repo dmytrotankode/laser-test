@@ -393,6 +393,9 @@ function handleStep02Result(data) {
     
     visCont.insertBefore(btnRow, visCont.children[1]); // Insert under the title
     
+    // Default to Back view
+    btnBack.click();
+    
     // Enable Step 3
     document.getElementById('btn-step03').disabled = false;
     document.getElementById('card-step03').classList.add('active');
