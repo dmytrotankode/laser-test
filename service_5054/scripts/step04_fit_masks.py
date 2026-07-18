@@ -118,14 +118,22 @@ def main():
             print(f"Error: Missing files for {cam}")
             continue
             
-        rgba_img = cv2.imread(rgba_path, cv2.IMREAD_UNCHANGED)
+        rgba_img = cv2.imdecode(np.fromfile(rgba_path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+        if rgba_img is None:
+            print(f"Error reading {rgba_path}")
+            continue
+            
         if rgba_img.shape[2] == 4:
             target_mask = rgba_img[:, :, 3]
         else:
             target_mask = cv2.cvtColor(rgba_img, cv2.COLOR_BGR2GRAY)
             _, target_mask = cv2.threshold(target_mask, 10, 255, cv2.THRESH_BINARY)
             
-        model_img = cv2.imread(model_mask_path, cv2.IMREAD_UNCHANGED)
+        model_img = cv2.imdecode(np.fromfile(model_mask_path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+        if model_img is None:
+            print(f"Error reading {model_mask_path}")
+            continue
+            
         if model_img.shape[2] == 4:
             proj_mask = model_img[:, :, 3]
         else:
@@ -167,7 +175,9 @@ def main():
         cv2.putText(overlap, "GREEN: Match", (50, 260), cv2.FONT_HERSHEY_SIMPLEX, 2, c_both, 4)
         
         out_path = os.path.join(results_dir, f'overlap_{cam}.png')
-        cv2.imwrite(out_path, overlap)
+        is_success, im_buf_arr = cv2.imencode(".png", overlap)
+        if is_success:
+            im_buf_arr.tofile(out_path)
         
         results[cam] = {
             "scale": float(scale),
