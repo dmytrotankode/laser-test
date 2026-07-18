@@ -139,6 +139,10 @@ function initThreeScene(container, pointSets, stlOptions = null, sceneOptions = 
             );
             mesh.scale.set(stlOptions.scale, stlOptions.scale, stlOptions.scale);
             
+            const box = new THREE.Box3().setFromObject(mesh);
+            const center = box.getCenter(new THREE.Vector3());
+            container.stlCenter = [center.x, center.y, center.z];
+            
             scene.add(mesh);
             if (stlOptions.onLoad) stlOptions.onLoad(container, scene, camera, renderer, controls);
         });
@@ -330,10 +334,14 @@ function handleStep02Result(data) {
             const oldTarget = controls.target.clone();
             const oldUp = camera.up.clone();
 
+            const cx = container.stlCenter[0];
+            const cy = container.stlCenter[1];
+            const cz = container.stlCenter[2];
+
             const views = [
-                { name: 'Сзади', pos: [data.tx + 450, data.ty, data.tz], up: [0, 0, -1] },
-                { name: 'Слева', pos: [data.tx, data.ty + 450, data.tz], up: [0, 0, -1] },
-                { name: 'Сверху', pos: [data.tx, data.ty, data.tz - 450], up: [0, -1, 0] }
+                { name: 'Сзади', pos: [cx + 450, cy, cz], up: [0, 0, -1] },
+                { name: 'Слева', pos: [cx, cy + 450, cz], up: [0, 0, -1] },
+                { name: 'Сверху', pos: [cx, cy, cz - 450], up: [0, -1, 0] }
             ];
 
             const panel = document.createElement('div');
@@ -428,15 +436,11 @@ function handleStep02Result(data) {
 
             scene.background = oldBg;
             
-            camera.position.copy(oldPos);
-            controls.target.copy(oldTarget);
-            camera.up.copy(oldUp);
-            camera.lookAt(oldTarget);
-            controls.update();
-
             scene.children.forEach((c, i) => {
                 c.visible = oldVisibles[i];
             });
+
+            container.setCameraView([cx + 450, cy, cz], [cx, cy, cz], [0, 0, -1]);
             renderer.render(scene, camera);
 
             // Append panels AFTER the vis-02-align block
@@ -500,8 +504,10 @@ function handleStep02Result(data) {
     const btnBack = document.createElement('button');
     btnBack.innerText = 'Сзади (Back)';
     btnBack.onclick = () => {
-        // Assuming +X is left
-        if (visCont.setCameraView) visCont.setCameraView([data.tx + 450, data.ty, data.tz], [data.tx, data.ty, data.tz], [0, 0, -1]);
+        const cx = visCont.stlCenter ? visCont.stlCenter[0] : data.tx;
+        const cy = visCont.stlCenter ? visCont.stlCenter[1] : data.ty;
+        const cz = visCont.stlCenter ? visCont.stlCenter[2] : data.tz;
+        if (visCont.setCameraView) visCont.setCameraView([cx + 450, cy, cz], [cx, cy, cz], [0, 0, -1]);
     };
     btnRow.appendChild(btnBack);
     
@@ -509,8 +515,10 @@ function handleStep02Result(data) {
     const btnLeft = document.createElement('button');
     btnLeft.innerText = 'Слева (Left)';
     btnLeft.onclick = () => {
-        // If Y is forward, then back is +Y or -Y? Assuming +Y is back.
-        if (visCont.setCameraView) visCont.setCameraView([data.tx, data.ty + 450, data.tz], [data.tx, data.ty, data.tz], [0, 0, -1]);
+        const cx = visCont.stlCenter ? visCont.stlCenter[0] : data.tx;
+        const cy = visCont.stlCenter ? visCont.stlCenter[1] : data.ty;
+        const cz = visCont.stlCenter ? visCont.stlCenter[2] : data.tz;
+        if (visCont.setCameraView) visCont.setCameraView([cx, cy + 450, cz], [cx, cy, cz], [0, 0, -1]);
     };
     btnRow.appendChild(btnLeft);
     
@@ -518,7 +526,10 @@ function handleStep02Result(data) {
     const btnTop = document.createElement('button');
     btnTop.innerText = 'Сверху (Top)';
     btnTop.onclick = () => {
-        if (visCont.setCameraView) visCont.setCameraView([data.tx, data.ty, data.tz - 450], [data.tx, data.ty, data.tz], [0, -1, 0]);
+        const cx = visCont.stlCenter ? visCont.stlCenter[0] : data.tx;
+        const cy = visCont.stlCenter ? visCont.stlCenter[1] : data.ty;
+        const cz = visCont.stlCenter ? visCont.stlCenter[2] : data.tz;
+        if (visCont.setCameraView) visCont.setCameraView([cx, cy, cz - 450], [cx, cy, cz], [0, -1, 0]);
     };
     btnRow.appendChild(btnTop);
     
