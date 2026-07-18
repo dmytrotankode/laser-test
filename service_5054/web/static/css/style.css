@@ -106,9 +106,10 @@ table {
 }
 
 table th, table td {
-    padding: 12px;
+    padding: 6px 10px;
     text-align: left;
     border-bottom: 1px solid #333;
+    font-size: 0.85rem;
 }
 
 table th {

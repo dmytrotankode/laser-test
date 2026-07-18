@@ -27,7 +27,7 @@ function addMetricGroup(title) {
     const table = document.getElementById('metrics-table');
     const tr = document.createElement('tr');
     tr.style.backgroundColor = '#1f1f1f';
-    tr.innerHTML = `<th colspan="2" style="text-align:center; padding:8px; border-bottom:1px solid #444; color:#00d2ff; font-weight:600;">${title}</th>`;
+    tr.innerHTML = `<th colspan="2" style="text-align:center; padding:5px; border-bottom:1px solid #444; color:#00d2ff; font-weight:600;">${title}</th>`;
     table.appendChild(tr);
 }
 
