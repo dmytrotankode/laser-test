@@ -91,7 +91,29 @@ def api_step02():
 def api_step03():
     return generic_step_api("step03_segment.py", request.args.get('session_id'), request.args.get('action'), "step03_result.json")
 
+import base64
 
+@app.route('/api/save_screenshot', methods=['POST'])
+def save_screenshot():
+    data = request.json
+    session_id = data.get('session_id')
+    filename = data.get('filename')
+    image_data = data.get('image_data')
+    
+    if not session_id or not filename or not image_data:
+        return jsonify({"error": "Missing parameters"}), 400
+        
+    try:
+        header, encoded = image_data.split(",", 1)
+        binary_data = base64.b64decode(encoded)
+        
+        filepath = os.path.join(RESULTS_DIR, session_id, filename)
+        with open(filepath, 'wb') as f:
+            f.write(binary_data)
+            
+        return jsonify({"status": "success", "path": filepath})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     print("Starting Service 5054...")

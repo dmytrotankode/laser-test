@@ -341,11 +341,51 @@ function handleStep02Result(data) {
             panel.innerHTML = `<h3>Скріншоти 3D моделі</h3><div style="display:flex; justify-content:space-around;"></div>`;
             const row = panel.querySelector('div');
 
+            const panelMasks = document.createElement('div');
+            panelMasks.className = 'vis-panel';
+            panelMasks.innerHTML = `<h3>Маски 3D моделі</h3><div style="display:flex; justify-content:space-around;"></div>`;
+            const rowMasks = panelMasks.querySelector('div');
+
+            const oldBg = scene.background;
+            scene.background = null;
+            renderer.setClearColor(0x000000, 0);
+
             views.forEach(v => {
                 container.setCameraView(v.pos, [data.tx, data.ty, data.tz], v.up);
                 renderer.render(scene, camera);
                 const dataURL = renderer.domElement.toDataURL('image/png');
                 
+                const canvas = document.createElement('canvas');
+                canvas.width = renderer.domElement.width;
+                canvas.height = renderer.domElement.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(renderer.domElement, 0, 0);
+                const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const px = imgData.data;
+                for (let i = 0; i < px.length; i += 4) {
+                    if (px[i+3] > 0) {
+                        px[i] = 255; px[i+1] = 255; px[i+2] = 255; px[i+3] = 255;
+                    }
+                }
+                ctx.putImageData(imgData, 0, 0);
+                const maskURL = canvas.toDataURL('image/png');
+
+                fetch('/api/save_screenshot', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: currentSessionId, filename: `model_shot_${v.name}.png`, image_data: dataURL })
+                });
+                
+                fetch('/api/save_screenshot', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: currentSessionId, filename: `model_mask_${v.name}.png`, image_data: maskURL })
+                });
+
+                addMetric(`Скріншот (${v.name})`, `/files/${currentSessionId}/model_shot_${v.name}.png`);
+                addMetric(`Маска (${v.name})`, `/files/${currentSessionId}/model_mask_${v.name}.png`);
+                
+                // Add screenshot to panel
                 const imgCont = document.createElement('div');
                 imgCont.style.width = '30%';
                 imgCont.style.textAlign = 'center';
@@ -363,8 +403,30 @@ function handleStep02Result(data) {
                 imgCont.appendChild(img);
                 imgCont.appendChild(label);
                 row.appendChild(imgCont);
+
+                // Add mask to panel
+                const maskCont = document.createElement('div');
+                maskCont.style.width = '30%';
+                maskCont.style.textAlign = 'center';
+                
+                const maskImg = document.createElement('img');
+                maskImg.src = maskURL;
+                maskImg.style.width = '100%';
+                maskImg.style.marginBottom = '5px';
+                maskImg.style.background = '#222';
+                
+                const maskLabel = document.createElement('div');
+                maskLabel.innerText = v.name;
+                maskLabel.style.fontSize = '0.9rem';
+                maskLabel.style.color = '#ccc';
+                
+                maskCont.appendChild(maskImg);
+                maskCont.appendChild(maskLabel);
+                rowMasks.appendChild(maskCont);
             });
 
+            scene.background = oldBg;
+            
             camera.position.copy(oldPos);
             controls.target.copy(oldTarget);
             camera.up.copy(oldUp);
@@ -376,7 +438,8 @@ function handleStep02Result(data) {
             });
             renderer.render(scene, camera);
 
-            // Append panel AFTER the vis-02-align block
+            // Append panels AFTER the vis-02-align block
+            container.parentNode.insertBefore(panelMasks, container.nextSibling);
             container.parentNode.insertBefore(panel, container.nextSibling);
         }
     });
