@@ -481,8 +481,80 @@ function handleStep05Result(data) {
         row.appendChild(img);
     }
     visZone.appendChild(panel);
+    
+    document.getElementById('btn-step06').disabled = false;
+    document.getElementById('card-step06').classList.add('active');
+}
+// --- STEP 6 ---
+async function runStep06() {
+    if (!currentSessionId) return;
+    const btn = document.getElementById('btn-step06');
+    btn.disabled = true;
+    btn.innerText = "Обробка...";
+    
+    await fetch(`/api/step06?session_id=${currentSessionId}&action=start`);
+    
+    let poll = setInterval(async () => {
+        const res = await fetch(`/api/step06?session_id=${currentSessionId}&action=poll`);
+        const result = await res.json();
+        
+        if (result.status === 'done') {
+            clearInterval(poll);
+            btn.innerText = "Виконано";
+            btn.style.background = "#4CAF50";
+            handleStep06Result(result.data);
+        } else if (result.status === 'error') {
+            clearInterval(poll);
+            btn.innerText = "Помилка";
+            btn.style.background = "#f44336";
+            alert("Помилка: " + result.message);
+        }
+    }, 1000);
 }
 
+function handleStep06Result(data) {
+    addMetricGroup('Крок 6: Калібрування простору (Камери)');
+    const camerasArray = [];
+    for (const [cam, info] of Object.entries(data.cameras)) {
+        addMetric(`Камера ${cam.toUpperCase()}`, `Pos: [${info.pos.map(v=>v.toFixed(1)).join(', ')}], Dist: ${info.distance.toFixed(1)} мм`);
+        camerasArray.push({ pos: info.pos, look_at: info.look_at, up_vector: info.up_vector, name: cam });
+    }
+    
+    const visCont = createVisualizationBlock('vis-06-cameras', 'Фізичне розміщення відкаліброваних камер у просторі');
+    
+    const btnRow = document.createElement('div');
+    btnRow.style.display = 'flex';
+    btnRow.style.gap = '10px';
+    btnRow.style.marginBottom = '10px';
+    for (const [cam, info] of Object.entries(data.cameras)) {
+        const btn = document.createElement('button');
+        btn.innerText = `Вид: ${cam.toUpperCase()}`;
+        btn.style.padding = '5px 15px';
+        btn.onclick = () => {
+            if (visCont.setCameraView) {
+                visCont.setCameraView(info.pos, info.look_at, info.up_vector);
+            }
+        };
+        btnRow.appendChild(btn);
+    }
+    visCont.appendChild(btnRow);
+    
+    if (step02GlobalData) {
+        initThreeScene(visCont, [
+            { points: step02GlobalData.ls_contour, color: 0x00d2ff, size: 2, isLine: true },
+            { points: step02GlobalData.contact_points, color: 0xff0000, size: 4, isLine: true }
+        ], {
+            url: `/files/model_3d/helmet_ref.stl`,
+            tx: step02GlobalData.tx, ty: step02GlobalData.ty, tz: step02GlobalData.tz,
+            rx: step02GlobalData.rx, ry: step02GlobalData.ry, rz: step02GlobalData.rz,
+            scale: step02GlobalData.scale,
+            color: 0x888888,
+            opacity: 0.5
+        }, { cameras: camerasArray });
+    } else {
+        initThreeScene(visCont, [], null, { cameras: camerasArray });
+    }
+}
 
 let autoRunInterval = null;
 
