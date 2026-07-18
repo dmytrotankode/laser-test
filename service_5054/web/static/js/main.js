@@ -122,7 +122,7 @@ function initThreeScene(container, pointSets, stlOptions = null, sceneOptions = 
     if (stlOptions) {
         const loader = new THREE.STLLoader();
         loader.load(stlOptions.url, function (geom) {
-            const mat = new THREE.MeshPhongMaterial({ color: stlOptions.color || 0x888888, specular: 0x111111, shininess: 50, transparent: true, opacity: stlOptions.opacity || 0.9 });
+            const mat = new THREE.MeshPhongMaterial({ color: stlOptions.color || 0x888888, specular: 0x111111, shininess: 50, transparent: true, opacity: stlOptions.opacity || 0.9, side: stlOptions.side || THREE.FrontSide });
             const mesh = new THREE.Mesh(geom, mat);
             
             // set transform
@@ -302,7 +302,8 @@ function handleStep02Result(data) {
         rx: data.rx, ry: data.ry, rz: data.rz,
         scale: data.scale,
         color: 0x888888,
-        opacity: 0.5 // Made 50% transparent
+        opacity: 1.0,
+        side: THREE.DoubleSide
     });
     
     const btnRow = document.createElement('div');
@@ -315,7 +316,7 @@ function handleStep02Result(data) {
     const btnTop = document.createElement('button');
     btnTop.innerText = 'Сверху (Top)';
     btnTop.onclick = () => {
-        if (visCont.setCameraView) visCont.setCameraView([data.tx, data.ty, data.tz - 800], [data.tx, data.ty, data.tz], [0, 1, 0]);
+        if (visCont.setCameraView) visCont.setCameraView([data.tx, data.ty, data.tz - 800], [data.tx, data.ty, data.tz], [0, -1, 0]);
     };
     btnRow.appendChild(btnTop);
     
