@@ -189,9 +189,9 @@ function initThreeScene(container, pointSets, stlOptions = null, sceneOptions = 
     if (allPoints.length > 0) {
         center.divideScalar(totalPoints);
         controls.target.copy(center);
-        camera.position.set(center.x + 800, center.y + 800, center.z - 800);
+        camera.position.set(center.x + 250, center.y + 250, center.z - 250);
     } else {
-        camera.position.set(800, 800, -800);
+        camera.position.set(250, 250, -250);
     }
     
     controls.update();
