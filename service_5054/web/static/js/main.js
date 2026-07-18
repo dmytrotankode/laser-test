@@ -80,7 +80,7 @@ function initThreeScene(container, pointSets, stlOptions = null, sceneOptions = 
     }
 
     const camera = new THREE.PerspectiveCamera(45, container.clientWidth / 300, 0.1, 10000);
-    camera.up.set(0, 0, 1);
+    camera.up.set(0, 0, -1); // Z is down in robot space, so -Z is UP on screen
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(container.clientWidth, 300);
     container.appendChild(renderer.domElement);
@@ -176,9 +176,9 @@ function initThreeScene(container, pointSets, stlOptions = null, sceneOptions = 
     if (allPoints.length > 0) {
         center.divideScalar(totalPoints);
         controls.target.copy(center);
-        camera.position.set(center.x + 800, center.y + 800, center.z + 800);
+        camera.position.set(center.x + 800, center.y + 800, center.z - 800);
     } else {
-        camera.position.set(800, 800, 800);
+        camera.position.set(800, 800, -800);
     }
     
     controls.update();
@@ -315,7 +315,7 @@ function handleStep02Result(data) {
     const btnTop = document.createElement('button');
     btnTop.innerText = 'Сверху (Top)';
     btnTop.onclick = () => {
-        if (visCont.setCameraView) visCont.setCameraView([data.tx, data.ty, data.tz + 800], [data.tx, data.ty, data.tz], [0, 1, 0]);
+        if (visCont.setCameraView) visCont.setCameraView([data.tx, data.ty, data.tz - 800], [data.tx, data.ty, data.tz], [0, 1, 0]);
     };
     btnRow.appendChild(btnTop);
     
@@ -323,7 +323,8 @@ function handleStep02Result(data) {
     const btnBack = document.createElement('button');
     btnBack.innerText = 'Сзади (Back)';
     btnBack.onclick = () => {
-        if (visCont.setCameraView) visCont.setCameraView([data.tx, data.ty + 800, data.tz], [data.tx, data.ty, data.tz], [0, 0, 1]);
+        // If Y is forward, then back is +Y or -Y? Assuming +Y is back.
+        if (visCont.setCameraView) visCont.setCameraView([data.tx, data.ty + 800, data.tz], [data.tx, data.ty, data.tz], [0, 0, -1]);
     };
     btnRow.appendChild(btnBack);
     
@@ -331,7 +332,8 @@ function handleStep02Result(data) {
     const btnLeft = document.createElement('button');
     btnLeft.innerText = 'Слева (Left)';
     btnLeft.onclick = () => {
-        if (visCont.setCameraView) visCont.setCameraView([data.tx + 800, data.ty, data.tz], [data.tx, data.ty, data.tz], [0, 0, 1]);
+        // Assuming +X is left
+        if (visCont.setCameraView) visCont.setCameraView([data.tx + 800, data.ty, data.tz], [data.tx, data.ty, data.tz], [0, 0, -1]);
     };
     btnRow.appendChild(btnLeft);
     
