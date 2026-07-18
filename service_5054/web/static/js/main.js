@@ -81,7 +81,7 @@ function initThreeScene(container, pointSets, stlOptions = null, sceneOptions = 
 
     const camera = new THREE.PerspectiveCamera(45, container.clientWidth / 300, 0.1, 10000);
     camera.up.set(0, 0, -1); // Z is down in robot space, so -Z is UP on screen
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     renderer.setSize(container.clientWidth, 300);
     container.appendChild(renderer.domElement);
 
@@ -140,6 +140,7 @@ function initThreeScene(container, pointSets, stlOptions = null, sceneOptions = 
             mesh.scale.set(stlOptions.scale, stlOptions.scale, stlOptions.scale);
             
             scene.add(mesh);
+            if (stlOptions.onLoad) stlOptions.onLoad(container, scene, camera, renderer, controls);
         });
     }
     
@@ -295,6 +296,10 @@ function handleStep02Result(data) {
     addMetric("Масштаб", data.scale.toFixed(4));
     addMetric("Відхилення (Cost)", data.cost.toFixed(4));
     
+    addMetric("Позиція камери (Сзади)", `Pos: (${(data.tx + 800).toFixed(0)}, ${data.ty.toFixed(0)}, ${data.tz.toFixed(0)}), Up: (0, 0, -1)`);
+    addMetric("Позиція камери (Слева)", `Pos: (${data.tx.toFixed(0)}, ${(data.ty + 800).toFixed(0)}, ${data.tz.toFixed(0)}), Up: (0, 0, -1)`);
+    addMetric("Позиція камери (Сверху)", `Pos: (${data.tx.toFixed(0)}, ${data.ty.toFixed(0)}, ${(data.tz - 800).toFixed(0)}), Up: (0, -1, 0)`);
+    
     step02GlobalData = data; // Save for later steps!
     
     const visCont = createVisualizationBlock('vis-02-align', 'Суміщення 3D-моделі з точками обрізки');
@@ -311,7 +316,69 @@ function handleStep02Result(data) {
         scale: data.scale,
         color: 0x888888,
         opacity: 1.0,
-        side: THREE.DoubleSide
+        side: THREE.DoubleSide,
+        onLoad: (container, scene, camera, renderer, controls) => {
+            const oldVisibles = [];
+            scene.children.forEach(c => {
+                oldVisibles.push(c.visible);
+                if (c.name !== 'stl_mesh' && c.type !== 'AmbientLight' && c.type !== 'DirectionalLight') {
+                    c.visible = false;
+                }
+            });
+
+            const oldPos = camera.position.clone();
+            const oldTarget = controls.target.clone();
+            const oldUp = camera.up.clone();
+
+            const views = [
+                { name: 'Сзади', pos: [data.tx + 800, data.ty, data.tz], up: [0, 0, -1] },
+                { name: 'Слева', pos: [data.tx, data.ty + 800, data.tz], up: [0, 0, -1] },
+                { name: 'Сверху', pos: [data.tx, data.ty, data.tz - 800], up: [0, -1, 0] }
+            ];
+
+            const panel = document.createElement('div');
+            panel.className = 'vis-panel';
+            panel.innerHTML = `<h3>Скріншоти 3D моделі</h3><div style="display:flex; justify-content:space-around;"></div>`;
+            const row = panel.querySelector('div');
+
+            views.forEach(v => {
+                container.setCameraView(v.pos, [data.tx, data.ty, data.tz], v.up);
+                renderer.render(scene, camera);
+                const dataURL = renderer.domElement.toDataURL('image/png');
+                
+                const imgCont = document.createElement('div');
+                imgCont.style.width = '30%';
+                imgCont.style.textAlign = 'center';
+                
+                const img = document.createElement('img');
+                img.src = dataURL;
+                img.style.width = '100%';
+                img.style.marginBottom = '5px';
+                
+                const label = document.createElement('div');
+                label.innerText = v.name;
+                label.style.fontSize = '0.9rem';
+                label.style.color = '#ccc';
+                
+                imgCont.appendChild(img);
+                imgCont.appendChild(label);
+                row.appendChild(imgCont);
+            });
+
+            camera.position.copy(oldPos);
+            controls.target.copy(oldTarget);
+            camera.up.copy(oldUp);
+            camera.lookAt(oldTarget);
+            controls.update();
+
+            scene.children.forEach((c, i) => {
+                c.visible = oldVisibles[i];
+            });
+            renderer.render(scene, camera);
+
+            // Append panel AFTER the vis-02-align block
+            container.parentNode.insertBefore(panel, container.nextSibling);
+        }
     });
     
     const toggleRow = document.createElement('div');
