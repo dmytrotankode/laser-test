@@ -691,12 +691,16 @@ async function pollStep04() {
             setTimeout(pollStep04, 1000);
         }
     } catch (e) {
-        setTimeout(pollStep04, 1000);
+        console.error("Poll Step 4 Error:", e);
+        const btn = document.getElementById('btn-run-04');
+        btn.innerText = 'Помилка';
+        btn.style.background = '#d9534f';
     }
 }
 
 function handleStep04Result(data) {
-    const visZone = document.getElementById('vis-zone');
+    addMetricGroup('Крок 4: Накладення масок (2D Fit)');
+    const visZone = document.getElementById('visualizations');
     
     const panel = document.createElement('div');
     panel.className = 'vis-panel';
