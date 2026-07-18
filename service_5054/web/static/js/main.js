@@ -320,23 +320,23 @@ function handleStep02Result(data) {
     };
     btnRow.appendChild(btnTop);
     
-    // Сзади
-    const btnBack = document.createElement('button');
-    btnBack.innerText = 'Сзади (Back)';
-    btnBack.onclick = () => {
-        // If Y is forward, then back is +Y or -Y? Assuming +Y is back.
-        if (visCont.setCameraView) visCont.setCameraView([data.tx, data.ty + 800, data.tz], [data.tx, data.ty, data.tz], [0, 0, -1]);
-    };
-    btnRow.appendChild(btnBack);
-    
-    // Слева
+    // Слева (Left) -> was Back
     const btnLeft = document.createElement('button');
     btnLeft.innerText = 'Слева (Left)';
     btnLeft.onclick = () => {
+        // If Y is forward, then back is +Y or -Y? Assuming +Y is back.
+        if (visCont.setCameraView) visCont.setCameraView([data.tx, data.ty + 800, data.tz], [data.tx, data.ty, data.tz], [0, 0, -1]);
+    };
+    btnRow.appendChild(btnLeft);
+    
+    // Сзади (Back) -> was Left
+    const btnBack = document.createElement('button');
+    btnBack.innerText = 'Сзади (Back)';
+    btnBack.onclick = () => {
         // Assuming +X is left
         if (visCont.setCameraView) visCont.setCameraView([data.tx + 800, data.ty, data.tz], [data.tx, data.ty, data.tz], [0, 0, -1]);
     };
-    btnRow.appendChild(btnLeft);
+    btnRow.appendChild(btnBack);
     
     visCont.insertBefore(btnRow, visCont.children[1]); // Insert under the title
     
