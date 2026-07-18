@@ -650,9 +650,86 @@ function handleStep03Result(data) {
     visZone.appendChild(panelCropped);
     visZone.appendChild(panelMasks);
     visZone.appendChild(panelOverlay);
+    
+    // Enable Step 4
+    document.getElementById('btn-run-04').disabled = false;
+    document.getElementById('card-04').classList.add('active');
 }
 
+async function runStep04() {
+    const btn = document.getElementById('btn-run-04');
+    btn.innerText = 'Обробка...';
+    btn.disabled = true;
 
+    try {
+        const res = await fetch(`/api/step04?session_id=${currentSessionId}&action=start`);
+        const data = await res.json();
+        pollStep04();
+    } catch (e) {
+        console.error(e);
+        btn.innerText = 'Помилка';
+        btn.style.background = '#d9534f';
+    }
+}
+
+async function pollStep04() {
+    try {
+        const res = await fetch(`/api/step04?session_id=${currentSessionId}&action=poll`);
+        const data = await res.json();
+        
+        if (data.status === 'done') {
+            const btn = document.getElementById('btn-run-04');
+            btn.innerText = 'Виконано';
+            btn.style.background = '#5cb85c';
+            handleStep04Result(data.data);
+        } else if (data.status === 'error') {
+            const btn = document.getElementById('btn-run-04');
+            btn.innerText = 'Помилка';
+            btn.style.background = '#d9534f';
+            console.error(data.message);
+        } else {
+            setTimeout(pollStep04, 1000);
+        }
+    } catch (e) {
+        setTimeout(pollStep04, 1000);
+    }
+}
+
+function handleStep04Result(data) {
+    const visZone = document.getElementById('vis-zone');
+    
+    const panel = document.createElement('div');
+    panel.className = 'vis-panel';
+    panel.innerHTML = `<h3>Накладення масок 3D-моделі на маски еталона (2D Fit)</h3><div style="display:flex; justify-content:space-around;"></div>`;
+    const row = panel.querySelector('div');
+    
+    for (const [cam, info] of Object.entries(data)) {
+        addMetric(`Зсув ${cam} (X, Y)`, `dx: ${info.du.toFixed(2)}px, dy: ${info.dv.toFixed(2)}px`);
+        addMetric(`Масштаб ${cam}`, info.scale.toFixed(3));
+        addMetric(`Поворот ${cam}`, `${info.rot.toFixed(2)}°`);
+        
+        const cont = document.createElement('div');
+        cont.style.width = '30%';
+        cont.style.textAlign = 'center';
+        
+        const img = document.createElement('img');
+        img.src = `${info.overlap_path}?t=${Date.now()}`;
+        img.style.width = '100%';
+        img.style.marginBottom = '5px';
+        img.style.background = '#222';
+        
+        const label = document.createElement('div');
+        label.innerText = cam;
+        label.style.fontSize = '0.9rem';
+        label.style.color = '#ccc';
+        
+        cont.appendChild(img);
+        cont.appendChild(label);
+        row.appendChild(cont);
+    }
+    
+    visZone.appendChild(panel);
+}
 
 let autoRunInterval = null;
 
@@ -669,16 +746,18 @@ async function startAutoRun() {
         }
         
         // Are any steps currently running?
-        const isRunning = [1,2,3].some(i => {
-            const btn = document.getElementById(i < 3 ? 'btn-run-0' + i : 'btn-step0' + i);
+        const isRunning = [1,2,3,4].some(i => {
+            const btnId = i === 4 ? 'btn-run-04' : (i < 3 ? 'btn-run-0' + i : 'btn-step03');
+            const btn = document.getElementById(btnId);
             return btn && btn.innerText.includes('Обробка');
         });
         
         if (isRunning) return; // Wait for current step to finish
         
         // Find next step to run
-        for (let i = 1; i <= 3; i++) {
-            const btn = document.getElementById(i < 3 ? 'btn-run-0' + i : 'btn-step0' + i);
+        for (let i = 1; i <= 4; i++) {
+            const btnId = i === 4 ? 'btn-run-04' : (i < 3 ? 'btn-run-0' + i : 'btn-step03');
+            const btn = document.getElementById(btnId);
             if (btn && !btn.disabled && btn.innerText.includes('Виконати')) {
                 btn.click();
                 return;
@@ -686,9 +765,10 @@ async function startAutoRun() {
         }
         
         // Check if all done
-        const allDone = [1,2,3].every(i => {
-            const btn = document.getElementById(i < 3 ? 'btn-run-0' + i : 'btn-step0' + i);
-            return btn && (btn.innerText.includes('Виконано') || btn.innerText.includes('Готово'));
+        const allDone = [1,2,3,4].every(i => {
+            const btnId = i === 4 ? 'btn-run-04' : (i < 3 ? 'btn-run-0' + i : 'btn-step03');
+            const btn = document.getElementById(btnId);
+            return btn && btn.innerText.includes('Виконано');
         });
         
         if (allDone) {
