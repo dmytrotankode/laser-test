@@ -91,9 +91,7 @@ def api_step02():
 def api_step03():
     return generic_step_api("step03_segment.py", request.args.get('session_id'), request.args.get('action'), "step03_result.json")
 
-@app.route('/api/step04')
-def api_step04():
-    return generic_step_api("step04_project.py", request.args.get('session_id'), request.args.get('action'), "step04_result.json")
+
 
 if __name__ == '__main__':
     print("Starting Service 5054...")

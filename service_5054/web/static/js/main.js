@@ -328,9 +328,7 @@ async function runStep03() {
             btn.innerText = "Виконано";
             btn.style.background = "#4CAF50";
             handleStep03Result(result.data);
-            
-            document.getElementById('btn-step04').disabled = false;
-            document.getElementById('card-step04').classList.add('active');
+            // Last step in service 5054
         } else if (result.status === 'error') {
             clearInterval(poll);
             btn.innerText = "Помилка";
@@ -377,57 +375,6 @@ function handleStep03Result(data) {
     visZone.appendChild(panelMasks);
 }
 
-// --- STEP 4 ---
-async function runStep04() {
-    if (!currentSessionId) return;
-    const btn = document.getElementById('btn-step04');
-    btn.disabled = true;
-    btn.innerText = "Обробка...";
-    
-    await fetch(`/api/step04?session_id=${currentSessionId}&action=start`);
-    
-    let poll = setInterval(async () => {
-        const res = await fetch(`/api/step04?session_id=${currentSessionId}&action=poll`);
-        const result = await res.json();
-        
-        if (result.status === 'done') {
-            clearInterval(poll);
-            btn.innerText = "Виконано";
-            btn.style.background = "#4CAF50";
-            handleStep04Result(result.data);
-            // Last step in service 5054
-        } else if (result.status === 'error') {
-            clearInterval(poll);
-            btn.innerText = "Помилка";
-            btn.style.background = "#f44336";
-            alert("Помилка: " + result.message);
-        }
-    }, 1000);
-}
-
-function handleStep04Result(data) {
-    addMetricGroup('Крок 4: 3D-маски (Проекція)');
-    const visZone = document.getElementById('visualizations');
-    
-    const panel = document.createElement('div');
-    panel.className = 'vis-panel';
-    panel.innerHTML = `<h3>Проекція масок з 3D-моделі</h3><div style="display:flex; justify-content:space-around;"></div>`;
-    const row = panel.querySelector('div');
-    
-    for (const [cam, info] of Object.entries(data)) {
-        addMetric(`3D Проекція (${cam})`, info.file);
-        addMetric(`Поворот маски (${cam})`, `${info.rotation_applied}°`);
-        addMetric(`IoU Збіг (${cam})`, `${(info.iou_score * 100).toFixed(1)}%`);
-        
-        const img = document.createElement('img');
-        img.src = `/files/${currentSessionId}/${info.file}?t=${Date.now()}`;
-        img.style.width = "30%";
-        img.title = cam;
-        img.style.background = "#fff"; // masks are white on transparent usually
-        row.appendChild(img);
-    }
-    visZone.appendChild(panel);
-}
 
 
 let autoRunInterval = null;
@@ -445,7 +392,7 @@ async function startAutoRun() {
         }
         
         // Are any steps currently running?
-        const isRunning = [1,2,3,4].some(i => {
+        const isRunning = [1,2,3].some(i => {
             const btn = document.getElementById(i < 3 ? 'btn-run-0' + i : 'btn-step0' + i);
             return btn && btn.innerText.includes('Обробка');
         });
@@ -453,7 +400,7 @@ async function startAutoRun() {
         if (isRunning) return; // Wait for current step to finish
         
         // Find next step to run
-        for (let i = 1; i <= 4; i++) {
+        for (let i = 1; i <= 3; i++) {
             const btn = document.getElementById(i < 3 ? 'btn-run-0' + i : 'btn-step0' + i);
             if (btn && !btn.disabled && btn.innerText.includes('Виконати')) {
                 btn.click();
@@ -462,7 +409,7 @@ async function startAutoRun() {
         }
         
         // Check if all done
-        const allDone = [1,2,3,4].every(i => {
+        const allDone = [1,2,3].every(i => {
             const btn = document.getElementById(i < 3 ? 'btn-run-0' + i : 'btn-step0' + i);
             return btn && (btn.innerText.includes('Виконано') || btn.innerText.includes('Готово'));
         });
