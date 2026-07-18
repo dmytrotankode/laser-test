@@ -23,6 +23,14 @@ async function startSession() {
     document.getElementById('metrics-table').innerHTML = '';
 }
 
+function addMetricGroup(title) {
+    const table = document.getElementById('metrics-table');
+    const tr = document.createElement('tr');
+    tr.style.backgroundColor = '#1f1f1f';
+    tr.innerHTML = `<th colspan="2" style="text-align:center; padding:8px; border-bottom:1px solid #444; color:#00d2ff; font-weight:600;">${title}</th>`;
+    table.appendChild(tr);
+}
+
 function addMetric(key, value) {
     const table = document.getElementById('metrics-table');
     const tr = document.createElement('tr');
@@ -220,10 +228,10 @@ async function runStep01() {
 }
 
 function handleStep01Result(data) {
-    // 1) Write paths and metrics
-    addMetric("Шлях до еталонного LS", data.ls_path);
-    addMetric("Кут різака (X/Вниз)", data.tilt_down_deg + " градусів");
-    addMetric("Кут різака (Y/Поворот)", data.yaw_ccw_deg + " градусів");
+    addMetricGroup('Крок 1: Еталон та різак');
+    addMetric('Шлях до еталонного LS', data.ls_path);
+    addMetric('Кут різака (X/Вниз)', data.tilt_down_deg + " градусів");
+    addMetric('Кут різака (Y/Поворот)', data.yaw_ccw_deg + " градусів");
     addMetric("Відступ різака", data.offset_mm + " мм");
     addMetric("Загальна кількість точок (Оригінал)", data.original_points.length);
     addMetric("Точок контуру (Відфільтровано)", data.contour_points.length);
@@ -271,6 +279,7 @@ async function runStep02() {
 }
 
 function handleStep02Result(data) {
+    addMetricGroup('Крок 2: 3D суміщення');
     addMetric("Шлях до 3D моделі", data.model_path);
     addMetric("Зсув X, Y, Z (мм)", `${data.tx.toFixed(2)}, ${data.ty.toFixed(2)}, ${data.tz.toFixed(2)}`);
     addMetric("Поворот X, Y, Z (град)", `${data.rx.toFixed(2)}, ${data.ry.toFixed(2)}, ${data.rz.toFixed(2)}`);
@@ -332,6 +341,7 @@ async function runStep03() {
 }
 
 function handleStep03Result(data) {
+    addMetricGroup('Крок 3: Сегментація фотографій');
     const visZone = document.getElementById('visualizations');
     
     const panelCropped = document.createElement('div');
@@ -398,6 +408,7 @@ async function runStep04() {
 }
 
 function handleStep04Result(data) {
+    addMetricGroup('Крок 4: 3D-маски (Проекція)');
     const visZone = document.getElementById('visualizations');
     
     const panel = document.createElement('div');
@@ -451,6 +462,7 @@ async function runStep05() {
 }
 
 function handleStep05Result(data) {
+    addMetricGroup('Крок 5: Суміщення масок (Еталон + 3D)');
     const visZone = document.getElementById('visualizations');
     
     const panel = document.createElement('div');
@@ -471,151 +483,6 @@ function handleStep05Result(data) {
     visZone.appendChild(panel);
 }
 
-// --- STEP 6 ---
-async function runStep06() {
-    if (!currentSessionId) return;
-    const btn = document.getElementById('btn-step06');
-    btn.disabled = true;
-    btn.innerText = "Обробка...";
-    
-    await fetch(`/api/step06?session_id=${currentSessionId}&action=start`);
-    
-    let poll = setInterval(async () => {
-        const res = await fetch(`/api/step06?session_id=${currentSessionId}&action=poll`);
-        const result = await res.json();
-        
-        if (result.status === 'done') {
-            clearInterval(poll);
-            btn.innerText = "Виконано";
-            btn.style.background = "#4CAF50";
-            handleStep06Result(result.data);
-            
-            document.getElementById('btn-step07').disabled = false;
-            document.getElementById('card-step07').classList.add('active');
-        } else if (result.status === 'error') {
-            clearInterval(poll);
-            btn.innerText = "Помилка";
-            btn.style.background = "#f44336";
-            alert("Помилка: " + result.message);
-        }
-    }, 1000);
-}
-
-function handleStep06Result(data) {
-    const camerasArray = [];
-    for (const [cam, info] of Object.entries(data.cameras)) {
-        addMetric(`Камера ${cam.toUpperCase()}`, `Pos: [${info.pos.map(v=>v.toFixed(1)).join(', ')}], Dist: ${info.distance.toFixed(1)} мм`);
-        camerasArray.push({ pos: info.pos, look_at: info.look_at, up_vector: info.up_vector, name: cam });
-    }
-    
-    const visCont = createVisualizationBlock('vis-06-cameras', 'Розміщення камер');
-    
-    const btnRow = document.createElement('div');
-    btnRow.style.display = 'flex';
-    btnRow.style.gap = '10px';
-    btnRow.style.marginBottom = '10px';
-    for (const [cam, info] of Object.entries(data.cameras)) {
-        const btn = document.createElement('button');
-        btn.innerText = `Вид: ${cam.toUpperCase()}`;
-        btn.style.padding = '5px 15px';
-        btn.onclick = () => {
-            if (visCont.setCameraView) {
-                visCont.setCameraView(info.pos, info.look_at, info.up_vector);
-            }
-        };
-        btnRow.appendChild(btn);
-    }
-    visCont.appendChild(btnRow);
-    
-    if (step02GlobalData) {
-        initThreeScene(visCont, [
-            { points: step02GlobalData.ls_contour, color: 0x00d2ff, size: 2, isLine: true },
-            { points: step02GlobalData.contact_points, color: 0xff0000, size: 4, isLine: true }
-        ], {
-            url: `/files/model_3d/helmet_ref.stl`,
-            tx: step02GlobalData.tx, ty: step02GlobalData.ty, tz: step02GlobalData.tz,
-            rx: step02GlobalData.rx, ry: step02GlobalData.ry, rz: step02GlobalData.rz,
-            scale: step02GlobalData.scale,
-            color: 0x888888,
-            opacity: 0.5
-        }, { cameras: camerasArray });
-    } else {
-        initThreeScene(visCont, [], null, { cameras: camerasArray });
-    }
-}
-
-// --- STEP 7 ---
-async function runStep07() {
-    if (!currentSessionId) return;
-    const btn = document.getElementById('btn-step07');
-    btn.disabled = true;
-    btn.innerText = "Обробка...";
-    
-    await fetch(`/api/step07?session_id=${currentSessionId}&action=start`);
-    
-    let poll = setInterval(async () => {
-        const res = await fetch(`/api/step07?session_id=${currentSessionId}&action=poll`);
-        const result = await res.json();
-        
-        if (result.status === 'done') {
-            clearInterval(poll);
-            btn.innerText = "Виконано";
-            btn.style.background = "#4CAF50";
-            handleStep07Result(result.data);
-        } else if (result.status === 'error') {
-            clearInterval(poll);
-            btn.innerText = "Помилка";
-            btn.style.background = "#f44336";
-            alert("Помилка: " + result.message);
-        }
-    }, 1000);
-}
-
-function handleStep07Result(data) {
-    let customLights = [];
-    let customCameras = [];
-    
-    // Add metrics
-    for (const [cam, lights] of Object.entries(data.lights)) {
-        addMetric(`Джерела світла (${cam})`, `${lights.length} знайдено`);
-        lights.forEach((l, i) => {
-            addMetric(`  Світло ${i+1}`, `Напрямок: [${l.dir.map(v=>v.toFixed(2)).join(', ')}], Яскравість: ${l.intensity.toFixed(2)}`);
-            customLights.push({ dir: l.dir, intensity: l.intensity });
-        });
-        
-        // We know standard camera pos roughly
-        if (cam === 'back') customCameras.push({pos: [0, 2500, 0]});
-        if (cam === 'left') customCameras.push({pos: [1650, 0, 0]});
-        if (cam === 'top') customCameras.push({pos: [0, 0, 2000]});
-    }
-    
-    const visCont = createVisualizationBlock('vis-07-lights', '3D Сцена з розрахованим освітленням та камерами');
-    
-    if (step02GlobalData) {
-        initThreeScene(visCont, [
-            { points: step02GlobalData.ls_contour, color: 0x00d2ff, size: 2, isLine: true },
-            { points: step02GlobalData.contact_points, color: 0xff0000, size: 4, isLine: true }
-        ], {
-            url: `/files/model_3d/helmet_ref.stl`,
-            tx: step02GlobalData.tx, ty: step02GlobalData.ty, tz: step02GlobalData.tz,
-            rx: step02GlobalData.rx, ry: step02GlobalData.ry, rz: step02GlobalData.rz,
-            scale: step02GlobalData.scale,
-            color: 0xcccccc, 
-            opacity: 1.0
-        }, { 
-            customLights: customLights,
-            cameras: customCameras
-        });
-    } else {
-        initThreeScene(visCont, [], {
-            url: `/files/model_3d/helmet_ref.stl`,
-            tx: 0, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0, scale: 1.0, color: 0xcccccc, opacity: 1.0
-        }, { 
-            customLights: customLights,
-            cameras: customCameras
-        });
-    }
-}
 
 let autoRunInterval = null;
 
