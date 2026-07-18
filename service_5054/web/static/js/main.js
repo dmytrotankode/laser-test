@@ -431,6 +431,11 @@ function handleStep03Result(data) {
     addMetricGroup('Крок 3: Сегментація фотографій');
     const visZone = document.getElementById('visualizations');
     
+    const panelOriginal = document.createElement('div');
+    panelOriginal.className = 'vis-panel';
+    panelOriginal.innerHTML = `<h3>Оригінальні фото еталона</h3><div style="display:flex; justify-content:space-around;"></div>`;
+    const rowOriginal = panelOriginal.querySelector('div');
+    
     const panelCropped = document.createElement('div');
     panelCropped.className = 'vis-panel';
     panelCropped.innerHTML = `<h3>Обрізані фото еталона</h3><div style="display:flex; justify-content:space-around;"></div>`;
@@ -444,6 +449,13 @@ function handleStep03Result(data) {
     for (const [cam, info] of Object.entries(data)) {
         addMetric(`Фото ${cam} (Обрізане)`, info.rgba_path);
         addMetric(`Фото ${cam} (Маска)`, info.solid_path);
+        
+        // Add to original UI
+        const img0 = document.createElement('img');
+        img0.src = `/input/photos_ref/${cam}.png`;
+        img0.style.width = "30%";
+        img0.title = cam;
+        rowOriginal.appendChild(img0);
         
         // Add to cropped UI
         const img1 = document.createElement('img');
@@ -460,6 +472,7 @@ function handleStep03Result(data) {
         rowMasks.appendChild(img2);
     }
     
+    visZone.appendChild(panelOriginal);
     visZone.appendChild(panelCropped);
     visZone.appendChild(panelMasks);
 }
