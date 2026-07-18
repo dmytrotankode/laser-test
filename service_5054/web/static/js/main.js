@@ -111,10 +111,12 @@ function initThreeScene(container, pointSets, stlOptions = null, sceneOptions = 
         if (pa.isLine) {
             const lineMat = new THREE.LineBasicMaterial({ color: pa.color });
             const lineObj = new THREE.Line(geometry, lineMat);
+            if (pa.name) lineObj.name = pa.name;
             scene.add(lineObj);
         } else {
             const material = new THREE.PointsMaterial({ color: pa.color, size: pa.size || 2 });
             const pointsObj = new THREE.Points(geometry, material);
+            if (pa.name) pointsObj.name = pa.name;
             scene.add(pointsObj);
         }
     });
@@ -171,6 +173,11 @@ function initThreeScene(container, pointSets, stlOptions = null, sceneOptions = 
         }
         camera.lookAt(look_at[0], look_at[1], look_at[2]);
         controls.update();
+    };
+
+    container.toggleObject = function(name, visible) {
+        const obj = scene.getObjectByName(name);
+        if (obj) obj.visible = visible;
     };
 
     if (allPoints.length > 0) {
@@ -293,9 +300,9 @@ function handleStep02Result(data) {
     
     // We render the contour and rim points, but skip the full stl_mesh points
     initThreeScene(visCont, [
-        { points: data.ls_contour, color: 0x00d2ff, size: 2, isLine: true },
-        { points: data.contact_points, color: 0xff0000, size: 4, isLine: true },
-        { points: data.stl_rim, color: 0x00ff00, size: 3, isLine: false } // Green points, NOT lines
+        { points: data.ls_contour, color: 0x00d2ff, size: 2, isLine: true, name: 'ls_contour' },
+        { points: data.contact_points, color: 0xff0000, size: 4, isLine: true, name: 'trim_line' },
+        { points: data.stl_rim, color: 0x00ff00, size: 3, isLine: false, name: 'stl_rim' } // Green points, NOT lines
     ], {
         url: `/files/model_3d/helmet_ref.stl`,
         tx: data.tx, ty: data.ty, tz: data.tz,
@@ -305,6 +312,42 @@ function handleStep02Result(data) {
         opacity: 1.0,
         side: THREE.DoubleSide
     });
+    
+    const toggleRow = document.createElement('div');
+    toggleRow.style.display = 'flex';
+    toggleRow.style.gap = '15px';
+    toggleRow.style.marginBottom = '10px';
+    toggleRow.style.justifyContent = 'center';
+    toggleRow.style.fontSize = '0.9rem';
+
+    // LS Contour
+    const lblLs = document.createElement('label');
+    lblLs.style.cursor = 'pointer';
+    lblLs.innerHTML = `<input type="checkbox" checked> LS точки`;
+    lblLs.querySelector('input').onchange = (e) => {
+        if (visCont.toggleObject) visCont.toggleObject('ls_contour', e.target.checked);
+    };
+    toggleRow.appendChild(lblLs);
+
+    // Trim Line
+    const lblTrim = document.createElement('label');
+    lblTrim.style.cursor = 'pointer';
+    lblTrim.innerHTML = `<input type="checkbox" checked> Лінія обрізки`;
+    lblTrim.querySelector('input').onchange = (e) => {
+        if (visCont.toggleObject) visCont.toggleObject('trim_line', e.target.checked);
+    };
+    toggleRow.appendChild(lblTrim);
+
+    // STL Rim
+    const lblRim = document.createElement('label');
+    lblRim.style.cursor = 'pointer';
+    lblRim.innerHTML = `<input type="checkbox" checked> STL край`;
+    lblRim.querySelector('input').onchange = (e) => {
+        if (visCont.toggleObject) visCont.toggleObject('stl_rim', e.target.checked);
+    };
+    toggleRow.appendChild(lblRim);
+
+    visCont.insertBefore(toggleRow, visCont.children[1]); // Insert under the title
     
     const btnRow = document.createElement('div');
     btnRow.style.display = 'flex';
