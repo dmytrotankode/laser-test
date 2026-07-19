@@ -27,7 +27,7 @@ def main():
     cameras_info = {
         "Сзади": {"file": "back.png", "dist_mm": 2500, "phys_size_mm": 264, "measure": "width"},
         "Слева": {"file": "left.png", "dist_mm": 1650, "phys_size_mm": 286, "measure": "width"},  # Length is 286
-        "Сверху": {"file": "top.png", "dist_mm": 2000, "phys_size_mm": 286, "measure": "width"}
+        "Сверху": {"file": "top.png", "dist_mm": 2000, "phys_size_mm": 264, "measure": "height"}
     }
     
     camera_config = {}

@@ -3,7 +3,7 @@ import time
 import json
 import subprocess
 import threading
-from flask import Flask, render_template, jsonify, request, send_from_directory
+from flask import Flask, render_template, jsonify, request, send_from_directory, make_response
 from flask_cors import CORS
 
 app = Flask(__name__, template_folder='web/templates', static_folder='web/static')
@@ -18,7 +18,11 @@ os.makedirs(RESULTS_DIR, exist_ok=True)
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    response = make_response(render_template('index.html'))
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
 
 @app.route('/files/<session_id>/<path:filename>')
 def serve_results(session_id, filename):
@@ -78,6 +82,10 @@ def generic_step_api(step_script, session_id, action, result_filename):
         return jsonify({"status": "done", "data": data})
         
     return jsonify({"status": "running"})
+
+@app.route('/api/step00')
+def api_step00():
+    return generic_step_api("step00_analyze_cameras.py", request.args.get('session_id'), request.args.get('action'), "step00_cameras.json")
 
 @app.route('/api/step01')
 def api_step01():
