@@ -49,9 +49,9 @@ def find_2d_transform(target_mask, proj_mask, cam_name):
     best_ty = 0.0
     best_score = -1
     
-    img2_f = np.float32(edges2_base)
+    img1_f = np.float32(edges1_base)
     if cutoff:
-        img2_f[cutoff:, :] = 0
+        img1_f[cutoff:, :] = 0
         
     center = (target_w / 2, target_h / 2)
     
@@ -69,14 +69,15 @@ def find_2d_transform(target_mask, proj_mask, cam_name):
                 r = (best_rot + r_val) if is_rel else r_val
                 
                 M = cv2.getRotationMatrix2D(center, r, s)
-                warped_edges1 = cv2.warpAffine(edges1_base, M, (target_w, target_h), flags=cv2.INTER_NEAREST)
+                warped_edges2 = cv2.warpAffine(edges2_base, M, (target_w, target_h), flags=cv2.INTER_NEAREST)
                 
                 if cutoff:
-                    warped_edges1[cutoff:, :] = 0
+                    warped_edges2[cutoff:, :] = 0
                     
-                img1_f = np.float32(warped_edges1)
+                img2_f = np.float32(warped_edges2)
                 
-                (shift_x, shift_y), response = cv2.phaseCorrelate(img2_f, img1_f)
+                # phaseCorrelate returns shift from img2 to img1
+                (shift_x, shift_y), response = cv2.phaseCorrelate(img1_f, img2_f)
                 
                 if response > pass_best_score:
                     pass_best_score = response
@@ -141,22 +142,32 @@ def main():
             _, proj_mask = cv2.threshold(proj_mask, 10, 255, cv2.THRESH_BINARY)
             
         h, w = target_mask.shape
-        if proj_mask.shape[:2] != (h, w):
-            proj_mask = cv2.resize(proj_mask, (w, h), interpolation=cv2.INTER_NEAREST)
+        ph, pw = proj_mask.shape[:2]
+        
+        if (ph, pw) != (h, w):
+            canvas = np.zeros((h, w), dtype=np.uint8)
+            y_off = (h - ph) // 2
+            x_off = (w - pw) // 2
+            sy1, sy2 = max(0, -y_off), min(ph, h - y_off)
+            sx1, sx2 = max(0, -x_off), min(pw, w - x_off)
+            dy1, dy2 = max(0, y_off), min(h, y_off + ph)
+            dx1, dx2 = max(0, x_off), min(w, x_off + pw)
+            canvas[dy1:dy2, dx1:dx2] = proj_mask[sy1:sy2, sx1:sx2]
+            proj_mask = canvas
             
         scale, rot, du, dv = find_2d_transform(target_mask, proj_mask, cam)
         
         center = (w / 2, h / 2)
         M_rot_scale = cv2.getRotationMatrix2D(center, rot, scale)
-        M_rot_scale[0, 2] += -du
-        M_rot_scale[1, 2] += -dv
+        M_rot_scale[0, 2] += du
+        M_rot_scale[1, 2] += dv
         
-        target_aligned = cv2.warpAffine(target_mask, M_rot_scale, (w, h), flags=cv2.INTER_NEAREST)
+        proj_aligned = cv2.warpAffine(proj_mask, M_rot_scale, (w, h), flags=cv2.INTER_NEAREST)
         
         overlap = np.full((h, w, 3), 30, dtype=np.uint8)
         
-        mask1 = target_aligned > 0
-        mask2 = proj_mask > 0
+        mask1 = target_mask > 0
+        mask2 = proj_aligned > 0
         
         only_etalon = mask1 & ~mask2
         only_model = mask2 & ~mask1
