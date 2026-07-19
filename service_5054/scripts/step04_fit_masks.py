@@ -27,20 +27,20 @@ def find_2d_transform(target_mask, proj_mask, cam_name):
         
     if cam_name == 'Сзади':
         passes = [
-            {'scales': [0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15], 'rots': [-9, -4, 0, 4, 9]},
-            {'scales': [0.96, 0.98, 1.0, 1.02, 1.04], 'rots': [-3, -1, 0, 1, 3], 'relative': True},
-            {'scales': [0.99, 1.0, 1.01], 'rots': [-1, 0, 1], 'relative': True}
+            {'scales': [0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15], 'rots': [-9, -6, -3, 0, 3, 6, 9]},
+            {'scales': [0.96, 0.98, 1.0, 1.02, 1.04], 'rots': [-2, -1, 0, 1, 2], 'relative': True},
+            {'scales': [0.99, 1.0, 1.01], 'rots': [-0.5, 0, 0.5], 'relative': True}
         ]
     elif cam_name == 'Слева':
         passes = [
-            {'scales': [0.85, 0.95, 1.05, 1.15], 'rots': [-9, -4, 0, 4, 9]},
-            {'scales': [0.96, 0.98, 1.0, 1.02, 1.04], 'rots': [-3, -1, 0, 1, 3], 'relative': True},
-            {'scales': [0.99, 1.0, 1.01], 'rots': [-1, 0, 1], 'relative': True}
+            {'scales': [0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15], 'rots': [-9, -6, -3, 0, 3, 6, 9]},
+            {'scales': [0.96, 0.98, 1.0, 1.02, 1.04], 'rots': [-2, -1, 0, 1, 2], 'relative': True},
+            {'scales': [0.99, 1.0, 1.01], 'rots': [-0.5, 0, 0.5], 'relative': True}
         ]
     elif cam_name == 'Сверху':
         passes = [
-            {'scales': [1.0], 'rots': range(0, 360, 10)},
-            {'scales': [0.85, 0.95, 1.05, 1.15], 'rots': [-10, -5, 0, 5, 10], 'relative': True},
+            {'scales': [1.0], 'rots': range(0, 360, 5)},
+            {'scales': [0.85, 0.95, 1.05, 1.15], 'rots': [-5, 0, 5], 'relative': True},
             {'scales': [0.98, 1.0, 1.02], 'rots': [-2, 0, 2], 'relative': True}
         ]
     else:
@@ -55,6 +55,10 @@ def find_2d_transform(target_mask, proj_mask, cam_name):
     img1_f = np.float32(edges1_base)
     if cutoff:
         img1_f[cutoff:, :] = 0
+        
+    img1_uint8 = img1_f.astype(np.uint8)
+    kernel = np.ones((5, 5), np.uint8)
+    img1_dilated = cv2.dilate(img1_uint8, kernel, iterations=1)
         
     center = (target_w / 2, target_h / 2)
     
@@ -88,8 +92,9 @@ def find_2d_transform(target_mask, proj_mask, cam_name):
                 if cutoff:
                     aligned_edges2[cutoff:, :] = 0
                     
-                intersection = cv2.bitwise_and(img1_f.astype(np.uint8), aligned_edges2)
-                union = cv2.bitwise_or(img1_f.astype(np.uint8), aligned_edges2)
+                aligned_dilated = cv2.dilate(aligned_edges2, kernel, iterations=1)
+                intersection = cv2.bitwise_and(img1_dilated, aligned_dilated)
+                union = cv2.bitwise_or(img1_dilated, aligned_dilated)
                 
                 overlap_score = np.sum(intersection > 0) / max(1, np.sum(union > 0))
                 
