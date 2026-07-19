@@ -137,10 +137,12 @@ function clearStepData(fromStepId) {
         const btn = document.getElementById(`btn-run-${step}`);
         if (btn) {
             btn.disabled = true;
-            btn.innerText = `Крок ${parseInt(step)}`;
+            btn.innerText = `Виконати етап ${parseInt(step)}`;
             btn.classList.remove('recalc-btn');
+            btn.style.background = ""; // reset background
             document.getElementById(`card-${step}`).classList.remove('active');
-            document.getElementById(`status-${step}`).innerHTML = '';
+            const statusLabel = document.getElementById(`status-${step}`);
+            if (statusLabel) statusLabel.innerHTML = '';
         }
     }
 }
@@ -991,7 +993,7 @@ async function startAutoRun() {
         
         // Are any steps currently running?
         const isRunning = [0,1,2,3,4].some(i => {
-            const btnId = i === 4 ? 'btn-run-04' : (i < 3 ? 'btn-run-0' + i : 'btn-step03');
+            const btnId = 'btn-run-0' + i;
             const btn = document.getElementById(btnId);
             return btn && btn.innerText.includes('Обробка');
         });
@@ -1000,9 +1002,10 @@ async function startAutoRun() {
         
         // Find next step to run
         for (let i = 0; i <= 4; i++) {
-            const btnId = i === 4 ? 'btn-run-04' : (i < 3 ? 'btn-run-0' + i : 'btn-step03');
+            const btnId = 'btn-run-0' + i;
             const btn = document.getElementById(btnId);
-            if (btn && !btn.disabled && btn.innerText.includes('Виконати')) {
+            // We can run it if it's enabled, NOT running, and NOT a recalc button
+            if (btn && !btn.disabled && !btn.classList.contains('recalc-btn') && !btn.innerText.includes('Виконано')) {
                 btn.click();
                 return;
             }
@@ -1010,7 +1013,7 @@ async function startAutoRun() {
         
         // Check if all done
         const allDone = [0,1,2,3,4].every(i => {
-            const btnId = i === 4 ? 'btn-run-04' : (i < 3 ? 'btn-run-0' + i : 'btn-step03');
+            const btnId = 'btn-run-0' + i;
             const btn = document.getElementById(btnId);
             return btn && btn.innerText.includes('Виконано');
         });
