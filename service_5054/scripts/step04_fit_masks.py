@@ -27,20 +27,20 @@ def find_2d_transform(target_mask, proj_mask, cam_name):
         
     if cam_name == 'Сзади':
         passes = [
-            {'scales': [0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15], 'rots': [-9, -6, -3, 0, 3, 6, 9]},
+            {'scales': [0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15, 1.2, 1.25], 'rots': [-9, -6, -3, 0, 3, 6, 9]},
             {'scales': [0.96, 0.98, 1.0, 1.02, 1.04], 'rots': [-2, -1, 0, 1, 2], 'relative': True},
             {'scales': [0.99, 1.0, 1.01], 'rots': [-0.5, 0, 0.5], 'relative': True}
         ]
     elif cam_name == 'Слева':
         passes = [
-            {'scales': [0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15], 'rots': [-9, -6, -3, 0, 3, 6, 9]},
+            {'scales': [0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15, 1.2, 1.25], 'rots': [-9, -6, -3, 0, 3, 6, 9]},
             {'scales': [0.96, 0.98, 1.0, 1.02, 1.04], 'rots': [-2, -1, 0, 1, 2], 'relative': True},
             {'scales': [0.99, 1.0, 1.01], 'rots': [-0.5, 0, 0.5], 'relative': True}
         ]
     elif cam_name == 'Сверху':
         passes = [
-            {'scales': [1.0], 'rots': range(0, 360, 5)},
-            {'scales': [0.85, 0.95, 1.05, 1.15], 'rots': [-5, 0, 5], 'relative': True},
+            {'scales': [0.85, 0.9, 0.95, 1.0, 1.05, 1.15], 'rots': range(0, 360, 5)},
+            {'scales': [0.96, 0.98, 1.0, 1.02, 1.04], 'rots': [-5, 0, 5], 'relative': True},
             {'scales': [0.98, 1.0, 1.02], 'rots': [-2, 0, 2], 'relative': True}
         ]
     else:
@@ -175,19 +175,21 @@ def main():
             xt, yt, wt, ht = cv2.boundingRect(coords_t)
             xp, yp, wp, hp = cv2.boundingRect(coords_p)
             
-            # Use max to roughly match the size
-            base_scale = max(wt / float(wp) if wp > 0 else 1.0, ht / float(hp) if hp > 0 else 1.0)
+            # Use min to find the true scale without interference from noisy extra parts (like stand/neck)
+            base_scale = min(wt / float(wp) if wp > 0 else 1.0, ht / float(hp) if hp > 0 else 1.0)
+            
+            # For Center alignment, we align TOP-CENTER instead of center-center!
+            # Since the bottom of the photo mask is noisy, aligning the top edges perfectly is a much better starting point!
+            top_t_y = yt
+            top_p_y = yp
             
             center_t_x = xt + wt / 2.0
-            center_t_y = yt + ht / 2.0
-            
             center_p_x = xp + wp / 2.0
-            center_p_y = yp + hp / 2.0
             
             M_base[0, 0] = base_scale
             M_base[1, 1] = base_scale
             M_base[0, 2] = center_t_x - center_p_x * base_scale
-            M_base[1, 2] = center_t_y - center_p_y * base_scale
+            M_base[1, 2] = top_t_y - top_p_y * base_scale
             
         proj_pre_aligned = cv2.warpAffine(proj_mask, M_base, (w, h), flags=cv2.INTER_NEAREST)
         
