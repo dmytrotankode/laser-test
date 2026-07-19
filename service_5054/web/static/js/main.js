@@ -10,49 +10,139 @@ async function startSession() {
     
     document.getElementById('session-label').innerText = `Сесія: ${currentSessionId}`;
     document.getElementById('session-label').style.color = '#00d2ff';
+    // Clear zones
+    clearStepData('00');
     
     // Enable Step 0
     document.getElementById('btn-run-00').disabled = false;
     document.getElementById('card-00').classList.add('active');
-    
-    // Enable Step 1 initially disabled until Step 0 completes
-    document.getElementById('btn-run-01').disabled = true;
-    document.getElementById('card-01').classList.remove('active');
-    
-    // Enable Step 2 initially disabled until Step 1 completes
-    document.getElementById('btn-run-02').disabled = true;
-    document.getElementById('card-02').classList.remove('active');
-    
-    // Clear zones
-    document.getElementById('visualizations').innerHTML = '';
-    document.getElementById('metrics-table').innerHTML = '';
 }
 
-function addMetricGroup(title) {
+function markStepDone(stepId) {
+    const btn = document.getElementById(`btn-run-${stepId}`);
+    if (btn) {
+        btn.innerText = `Перерахувати (Крок ${parseInt(stepId)})`;
+        btn.style.background = "#4CAF50";
+        btn.disabled = false;
+        btn.classList.add('recalc-btn');
+    }
+    
+    // Enable NEXT step
+    const nextStepStr = String(parseInt(stepId) + 1).padStart(2, '0');
+    const nextBtn = document.getElementById(`btn-run-${nextStepStr}`);
+    if (nextBtn && !nextBtn.classList.contains('recalc-btn')) {
+        nextBtn.disabled = false;
+        document.getElementById(`card-${nextStepStr}`).classList.add('active');
+    }
+}
+
+async function resumeSession() {
+    try {
+        const res = await fetch('/api/latest_session');
+        const data = await res.json();
+        if (data && data.session_id) {
+            currentSessionId = data.session_id;
+            document.getElementById('session-label').innerText = `Сесія: ${currentSessionId}`;
+            document.getElementById('session-label').style.color = '#00d2ff';
+            
+            // Clear zones
+            document.getElementById('visualizations').innerHTML = '';
+            document.getElementById('metrics-table').innerHTML = '';
+            
+            const steps = ['00', '01', '02', '03', '04', '05', '06'];
+            let lastDone = null;
+            
+            for (const step of steps) {
+                try {
+                    const stepRes = await fetch(`/api/step${step}?session_id=${currentSessionId}&action=poll`);
+                    if (!stepRes.ok) break;
+                    const stepData = await stepRes.json();
+                    
+                    if (stepData.status === 'done' || stepData.data) {
+                        const parsedData = stepData.data || stepData;
+                        // call corresponding handler dynamically
+                        window[`handleStep${step}Result`](parsedData);
+                        markStepDone(step);
+                        lastDone = step;
+                    } else {
+                        // this step is not done, break the chain
+                        break;
+                    }
+                } catch (e) {
+                    console.log(`Step ${step} not completed`, e);
+                    break;
+                }
+            }
+            
+            if (lastDone === null) {
+                document.getElementById('btn-run-00').disabled = false;
+                document.getElementById('card-00').classList.add('active');
+            }
+        } else {
+            document.getElementById('btn-run-00').disabled = false;
+            document.getElementById('card-00').classList.add('active');
+        }
+    } catch (e) {
+        console.error("Failed to resume session", e);
+        document.getElementById('btn-run-00').disabled = false;
+        document.getElementById('card-00').classList.add('active');
+    }
+}
+
+// Call on startup
+document.addEventListener('DOMContentLoaded', () => {
+    resumeSession();
+});
+
+function addMetricGroup(title, stepId = '00') {
     const table = document.getElementById('metrics-table');
     const tr = document.createElement('tr');
     tr.style.backgroundColor = '#1f1f1f';
+    tr.setAttribute('data-step', stepId);
     tr.innerHTML = `<th colspan="2" style="text-align:center; padding:5px; border-bottom:1px solid #444; color:#00d2ff; font-weight:600;">${title}</th>`;
     table.appendChild(tr);
 }
 
-function addMetric(key, value) {
+function addMetric(key, value, stepId = '00') {
     const table = document.getElementById('metrics-table');
     const tr = document.createElement('tr');
+    tr.setAttribute('data-step', stepId);
     tr.innerHTML = `<td><strong>${key}</strong></td><td>${value}</td>`;
     table.appendChild(tr);
 }
 
-function createVisualizationBlock(id, title) {
+function createVisualizationBlock(id, title, stepId = '00') {
     const visZone = document.getElementById('visualizations');
     const panel = document.createElement('div');
     panel.className = 'vis-panel';
+    panel.setAttribute('data-step', stepId);
     panel.innerHTML = `
         <h3>${title}</h3>
         <div id="${id}" class="canvas-container"></div>
     `;
     visZone.appendChild(panel);
     return document.getElementById(id);
+}
+
+function clearStepData(fromStepId) {
+    const steps = ['00', '01', '02', '03', '04', '05', '06'];
+    const startIndex = steps.indexOf(fromStepId);
+    if (startIndex === -1) return;
+    
+    for (let i = startIndex; i < steps.length; i++) {
+        const step = steps[i];
+        document.querySelectorAll(`[data-step="${step}"]`).forEach(el => el.remove());
+        
+        // Reset button states for cleared steps
+        const btn = document.getElementById(`btn-run-${step}`);
+        if (btn) {
+            btn.disabled = true;
+            btn.innerText = `Крок ${parseInt(step)}`;
+            btn.classList.remove('recalc-btn');
+            document.getElementById(`card-${step}`).classList.remove('active');
+            document.getElementById(`status-${step}`).innerHTML = '';
+        }
+    }
 }
 
 function initThreeScene(container, pointSets, stlOptions = null, sceneOptions = {}) {
@@ -220,6 +310,9 @@ async function runStep00() {
     if (!currentSessionId) return;
     
     const btn = document.getElementById('btn-run-00');
+    if (btn.classList.contains('recalc-btn')) {
+        clearStepData('00');
+    }
     btn.disabled = true;
     btn.innerText = "Обробка...";
     const warning = document.getElementById('step00-warning');
@@ -239,9 +332,7 @@ async function runStep00() {
             
             step00GlobalData = result.data || result; // store optics
             handleStep00Result(step00GlobalData);
-            
-            document.getElementById('btn-run-01').disabled = false;
-            document.getElementById('card-01').classList.add('active');
+            markStepDone('00');
             
         } else if (result.status === 'error') {
             clearInterval(stepPollInterval);
@@ -254,11 +345,13 @@ async function runStep00() {
 }
 
 function handleStep00Result(data) {
-    addMetricGroup('Крок 0: Оптика та Камери');
-    Object.keys(data).forEach(cam => {
-        addMetric(`${cam} (f_px)`, data[cam].f_px.toFixed(1));
-        addMetric(`${cam} (Зміщення X)`, data[cam].look_at_offset_x_mm.toFixed(1) + " мм");
-        addMetric(`${cam} (Зміщення Y)`, data[cam].look_at_offset_y_mm.toFixed(1) + " мм");
+    step00GlobalData = data;
+    addMetricGroup('Етап 0: Аналіз фото еталона', '00');
+    ['Сзади', 'Слева', 'Сверху'].forEach(cam => {
+        if (!data[cam]) return;
+        addMetric(`${cam} (f_px)`, data[cam].f_px.toFixed(1), '00');
+        addMetric(`${cam} (Зміщення X)`, data[cam].look_at_offset_x_mm.toFixed(1) + " мм", '00');
+        addMetric(`${cam} (Зміщення Y)`, data[cam].look_at_offset_y_mm.toFixed(1) + " мм", '00');
     });
 }
 
@@ -267,6 +360,9 @@ async function runStep01() {
     if (!currentSessionId) return;
     
     const btn = document.getElementById('btn-run-01');
+    if (btn.classList.contains('recalc-btn')) {
+        clearStepData('01');
+    }
     btn.disabled = true;
     btn.innerText = "Обробка...";
     
@@ -278,13 +374,14 @@ async function runStep01() {
         const res = await fetch(`/api/step01?session_id=${currentSessionId}&action=poll`);
         const result = await res.json();
         
-        if (result.status === 'done') {
+        if (result.status === 'done' || result.data) {
             clearInterval(stepPollInterval);
             btn.innerText = "Виконано";
             btn.style.background = "#4CAF50";
             
             // Render UI
-            handleStep01Result(result.data);
+            handleStep01Result(result.data || result);
+            markStepDone('01');
             
             // Enable Step 2
             document.getElementById('btn-run-02').disabled = false;
@@ -301,25 +398,23 @@ async function runStep01() {
 }
 
 function handleStep01Result(data) {
-    addMetricGroup('Крок 1: Еталон та різак');
-    addMetric('Шлях до еталонного LS', data.ls_path);
-    addMetric('Кут різака (X/Вниз)', data.tilt_down_deg + " градусів");
-    addMetric('Кут різака (Y/Поворот)', data.yaw_ccw_deg + " градусів");
-    addMetric("Відступ різака", data.offset_mm + " мм");
-    addMetric("Загальна кількість точок (Оригінал)", data.original_points.length);
-    addMetric("Точок контуру (Відфільтровано)", data.contour_points.length);
-    
-    // 2) Visualization 1: Original LS centered
-    const visCont = createVisualizationBlock('vis-01-contour', 'Еталонний LS (X, Y, Z)');
+    addMetricGroup('Етап 1: Контури та обрізка', '01');
+    addMetric('Вихідний файл оброблених LS', data.ls_path, '01');
+    addMetric('Нахил еталона (X/вниз)', data.tilt_down_deg + " градусів", '01');
+    addMetric('Нахил еталона (Y/проти_год)', data.yaw_ccw_deg + " градусів", '01');
+    addMetric("Зміщення еталона", data.offset_mm + " мм", '01');
+    addMetric("Кількість вихідних точок (відфільтровано)", data.original_points.length, '01');
+    addMetric("Лінія обрізки (інтерпольована)", data.contour_points.length, '01');
+
+    const visCont = createVisualizationBlock('vis-01-contour', 'Точки LS (X, Y, Z)', '01');
     initThreeScene(visCont, [
-        { points: data.original_points, color: 0x888888, size: 2, isLine: true }
+        { points: data.original_points, color: 0x00d2ff, size: 2.0 },
+        { points: data.contour_points, color: 0xff0000, size: 4.0 }
     ]);
     
-    // 3) Visualization 2: LS Contour + Offset Contact Points
-    const vis2Cont = createVisualizationBlock('vis-01-offset', 'Лінія обрізки (Contact Points)');
+    const vis2Cont = createVisualizationBlock('vis-01-offset', 'Зона обрізки (Contact Points)', '01');
     initThreeScene(vis2Cont, [
-        { points: data.contour_points, color: 0x00d2ff, size: 2, isLine: true }, // Cyan for original contour
-        { points: data.contact_points, color: 0xff0000, size: 3, isLine: true }  // Red for actual trim line (offset)
+        { points: data.offset_points, color: 0x00ff00, size: 3.0 }
     ]);
 }
 
@@ -327,6 +422,9 @@ async function runStep02() {
     if (!currentSessionId) return;
     
     const btn = document.getElementById('btn-run-02');
+    if (btn.classList.contains('recalc-btn')) {
+        clearStepData('02');
+    }
     btn.disabled = true;
     btn.innerText = "Обробка...";
     
@@ -341,6 +439,7 @@ async function runStep02() {
             btn.innerText = "Виконано";
             btn.style.background = "#4CAF50";
             handleStep02Result(result.data);
+            markStepDone('02');
         } else if (result.status === 'error') {
             clearInterval(poll);
             btn.innerText = "Помилка";
@@ -352,20 +451,20 @@ async function runStep02() {
 }
 
 function handleStep02Result(data) {
-    addMetricGroup('Крок 2: 3D суміщення');
-    addMetric("Шлях до 3D моделі", data.model_path);
-    addMetric("Зсув X, Y, Z (мм)", `${data.tx.toFixed(2)}, ${data.ty.toFixed(2)}, ${data.tz.toFixed(2)}`);
-    addMetric("Поворот X, Y, Z (град)", `${data.rx.toFixed(2)}, ${data.ry.toFixed(2)}, ${data.rz.toFixed(2)}`);
-    addMetric("Масштаб", data.scale.toFixed(4));
-    addMetric("Відхилення (Cost)", data.cost.toFixed(4));
+    step02GlobalData = data;
+    addMetricGroup('Етап 2: 3D Вирівнювання', '02');
+    addMetric("Шлях до 3D моделі", data.model_path, '02');
+    addMetric("Зсув X, Y, Z (мм)", `${data.tx.toFixed(2)}, ${data.ty.toFixed(2)}, ${data.tz.toFixed(2)}`, '02');
+    addMetric("Обертання X, Y, Z (градуси)", `${data.rx.toFixed(2)}, ${data.ry.toFixed(2)}, ${data.rz.toFixed(2)}`, '02');
+    addMetric("Масштаб", data.scale.toFixed(4), '02');
+    addMetric("Похибка (Cost)", data.cost.toFixed(4), '02');
     
-    addMetric("Позиція камери (Сзади)", `Pos: (${(data.tx + 450).toFixed(0)}, ${data.ty.toFixed(0)}, ${data.tz.toFixed(0)}), Up: (0, 0, -1)`);
-    addMetric("Позиція камери (Слева)", `Pos: (${data.tx.toFixed(0)}, ${(data.ty + 450).toFixed(0)}, ${data.tz.toFixed(0)}), Up: (0, 0, -1)`);
-    addMetric("Позиція камери (Сверху)", `Pos: (${data.tx.toFixed(0)}, ${data.ty.toFixed(0)}, ${(data.tz - 450).toFixed(0)}), Up: (0, -1, 0)`);
-    
-    step02GlobalData = data; // Save for later steps!
-    
-    const visCont = createVisualizationBlock('vis-02-align', 'Суміщення 3D-моделі з точками обрізки');
+    // Virtual camera data for 2D mapping
+    addMetric("Камера ззаду (віртуальна)", `Pos: (${(data.tx + 450).toFixed(0)}, ${data.ty.toFixed(0)}, ${data.tz.toFixed(0)}), Up: (0, 0, -1)`, '02');
+    addMetric("Камера зліва (віртуальна)", `Pos: (${data.tx.toFixed(0)}, ${(data.ty + 450).toFixed(0)}, ${data.tz.toFixed(0)}), Up: (0, 0, -1)`, '02');
+    addMetric("Камера зверху (віртуальна)", `Pos: (${data.tx.toFixed(0)}, ${data.ty.toFixed(0)}, ${(data.tz - 450).toFixed(0)}), Up: (0, -1, 0)`, '02');
+
+    const visCont = createVisualizationBlock('vis-02-align', 'Суміщення 3D-моделі з точками обрізки', '02');
     
     // We render the contour and rim points, but skip the full stl_mesh points
     initThreeScene(visCont, [
@@ -474,8 +573,8 @@ function handleStep02Result(data) {
                     body: JSON.stringify({ session_id: currentSessionId, filename: `model_mask_${v.name}.png`, image_data: maskURL })
                 });
 
-                addMetric(`Скріншот (${v.name})`, `/files/${currentSessionId}/model_shot_${v.name}.png`);
-                addMetric(`Маска (${v.name})`, `/files/${currentSessionId}/model_mask_${v.name}.png`);
+                addMetric(`Скріншот (${v.name})`, `/files/${currentSessionId}/model_shot_${v.name}.png`, '02');
+                addMetric(`Маска (${v.name})`, `/files/${currentSessionId}/model_mask_${v.name}.png`, '02');
                 
                 // Add screenshot to panel
                 const imgCont = document.createElement('div');
@@ -655,7 +754,10 @@ function handleStep02Result(data) {
 async function runStep03() {
     if (!currentSessionId) return;
     
-    const btn = document.getElementById('btn-step03');
+    const btn = document.getElementById('btn-run-03');
+    if (btn.classList.contains('recalc-btn')) {
+        clearStepData('03');
+    }
     btn.disabled = true;
     btn.innerText = "Обробка...";
     
@@ -670,7 +772,7 @@ async function runStep03() {
             btn.innerText = "Виконано";
             btn.style.background = "#4CAF50";
             handleStep03Result(result.data);
-            // Last step in service 5054
+            markStepDone('03');
         } else if (result.status === 'error') {
             clearInterval(poll);
             btn.innerText = "Помилка";
@@ -681,7 +783,7 @@ async function runStep03() {
 }
 
 function handleStep03Result(data) {
-    addMetricGroup('Крок 3: Сегментація фотографій');
+    addMetricGroup('Етап 3: Сегментація зображень', '03');
     const visZone = document.getElementById('visualizations');
     
     const panelOriginal = document.createElement('div');
@@ -705,8 +807,8 @@ function handleStep03Result(data) {
     const rowOverlay = panelOverlay.querySelector('div');
     
     for (const [cam, info] of Object.entries(data)) {
-        addMetric(`Фото ${cam} (Обрізане)`, info.rgba_path);
-        addMetric(`Фото ${cam} (Маска)`, info.solid_path);
+        addMetric(`Маска ${cam} (напівпрозора)`, info.rgba_path, '03');
+        addMetric(`Маска ${cam} (суцільна)`, info.solid_path, '03');
         
         // Add to original UI
         const img0 = document.createElement('img');
@@ -766,6 +868,9 @@ function handleStep03Result(data) {
 
 async function runStep04() {
     const btn = document.getElementById('btn-run-04');
+    if (btn.classList.contains('recalc-btn')) {
+        clearStepData('04');
+    }
     btn.innerText = 'Обробка...';
     btn.disabled = true;
 
@@ -789,7 +894,8 @@ async function pollStep04() {
             const btn = document.getElementById('btn-run-04');
             btn.innerText = 'Виконано';
             btn.style.background = '#5cb85c';
-            handleStep04Result(data.data);
+            handleStep04Result(data.data || data);
+            markStepDone('04');
         } else if (data.status === 'error') {
             const btn = document.getElementById('btn-run-04');
             btn.innerText = 'Помилка';
@@ -807,11 +913,12 @@ async function pollStep04() {
 }
 
 function handleStep04Result(data) {
-    addMetricGroup('Крок 4: Накладення масок (2D Fit)');
+    addMetricGroup('Етап 4: Суміщення масок (2D Fit)', '04');
     const visZone = document.getElementById('visualizations');
     
     const panel = document.createElement('div');
     panel.className = 'vis-panel';
+    panel.setAttribute('data-step', '04');
     panel.innerHTML = `<h3>Накладення масок 3D-моделі на маски еталона (2D Fit)</h3><div style="display:flex; justify-content:space-around;"></div>`;
     const row = panel.querySelector('div');
     
@@ -819,9 +926,9 @@ function handleStep04Result(data) {
     for (const cam of order) {
         if (!data[cam]) continue;
         const info = data[cam];
-        addMetric(`Зсув ${cam} (X, Y)`, `dx: ${info.du.toFixed(2)}px, dy: ${info.dv.toFixed(2)}px`);
-        addMetric(`Масштаб ${cam}`, info.scale.toFixed(3));
-        addMetric(`Поворот ${cam}`, `${info.rot.toFixed(2)}°`);
+        addMetric(`Зсув ${cam} (X, Y)`, `dx: ${info.du.toFixed(2)}px, dy: ${info.dv.toFixed(2)}px`, '04');
+        addMetric(`Масштаб ${cam}`, info.scale.toFixed(3), '04');
+        addMetric(`Поворот ${cam}`, `${info.rot.toFixed(2)}°`, '04');
         
         const cont = document.createElement('div');
         cont.style.width = '30%';

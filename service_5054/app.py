@@ -43,6 +43,16 @@ def start_session():
     os.makedirs(session_path, exist_ok=True)
     return jsonify({"session_id": session_id})
 
+@app.route('/api/latest_session')
+def latest_session():
+    try:
+        runs = sorted([d for d in os.listdir(RESULTS_DIR) if d.startswith('run_')])
+        if runs:
+            return jsonify({"session_id": runs[-1]})
+    except Exception:
+        pass
+    return jsonify({"session_id": None})
+
 def run_script_async(script_name, session_id):
     script_path = os.path.join(SCRIPTS_DIR, script_name)
     def worker():
