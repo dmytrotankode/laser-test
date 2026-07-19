@@ -84,36 +84,23 @@ def find_2d_transform(target_mask, proj_mask, cam_name):
                 img2_f = np.float32(warped_edges2)
                 
                 if cam_name in ['Сзади', 'Слева']:
-                    # Force perfect top alignment instead of relying on phaseCorrelate for Y!
+                    # We want the top of model to perfectly match top of target
                     coords1_f = cv2.findNonZero(img1_uint8)
                     coords2_f = cv2.findNonZero(warped_edges2.astype(np.uint8))
+                    
+                    (shift_x, _), response = cv2.phaseCorrelate(img1_f, img2_f)
                     
                     if coords1_f is not None and coords2_f is not None:
                         _, y1_f, _, _ = cv2.boundingRect(coords1_f)
                         _, y2_f, _, _ = cv2.boundingRect(coords2_f)
-                        
-                        # We want the top of model (y2_f) to perfectly match top of target (y1_f)
-                        forced_shift_y = y1_f - y2_f
-                        
-                        # Use phaseCorrelate ONLY for horizontal shift
-                        (shift_x, _), _ = cv2.phaseCorrelate(img1_f, img2_f)
-                        shift_y = forced_shift_y
+                        shift_y = y1_f - y2_f
                     else:
-                        (shift_x, shift_y), response = cv2.phaseCorrelate(img1_f, img2_f)
+                        (_, shift_y), _ = cv2.phaseCorrelate(img1_f, img2_f)
+                        
+                    overlap_score = response
                 else:
                     (shift_x, shift_y), response = cv2.phaseCorrelate(img1_f, img2_f)
-                
-                # Calculate exact contour overlap score
-                M_trans = np.float32([[1, 0, shift_x], [0, 1, shift_y]])
-                aligned_edges2 = cv2.warpAffine(warped_edges2, M_trans, (target_w, target_h), flags=cv2.INTER_NEAREST)
-                if cutoff:
-                    aligned_edges2[cutoff:, :] = 0
-                    
-                aligned_dilated = cv2.dilate(aligned_edges2, kernel, iterations=1)
-                intersection = cv2.bitwise_and(img1_dilated, aligned_dilated)
-                union = cv2.bitwise_or(img1_dilated, aligned_dilated)
-                
-                overlap_score = np.sum(intersection > 0) / max(1, np.sum(union > 0))
+                    overlap_score = response
                 
                 if overlap_score > pass_best_score:
                     pass_best_score = overlap_score
