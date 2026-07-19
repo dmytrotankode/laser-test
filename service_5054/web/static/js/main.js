@@ -437,7 +437,7 @@ function handleStep02Result(data) {
                     } else if (v.name === 'Слева') {
                         look_at[0] += dx; look_at[2] += dy;
                     } else if (v.name === 'Сверху') {
-                        look_at[1] -= dx; look_at[0] += dy;
+                        look_at[0] += dx; look_at[1] += dy;
                     }
                 }
                 
@@ -605,8 +605,8 @@ function handleStep02Result(data) {
                 look_at[0] += dx;
                 look_at[2] += dy;
             } else if (name === 'Сверху') {
-                look_at[1] -= dx;
-                look_at[0] += dy;
+                look_at[0] += dx;
+                look_at[1] += dy;
             }
         }
         return { look_at, f_px };
