@@ -130,8 +130,38 @@ def find_2d_transform(target_mask, proj_mask, cam_name):
                         shift_y = 0
                         overlap_score = 0
                 else:
-                    (shift_x, shift_y), response = cv2.phaseCorrelate(img1_f, img2_f)
-                    overlap_score = response
+                    (shift_x_pc, shift_y_pc), _ = cv2.phaseCorrelate(img1_f, img2_f)
+                    pts = np.argwhere(img2_f > 0)
+                    num_pts = len(pts)
+                    best_score_shift = -999999.0
+                    best_dx = int(round(shift_x_pc))
+                    best_dy = int(round(shift_y_pc))
+                    
+                    if num_pts > 0:
+                        base_dy = int(round(shift_y_pc))
+                        base_dx = int(round(shift_x_pc))
+                        for dy in range(base_dy - 10, base_dy + 11, 2):
+                            for dx in range(base_dx - 10, base_dx + 11, 2):
+                                ty = pts[:, 0] + dy
+                                tx = pts[:, 1] + dx
+                                
+                                mask = (ty >= 0) & (ty < target_h) & (tx >= 0) & (tx < target_w)
+                                num_out = num_pts - np.sum(mask)
+                                
+                                ty_valid = ty[mask]
+                                tx_valid = tx[mask]
+                                
+                                sum_dist = np.sum(dt[ty_valid, tx_valid]) + num_out * 1000.0
+                                score = -(sum_dist / float(num_pts))
+                                
+                                if score > best_score_shift:
+                                    best_score_shift = score
+                                    best_dx = dx
+                                    best_dy = dy
+                                    
+                    shift_x = best_dx
+                    shift_y = best_dy
+                    overlap_score = best_score_shift
                 
                 if overlap_score > pass_best_score:
                     pass_best_score = overlap_score
