@@ -398,7 +398,7 @@ function handleStep02Result(data) {
             const views = [
                 { name: 'Сзади', pos: [cx + 2500, cy, cz], up: [0, 0, -1] },
                 { name: 'Слева', pos: [cx, cy + 1650, cz], up: [0, 0, -1] },
-                { name: 'Сверху', pos: [cx, cy, cz + 2000], up: [-1, 0, 0] }
+                { name: 'Сверху', pos: [cx, cy, cz + 2000], up: [0, 1, 0] }
             ];
 
             const panel = document.createElement('div');
@@ -437,7 +437,7 @@ function handleStep02Result(data) {
                     } else if (v.name === 'Слева') {
                         look_at[0] += dx; look_at[2] += dy;
                     } else if (v.name === 'Сверху') {
-                        look_at[1] += dx; look_at[0] -= dy;
+                        look_at[0] += dx; look_at[1] += dy;
                     }
                 }
                 
@@ -605,8 +605,8 @@ function handleStep02Result(data) {
                 look_at[0] += dx;
                 look_at[2] += dy;
             } else if (name === 'Сверху') {
-                look_at[1] += dx;
-                look_at[0] -= dy;
+                look_at[0] += dx;
+                look_at[1] += dy;
             }
         }
         return { look_at, f_px };
@@ -635,7 +635,7 @@ function handleStep02Result(data) {
     btnTop.innerText = 'Сверху (Top)';
     btnTop.onclick = () => {
         const opt = getOptics('Сверху', cx, cy, cz);
-        if (visCont.setCameraView) visCont.setCameraView([cx, cy, cz + 2000], opt.look_at, [-1, 0, 0], opt.f_px);
+        if (visCont.setCameraView) visCont.setCameraView([cx, cy, cz + 2000], opt.look_at, [0, 1, 0], opt.f_px);
     };
     btnRow.appendChild(btnTop);
     
