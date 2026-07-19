@@ -21,21 +21,33 @@ def find_2d_transform(target_mask, proj_mask, cam_name):
     if coords1 is not None:
         _, y1, _, h1 = cv2.boundingRect(coords1)
         if cam_name in ['Сзади', 'Слева']:
-            cutoff = int(y1 + h1 * 0.75)
+            cutoff1 = int(y1 + h1 * 0.75)
         elif cam_name == 'Сверху':
-            cutoff = int(y1 + h1 * 0.90)
+            cutoff1 = int(y1 + h1 * 0.90)
+    
+    cutoff2 = None
+    coords2 = cv2.findNonZero(edges2_base)
+    if coords2 is not None:
+        _, y2, _, h2 = cv2.boundingRect(coords2)
+        if cam_name in ['Сзади', 'Слева']:
+            cutoff2 = int(y2 + h2 * 0.75)
+        elif cam_name == 'Сверху':
+            cutoff2 = int(y2 + h2 * 0.90)
+            
+    if cutoff2 is not None:
+        edges2_base[cutoff2:, :] = 0
         
     if cam_name == 'Сзади':
         passes = [
-            {'scales': [0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15, 1.2, 1.25, 1.3, 1.35], 'rots': [-15, -10, -5, 0, 5, 10, 15]},
-            {'scales': [0.96, 0.98, 1.0, 1.02, 1.04], 'rots': [-3, -1, 0, 1, 3], 'relative': True},
-            {'scales': [0.99, 1.0, 1.01], 'rots': [-0.5, 0, 0.5], 'relative': True}
+            {'scales': [0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15, 1.2], 'rots': list(range(-16, 17, 2))},
+            {'scales': [0.95, 0.97, 0.99, 1.0, 1.01, 1.03, 1.05], 'rots': [-3, -2, -1, 0, 1, 2, 3], 'relative': True},
+            {'scales': [0.98, 0.99, 1.0, 1.01, 1.02], 'rots': [-1.0, -0.5, 0, 0.5, 1.0], 'relative': True}
         ]
     elif cam_name == 'Слева':
         passes = [
-            {'scales': [0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15, 1.2, 1.25, 1.3, 1.35], 'rots': [-15, -10, -5, 0, 5, 10, 15]},
-            {'scales': [0.96, 0.98, 1.0, 1.02, 1.04], 'rots': [-3, -1, 0, 1, 3], 'relative': True},
-            {'scales': [0.99, 1.0, 1.01], 'rots': [-0.5, 0, 0.5], 'relative': True}
+            {'scales': [0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15, 1.2], 'rots': list(range(-16, 17, 2))},
+            {'scales': [0.95, 0.97, 0.99, 1.0, 1.01, 1.03, 1.05], 'rots': [-3, -2, -1, 0, 1, 2, 3], 'relative': True},
+            {'scales': [0.98, 0.99, 1.0, 1.01, 1.02], 'rots': [-1.0, -0.5, 0, 0.5, 1.0], 'relative': True}
         ]
     elif cam_name == 'Сверху':
         passes = [
@@ -53,8 +65,8 @@ def find_2d_transform(target_mask, proj_mask, cam_name):
     best_score = -999999.0
     
     img1_f = np.float32(edges1_base)
-    if cutoff:
-        img1_f[cutoff:, :] = 0
+    if cutoff1 is not None:
+        img1_f[cutoff1:, :] = 0
         
     img1_uint8 = img1_f.astype(np.uint8)
     inv_edges = 255 - img1_uint8
@@ -78,9 +90,7 @@ def find_2d_transform(target_mask, proj_mask, cam_name):
                 M = cv2.getRotationMatrix2D(center, r, s)
                 warped_edges2 = cv2.warpAffine(edges2_base, M, (target_w, target_h), flags=cv2.INTER_NEAREST)
                 
-                if cutoff:
-                    warped_edges2[cutoff:, :] = 0
-                    
+                # Note: edges2_base already has its bottom removed via cutoff2 BEFORE rotation
                 img2_f = np.float32(warped_edges2)
                 
                 if cam_name in ['Сзади', 'Слева']:
