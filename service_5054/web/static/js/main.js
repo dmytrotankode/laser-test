@@ -220,6 +220,8 @@ async function runStep00() {
     const btn = document.getElementById('btn-run-00');
     btn.disabled = true;
     btn.innerText = "Обробка...";
+    const warning = document.getElementById('step00-warning');
+    if (warning) warning.style.display = 'block';
     
     await fetch(`/api/step00?session_id=${currentSessionId}&action=start`);
     
@@ -229,6 +231,7 @@ async function runStep00() {
         
         if (result.status === 'done' || result.data) { // sometimes it returns data directly if it was fast enough or format changed
             clearInterval(stepPollInterval);
+            if (warning) warning.style.display = 'none';
             btn.innerText = "Виконано";
             btn.style.background = "#4CAF50";
             
@@ -240,6 +243,7 @@ async function runStep00() {
             
         } else if (result.status === 'error') {
             clearInterval(stepPollInterval);
+            if (warning) warning.style.display = 'none';
             btn.innerText = "Помилка";
             btn.style.background = "#f44336";
             alert("Помилка: " + result.message);

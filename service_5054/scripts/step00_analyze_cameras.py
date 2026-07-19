@@ -40,8 +40,10 @@ def main():
             
         img = cv2.imread(in_path)
         
-        # Scale down for faster rembg if needed, but we want exact pixel accuracy.
-        output_data = remove(img)
+        # Scale down for much faster rembg (approx 33s -> 3s)
+        scale = 0.25
+        small_img = cv2.resize(img, (0,0), fx=scale, fy=scale)
+        output_data = remove(small_img)
         mask = output_data[:, :, 3].copy()
         
         y_indices, x_indices = np.where(mask > 0)
@@ -57,17 +59,25 @@ def main():
             # Remove stand
             bottom_y = max_y
             top_y = min_y
+            small_w = int(img_w * scale)
+            small_h = int(img_h * scale)
             for y in range(bottom_y, top_y, -1):
                 row_x = np.where(mask[y, :] > 0)[0]
                 if len(row_x) > 0:
                     width = row_x[-1] - row_x[0]
-                    if width > img_w * 0.4:
-                        cutoff_y = min(bottom_y, y + int(img_h * 0.015))
+                    if width > small_w * 0.4:
+                        cutoff_y = min(bottom_y, y + int(small_h * 0.015))
                         mask[cutoff_y:, :] = 0
                         break
             y_indices, x_indices = np.where(mask > 0)
             min_x, max_x = np.min(x_indices), np.max(x_indices)
             min_y, max_y = np.min(y_indices), np.max(y_indices)
+
+        # Scale bbox back up to original resolution
+        min_x = min_x / scale
+        max_x = max_x / scale
+        min_y = min_y / scale
+        max_y = max_y / scale
 
         width_px = max_x - min_x
         height_px = max_y - min_y
