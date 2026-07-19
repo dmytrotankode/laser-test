@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os
 import sys
 import json
@@ -93,85 +94,38 @@ def find_2d_transform(target_mask, proj_mask, cam_name):
                 # Note: edges2_base already has its bottom removed via cutoff2 BEFORE rotation
                 img2_f = np.float32(warped_edges2)
                 
-                if cam_name in ['Сзади', 'Слева']:
-                    coords1_f = cv2.findNonZero(img1_uint8)
-                    coords2_f = cv2.findNonZero(warped_edges2.astype(np.uint8))
-                    
-                    if coords1_f is not None and coords2_f is not None:
-                        _, y1_f, _, _ = cv2.boundingRect(coords1_f)
-                        _, y2_f, _, _ = cv2.boundingRect(coords2_f)
-                        base_dy = y1_f - y2_f
-                        
-                        pts = np.argwhere(img2_f > 0)
-                        num_pts = len(pts)
-                        
-                        best_score_shift = -999999.0
-                        best_dx = 0
-                        best_dy = base_dy
-                        
-                        if num_pts > 0:
-                            for dy in range(base_dy - 20, base_dy + 21, 2):
-                                for dx in range(-40, 41, 2):
-                                    ty = pts[:, 0] + dy
-                                    tx = pts[:, 1] + dx
-                                    
-                                    mask = (ty >= 0) & (ty < target_h) & (tx >= 0) & (tx < target_w)
-                                    num_in_bounds = np.sum(mask)
-                                    num_out = num_pts - num_in_bounds
-                                    
-                                    ty = ty[mask]
-                                    tx = tx[mask]
-                                    
-                                    # Calculate mean distance (penalize out-of-bounds heavily)
-                                    sum_dist = np.sum(dt[ty, tx]) + num_out * 1000.0
-                                    mean_dist = sum_dist / float(num_pts)
-                                    score = -mean_dist
-                                    
-                                    if score > best_score_shift:
-                                        best_score_shift = score
-                                        best_dx = dx
-                                        best_dy = dy
-                                        
-                        shift_x = best_dx
-                        shift_y = best_dy
-                        overlap_score = best_score_shift
-                    else:
-                        shift_x = 0
-                        shift_y = 0
-                        overlap_score = 0
-                else:
-                    (shift_x_pc, shift_y_pc), _ = cv2.phaseCorrelate(img1_f, img2_f)
-                    pts = np.argwhere(img2_f > 0)
-                    num_pts = len(pts)
-                    best_score_shift = -999999.0
-                    best_dx = int(round(shift_x_pc))
-                    best_dy = int(round(shift_y_pc))
-                    
-                    if num_pts > 0:
-                        base_dy = int(round(shift_y_pc))
-                        base_dx = int(round(shift_x_pc))
-                        for dy in range(base_dy - 10, base_dy + 11, 2):
-                            for dx in range(base_dx - 10, base_dx + 11, 2):
-                                ty = pts[:, 0] + dy
-                                tx = pts[:, 1] + dx
+                (shift_x_pc, shift_y_pc), _ = cv2.phaseCorrelate(img1_f, img2_f)
+                pts = np.argwhere(img2_f > 0)
+                num_pts = len(pts)
+                best_score_shift = -999999.0
+                best_dx = int(round(shift_x_pc))
+                best_dy = int(round(shift_y_pc))
+                
+                if num_pts > 0:
+                    base_dy = int(round(shift_y_pc))
+                    base_dx = int(round(shift_x_pc))
+                    for dy in range(base_dy - 20, base_dy + 21, 2):
+                        for dx in range(base_dx - 20, base_dx + 21, 2):
+                            ty = pts[:, 0] + dy
+                            tx = pts[:, 1] + dx
+                            
+                            mask = (ty >= 0) & (ty < target_h) & (tx >= 0) & (tx < target_w)
+                            num_out = num_pts - np.sum(mask)
+                            
+                            ty_valid = ty[mask]
+                            tx_valid = tx[mask]
+                            
+                            sum_dist = np.sum(dt[ty_valid, tx_valid]) + num_out * 1000.0
+                            score = -(sum_dist / float(num_pts))
+                            
+                            if score > best_score_shift:
+                                best_score_shift = score
+                                best_dx = dx
+                                best_dy = dy
                                 
-                                mask = (ty >= 0) & (ty < target_h) & (tx >= 0) & (tx < target_w)
-                                num_out = num_pts - np.sum(mask)
-                                
-                                ty_valid = ty[mask]
-                                tx_valid = tx[mask]
-                                
-                                sum_dist = np.sum(dt[ty_valid, tx_valid]) + num_out * 1000.0
-                                score = -(sum_dist / float(num_pts))
-                                
-                                if score > best_score_shift:
-                                    best_score_shift = score
-                                    best_dx = dx
-                                    best_dy = dy
-                                    
-                    shift_x = best_dx
-                    shift_y = best_dy
-                    overlap_score = best_score_shift
+                shift_x = best_dx
+                shift_y = best_dy
+                overlap_score = best_score_shift
                 
                 if overlap_score > pass_best_score:
                     pass_best_score = overlap_score
