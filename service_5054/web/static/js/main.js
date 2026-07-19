@@ -79,7 +79,7 @@ function initThreeScene(container, pointSets, stlOptions = null, sceneOptions = 
         scene.add(dirLight3);
     }
 
-    const camera = new THREE.PerspectiveCamera(45, container.clientWidth / 300, 0.1, 10000);
+    const camera = new THREE.PerspectiveCamera(7.811, container.clientWidth / 300, 0.1, 10000);
     camera.up.set(0, 0, -1); // Z is down in robot space, so -Z is UP on screen
     const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: true });
     renderer.setSize(container.clientWidth, 300);
@@ -189,9 +189,9 @@ function initThreeScene(container, pointSets, stlOptions = null, sceneOptions = 
     if (allPoints.length > 0) {
         center.divideScalar(totalPoints);
         controls.target.copy(center);
-        camera.position.set(center.x + 250, center.y + 250, center.z - 250);
+        camera.position.set(center.x + 1500, center.y + 1500, center.z + 1500);
     } else {
-        camera.position.set(250, 250, -250);
+        camera.position.set(1500, 1500, 1500);
     }
     
     controls.update();
@@ -339,9 +339,9 @@ function handleStep02Result(data) {
             const cz = container.stlCenter[2];
 
             const views = [
-                { name: 'Сзади', pos: [cx + 450, cy, cz], up: [0, 0, -1] },
-                { name: 'Слева', pos: [cx, cy + 450, cz], up: [0, 0, -1] },
-                { name: 'Сверху', pos: [cx, cy, cz - 450], up: [0, -1, 0] }
+                { name: 'Сзади', pos: [cx, cy + 2500, cz], up: [0, 0, -1] },
+                { name: 'Слева', pos: [cx + 1650, cy, cz], up: [0, 0, -1] },
+                { name: 'Сверху', pos: [cx, cy, cz + 2000], up: [-1, 0, 0] }
             ];
 
             const panel = document.createElement('div');
@@ -522,7 +522,7 @@ function handleStep02Result(data) {
         const cx = visCont.stlCenter ? visCont.stlCenter[0] : data.tx;
         const cy = visCont.stlCenter ? visCont.stlCenter[1] : data.ty;
         const cz = visCont.stlCenter ? visCont.stlCenter[2] : data.tz;
-        if (visCont.setCameraView) visCont.setCameraView([cx + 450, cy, cz], [cx, cy, cz], [0, 0, -1]);
+        if (visCont.setCameraView) visCont.setCameraView([cx, cy + 2500, cz], [cx, cy, cz], [0, 0, -1]);
     };
     btnRow.appendChild(btnBack);
     
@@ -533,7 +533,7 @@ function handleStep02Result(data) {
         const cx = visCont.stlCenter ? visCont.stlCenter[0] : data.tx;
         const cy = visCont.stlCenter ? visCont.stlCenter[1] : data.ty;
         const cz = visCont.stlCenter ? visCont.stlCenter[2] : data.tz;
-        if (visCont.setCameraView) visCont.setCameraView([cx, cy + 450, cz], [cx, cy, cz], [0, 0, -1]);
+        if (visCont.setCameraView) visCont.setCameraView([cx + 1650, cy, cz], [cx, cy, cz], [0, 0, -1]);
     };
     btnRow.appendChild(btnLeft);
     
@@ -544,7 +544,7 @@ function handleStep02Result(data) {
         const cx = visCont.stlCenter ? visCont.stlCenter[0] : data.tx;
         const cy = visCont.stlCenter ? visCont.stlCenter[1] : data.ty;
         const cz = visCont.stlCenter ? visCont.stlCenter[2] : data.tz;
-        if (visCont.setCameraView) visCont.setCameraView([cx, cy, cz - 450], [cx, cy, cz], [0, -1, 0]);
+        if (visCont.setCameraView) visCont.setCameraView([cx, cy, cz + 2000], [cx, cy, cz], [-1, 0, 0]);
     };
     btnRow.appendChild(btnTop);
     
