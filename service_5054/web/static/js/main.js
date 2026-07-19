@@ -724,6 +724,13 @@ function handleStep04Result(data) {
         img.style.width = '100%';
         img.style.marginBottom = '5px';
         img.style.background = '#222';
+        img.style.cursor = 'pointer';
+        
+        const captionText = `${cam} | Зсув: dx=${info.du.toFixed(1)} dy=${info.dv.toFixed(1)} | Масштаб: ${info.scale.toFixed(3)} | Поворот: ${info.rot.toFixed(1)}°`;
+        
+        img.onclick = () => {
+            openModal(img.src, captionText);
+        };
         
         const label = document.createElement('div');
         label.innerText = cam;
@@ -736,6 +743,21 @@ function handleStep04Result(data) {
     }
     
     visZone.appendChild(panel);
+}
+
+function openModal(src, caption) {
+    const modal = document.getElementById('image-modal');
+    const modalImg = document.getElementById('modal-img');
+    const modalCaption = document.getElementById('modal-caption');
+    
+    modalImg.src = src;
+    modalCaption.innerText = caption;
+    modal.classList.add('active');
+}
+
+function closeModal() {
+    const modal = document.getElementById('image-modal');
+    modal.classList.remove('active');
 }
 
 let autoRunInterval = null;
