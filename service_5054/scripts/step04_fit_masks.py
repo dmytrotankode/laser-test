@@ -27,13 +27,13 @@ def find_2d_transform(target_mask, proj_mask, cam_name):
         
     if cam_name == 'Сзади':
         passes = [
-            {'scales': [0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15, 1.2, 1.25], 'rots': [-9, -6, -3, 0, 3, 6, 9]},
+            {'scales': [0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15, 1.2, 1.25, 1.3, 1.35], 'rots': [-9, -6, -3, 0, 3, 6, 9]},
             {'scales': [0.96, 0.98, 1.0, 1.02, 1.04], 'rots': [-2, -1, 0, 1, 2], 'relative': True},
             {'scales': [0.99, 1.0, 1.01], 'rots': [-0.5, 0, 0.5], 'relative': True}
         ]
     elif cam_name == 'Слева':
         passes = [
-            {'scales': [0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15, 1.2, 1.25], 'rots': [-9, -6, -3, 0, 3, 6, 9]},
+            {'scales': [0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15, 1.2, 1.25, 1.3, 1.35], 'rots': [-9, -6, -3, 0, 3, 6, 9]},
             {'scales': [0.96, 0.98, 1.0, 1.02, 1.04], 'rots': [-2, -1, 0, 1, 2], 'relative': True},
             {'scales': [0.99, 1.0, 1.01], 'rots': [-0.5, 0, 0.5], 'relative': True}
         ]
@@ -57,7 +57,7 @@ def find_2d_transform(target_mask, proj_mask, cam_name):
         img1_f[cutoff:, :] = 0
         
     img1_uint8 = img1_f.astype(np.uint8)
-    kernel = np.ones((5, 5), np.uint8)
+    kernel = np.ones((7, 7), np.uint8)
     img1_dilated = cv2.dilate(img1_uint8, kernel, iterations=1)
         
     center = (target_w / 2, target_h / 2)
@@ -84,20 +84,46 @@ def find_2d_transform(target_mask, proj_mask, cam_name):
                 img2_f = np.float32(warped_edges2)
                 
                 if cam_name in ['Сзади', 'Слева']:
-                    # We want the top of model to perfectly match top of target
                     coords1_f = cv2.findNonZero(img1_uint8)
                     coords2_f = cv2.findNonZero(warped_edges2.astype(np.uint8))
-                    
-                    (shift_x, _), response = cv2.phaseCorrelate(img1_f, img2_f)
                     
                     if coords1_f is not None and coords2_f is not None:
                         _, y1_f, _, _ = cv2.boundingRect(coords1_f)
                         _, y2_f, _, _ = cv2.boundingRect(coords2_f)
-                        shift_y = y1_f - y2_f
-                    else:
-                        (_, shift_y), _ = cv2.phaseCorrelate(img1_f, img2_f)
+                        base_dy = y1_f - y2_f
                         
-                    overlap_score = response
+                        pts = np.argwhere(img2_f > 0)
+                        num_pts = len(pts)
+                        
+                        best_score_shift = -1
+                        best_dx = 0
+                        best_dy = base_dy
+                        
+                        if num_pts > 0:
+                            for dy in range(base_dy - 20, base_dy + 21, 2):
+                                for dx in range(-40, 41, 2):
+                                    ty = pts[:, 0] + dy
+                                    tx = pts[:, 1] + dx
+                                    
+                                    mask = (ty >= 0) & (ty < target_h) & (tx >= 0) & (tx < target_w)
+                                    ty = ty[mask]
+                                    tx = tx[mask]
+                                    
+                                    overlap = np.sum(img1_dilated[ty, tx] > 0)
+                                    score = overlap / float(num_pts)
+                                    
+                                    if score > best_score_shift:
+                                        best_score_shift = score
+                                        best_dx = dx
+                                        best_dy = dy
+                                        
+                        shift_x = best_dx
+                        shift_y = best_dy
+                        overlap_score = best_score_shift
+                    else:
+                        shift_x = 0
+                        shift_y = 0
+                        overlap_score = 0
                 else:
                     (shift_x, shift_y), response = cv2.phaseCorrelate(img1_f, img2_f)
                     overlap_score = response
