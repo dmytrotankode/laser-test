@@ -17,10 +17,13 @@ def find_2d_transform(target_mask, proj_mask, cam_name):
     edges2_base = cv2.Canny(img2, 100, 200)
     
     cutoff = None
-    if cam_name in ['Сзади', 'Слева']:
-        cutoff = int(target_h * 0.75)
-    elif cam_name == 'Сверху':
-        cutoff = int(target_h * 0.90)
+    coords1 = cv2.findNonZero(edges1_base)
+    if coords1 is not None:
+        _, y1, _, h1 = cv2.boundingRect(coords1)
+        if cam_name in ['Сзади', 'Слева']:
+            cutoff = int(y1 + h1 * 0.75)
+        elif cam_name == 'Сверху':
+            cutoff = int(y1 + h1 * 0.90)
         
     if cam_name == 'Сзади':
         passes = [
@@ -36,9 +39,9 @@ def find_2d_transform(target_mask, proj_mask, cam_name):
         ]
     elif cam_name == 'Сверху':
         passes = [
-            {'scales': [1.0], 'rots': range(0, 360, 10)},
-            {'scales': [0.85, 0.95, 1.05, 1.15], 'rots': [-10, -5, 0, 5, 10], 'relative': True},
-            {'scales': [0.98, 1.0, 1.02], 'rots': [-2, 0, 2], 'relative': True}
+            {'scales': [0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15], 'rots': [-10, -5, 0, 5, 10]},
+            {'scales': [0.96, 0.98, 1.0, 1.02, 1.04], 'rots': [-3, -1, 0, 1, 3], 'relative': True},
+            {'scales': [0.99, 1.0, 1.01], 'rots': [-1, 0, 1], 'relative': True}
         ]
     else:
         passes = [{'scales': [1.0], 'rots': [0]}]
