@@ -83,8 +83,25 @@ def find_2d_transform(target_mask, proj_mask, cam_name):
                     
                 img2_f = np.float32(warped_edges2)
                 
-                # phaseCorrelate returns shift from img2 to img1
-                (shift_x, shift_y), response = cv2.phaseCorrelate(img1_f, img2_f)
+                if cam_name in ['Сзади', 'Слева']:
+                    # Force perfect top alignment instead of relying on phaseCorrelate for Y!
+                    coords1_f = cv2.findNonZero(img1_uint8)
+                    coords2_f = cv2.findNonZero(warped_edges2.astype(np.uint8))
+                    
+                    if coords1_f is not None and coords2_f is not None:
+                        _, y1_f, _, _ = cv2.boundingRect(coords1_f)
+                        _, y2_f, _, _ = cv2.boundingRect(coords2_f)
+                        
+                        # We want the top of model (y2_f) to perfectly match top of target (y1_f)
+                        forced_shift_y = y1_f - y2_f
+                        
+                        # Use phaseCorrelate ONLY for horizontal shift
+                        (shift_x, _), _ = cv2.phaseCorrelate(img1_f, img2_f)
+                        shift_y = forced_shift_y
+                    else:
+                        (shift_x, shift_y), response = cv2.phaseCorrelate(img1_f, img2_f)
+                else:
+                    (shift_x, shift_y), response = cv2.phaseCorrelate(img1_f, img2_f)
                 
                 # Calculate exact contour overlap score
                 M_trans = np.float32([[1, 0, shift_x], [0, 1, shift_y]])
