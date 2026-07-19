@@ -84,10 +84,12 @@ function initThreeScene(container, pointSets, stlOptions = null, sceneOptions = 
         scene.add(dirLight3);
     }
 
-    const camera = new THREE.PerspectiveCamera(7.811, container.clientWidth / 300, 0.1, 10000);
+    const targetAspect = 4096 / 3000;
+    const viewerHeight = Math.round(container.clientWidth / targetAspect);
+    const camera = new THREE.PerspectiveCamera(7.811, targetAspect, 0.1, 10000);
     camera.up.set(0, 0, -1); // Z is down in robot space, so -Z is UP on screen
     const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: true });
-    renderer.setSize(container.clientWidth, 300);
+    renderer.setSize(container.clientWidth, viewerHeight);
     container.appendChild(renderer.domElement);
 
     const controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -419,7 +421,7 @@ function handleStep02Result(data) {
             const renderWidth = 4096;
             const renderHeight = 3000;
             const oldWidth = container.clientWidth;
-            const oldHeight = 300;
+            const oldHeight = Math.round(oldWidth / (4096/3000));
             
             renderer.setSize(renderWidth, renderHeight);
             camera.aspect = renderWidth / renderHeight;
