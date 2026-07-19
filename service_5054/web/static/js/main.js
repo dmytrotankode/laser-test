@@ -19,7 +19,8 @@ async function startSession() {
 }
 
 function markStepDone(stepId) {
-    const btn = document.getElementById(`btn-run-${stepId}`);
+    let btn = document.getElementById(`btn-run-${stepId}`);
+    if (!btn && stepId === '03') btn = document.getElementById('btn-step03');
     if (btn) {
         btn.innerText = `Перерахувати (Крок ${parseInt(stepId)})`;
         btn.style.background = "#4CAF50";
@@ -756,7 +757,8 @@ function handleStep02Result(data) {
 async function runStep03() {
     if (!currentSessionId) return;
     
-    const btn = document.getElementById('btn-run-03');
+    let btn = document.getElementById('btn-run-03');
+    if (!btn) btn = document.getElementById('btn-step03');
     if (btn.classList.contains('recalc-btn')) {
         clearStepData('03');
     }
