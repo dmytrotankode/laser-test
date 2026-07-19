@@ -29,10 +29,18 @@ function markStepDone(stepId) {
     
     // Enable NEXT step
     const nextStepStr = String(parseInt(stepId) + 1).padStart(2, '0');
-    const nextBtn = document.getElementById(`btn-run-${nextStepStr}`);
+    let nextBtn = document.getElementById(`btn-run-${nextStepStr}`);
+    let nextCard = document.getElementById(`card-${nextStepStr}`);
+    
+    // Fallback for cached old index.html
+    if (!nextBtn && nextStepStr === '03') {
+        nextBtn = document.getElementById('btn-step03');
+        nextCard = document.getElementById('card-step03');
+    }
+    
     if (nextBtn && !nextBtn.classList.contains('recalc-btn')) {
         nextBtn.disabled = false;
-        document.getElementById(`card-${nextStepStr}`).classList.add('active');
+        if (nextCard) nextCard.classList.add('active');
     }
 }
 
@@ -384,10 +392,6 @@ async function runStep01() {
             // Render UI
             handleStep01Result(result.data || result);
             markStepDone('01');
-            
-            // Enable Step 2
-            document.getElementById('btn-run-02').disabled = false;
-            document.getElementById('card-02').classList.add('active');
             
         } else if (result.status === 'error') {
             clearInterval(stepPollInterval);
@@ -746,10 +750,6 @@ function handleStep02Result(data) {
     
     // Default to Back view
     btnBack.click();
-    
-    // Enable Step 3
-    document.getElementById('btn-step03').disabled = false;
-    document.getElementById('card-step03').classList.add('active');
 }
 
 // --- STEP 3 ---
@@ -1002,8 +1002,12 @@ async function startAutoRun() {
         
         // Find next step to run
         for (let i = 0; i <= 4; i++) {
-            const btnId = 'btn-run-0' + i;
-            const btn = document.getElementById(btnId);
+            let btnId = 'btn-run-0' + i;
+            let btn = document.getElementById(btnId);
+            
+            // Fallback for cached old index.html
+            if (!btn && i === 3) btn = document.getElementById('btn-step03');
+            
             // We can run it if it's enabled, NOT running, and NOT a recalc button
             if (btn && !btn.disabled && !btn.classList.contains('recalc-btn') && !btn.innerText.includes('Виконано')) {
                 btn.click();
@@ -1013,8 +1017,9 @@ async function startAutoRun() {
         
         // Check if all done
         const allDone = [0,1,2,3,4].every(i => {
-            const btnId = 'btn-run-0' + i;
-            const btn = document.getElementById(btnId);
+            let btnId = 'btn-run-0' + i;
+            let btn = document.getElementById(btnId);
+            if (!btn && i === 3) btn = document.getElementById('btn-step03');
             return btn && btn.innerText.includes('Виконано');
         });
         
