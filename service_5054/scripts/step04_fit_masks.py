@@ -27,14 +27,14 @@ def find_2d_transform(target_mask, proj_mask, cam_name):
         
     if cam_name == 'Сзади':
         passes = [
-            {'scales': [0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15, 1.2, 1.25, 1.3, 1.35], 'rots': [-9, -6, -3, 0, 3, 6, 9]},
-            {'scales': [0.96, 0.98, 1.0, 1.02, 1.04], 'rots': [-2, -1, 0, 1, 2], 'relative': True},
+            {'scales': [0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15, 1.2, 1.25, 1.3, 1.35], 'rots': [-15, -10, -5, 0, 5, 10, 15]},
+            {'scales': [0.96, 0.98, 1.0, 1.02, 1.04], 'rots': [-3, -1, 0, 1, 3], 'relative': True},
             {'scales': [0.99, 1.0, 1.01], 'rots': [-0.5, 0, 0.5], 'relative': True}
         ]
     elif cam_name == 'Слева':
         passes = [
-            {'scales': [0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15, 1.2, 1.25, 1.3, 1.35], 'rots': [-9, -6, -3, 0, 3, 6, 9]},
-            {'scales': [0.96, 0.98, 1.0, 1.02, 1.04], 'rots': [-2, -1, 0, 1, 2], 'relative': True},
+            {'scales': [0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15, 1.2, 1.25, 1.3, 1.35], 'rots': [-15, -10, -5, 0, 5, 10, 15]},
+            {'scales': [0.96, 0.98, 1.0, 1.02, 1.04], 'rots': [-3, -1, 0, 1, 3], 'relative': True},
             {'scales': [0.99, 1.0, 1.01], 'rots': [-0.5, 0, 0.5], 'relative': True}
         ]
     elif cam_name == 'Сверху':
@@ -50,21 +50,21 @@ def find_2d_transform(target_mask, proj_mask, cam_name):
     best_rot = 0.0
     best_tx = 0.0
     best_ty = 0.0
-    best_score = -1
+    best_score = -999999.0
     
     img1_f = np.float32(edges1_base)
     if cutoff:
         img1_f[cutoff:, :] = 0
         
     img1_uint8 = img1_f.astype(np.uint8)
-    kernel = np.ones((7, 7), np.uint8)
-    img1_dilated = cv2.dilate(img1_uint8, kernel, iterations=1)
+    inv_edges = 255 - img1_uint8
+    dt = cv2.distanceTransform(inv_edges, cv2.DIST_L2, cv2.DIST_MASK_PRECISE)
         
     center = (target_w / 2, target_h / 2)
     
     for p in passes:
         is_rel = p.get('relative', False)
-        pass_best_score = -1
+        pass_best_score = -999999.0
         pass_best_s = best_scale
         pass_best_r = best_rot
         pass_best_tx = best_tx
@@ -95,7 +95,7 @@ def find_2d_transform(target_mask, proj_mask, cam_name):
                         pts = np.argwhere(img2_f > 0)
                         num_pts = len(pts)
                         
-                        best_score_shift = -1
+                        best_score_shift = -999999.0
                         best_dx = 0
                         best_dy = base_dy
                         
@@ -106,11 +106,16 @@ def find_2d_transform(target_mask, proj_mask, cam_name):
                                     tx = pts[:, 1] + dx
                                     
                                     mask = (ty >= 0) & (ty < target_h) & (tx >= 0) & (tx < target_w)
+                                    num_in_bounds = np.sum(mask)
+                                    num_out = num_pts - num_in_bounds
+                                    
                                     ty = ty[mask]
                                     tx = tx[mask]
                                     
-                                    overlap = np.sum(img1_dilated[ty, tx] > 0)
-                                    score = overlap / float(num_pts)
+                                    # Calculate mean distance (penalize out-of-bounds heavily)
+                                    sum_dist = np.sum(dt[ty, tx]) + num_out * 1000.0
+                                    mean_dist = sum_dist / float(num_pts)
+                                    score = -mean_dist
                                     
                                     if score > best_score_shift:
                                         best_score_shift = score
