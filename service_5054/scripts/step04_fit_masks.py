@@ -144,25 +144,60 @@ def main():
         h, w = target_mask.shape
         ph, pw = proj_mask.shape[:2]
         
-        if (ph, pw) != (h, w):
-            canvas = np.zeros((h, w), dtype=np.uint8)
-            y_off = (h - ph) // 2
-            x_off = (w - pw) // 2
-            sy1, sy2 = max(0, -y_off), min(ph, h - y_off)
-            sx1, sx2 = max(0, -x_off), min(pw, w - x_off)
-            dy1, dy2 = max(0, y_off), min(h, y_off + ph)
-            dx1, dx2 = max(0, x_off), min(w, x_off + pw)
-            canvas[dy1:dy2, dx1:dx2] = proj_mask[sy1:sy2, sx1:sx2]
-            proj_mask = canvas
+        # 1) Compute bounding boxes to find base_scale and base_translation
+        coords_t = cv2.findNonZero(target_mask)
+        coords_p = cv2.findNonZero(proj_mask)
+        
+        M_base = np.zeros((2, 3), dtype=np.float64)
+        M_base[0, 0] = 1.0
+        M_base[1, 1] = 1.0
+        
+        if coords_t is not None and coords_p is not None:
+            xt, yt, wt, ht = cv2.boundingRect(coords_t)
+            xp, yp, wp, hp = cv2.boundingRect(coords_p)
             
-        scale, rot, du, dv = find_2d_transform(target_mask, proj_mask, cam)
+            # Use max to roughly match the size
+            base_scale = max(wt / float(wp) if wp > 0 else 1.0, ht / float(hp) if hp > 0 else 1.0)
+            
+            center_t_x = xt + wt / 2.0
+            center_t_y = yt + ht / 2.0
+            
+            center_p_x = xp + wp / 2.0
+            center_p_y = yp + hp / 2.0
+            
+            M_base[0, 0] = base_scale
+            M_base[1, 1] = base_scale
+            M_base[0, 2] = center_t_x - center_p_x * base_scale
+            M_base[1, 2] = center_t_y - center_p_y * base_scale
+            
+        proj_pre_aligned = cv2.warpAffine(proj_mask, M_base, (w, h), flags=cv2.INTER_NEAREST)
         
-        center = (w / 2, h / 2)
-        M_rot_scale = cv2.getRotationMatrix2D(center, rot, scale)
-        M_rot_scale[0, 2] += du
-        M_rot_scale[1, 2] += dv
+        # 2) Find fine transform mapping proj_pre_aligned to target_mask
+        fine_scale, rot, fine_du, fine_dv = find_2d_transform(target_mask, proj_pre_aligned, cam)
         
-        proj_aligned = cv2.warpAffine(proj_mask, M_rot_scale, (w, h), flags=cv2.INTER_NEAREST)
+        # 3) Construct M_fine
+        center = (w / 2.0, h / 2.0)
+        M_fine_2x3 = cv2.getRotationMatrix2D(center, rot, fine_scale)
+        M_fine_2x3[0, 2] += fine_du
+        M_fine_2x3[1, 2] += fine_dv
+        
+        # 4) Combine M_total = M_fine * M_base
+        M_base_3x3 = np.eye(3)
+        M_base_3x3[0:2, :] = M_base
+        
+        M_fine_3x3 = np.eye(3)
+        M_fine_3x3[0:2, :] = M_fine_2x3
+        
+        M_total_3x3 = np.dot(M_fine_3x3, M_base_3x3)
+        M_total = M_total_3x3[0:2, :]
+        
+        # Extract total scale and rot for metrics
+        total_scale = np.sqrt(M_total[0,0]**2 + M_total[1,0]**2)
+        total_rot = np.degrees(np.arctan2(M_total[1,0], M_total[0,0]))
+        total_du = M_total[0, 2]
+        total_dv = M_total[1, 2]
+        
+        proj_aligned = cv2.warpAffine(proj_mask, M_total, (w, h), flags=cv2.INTER_NEAREST)
         
         overlap = np.full((h, w, 3), 30, dtype=np.uint8)
         
@@ -181,7 +216,7 @@ def main():
         overlap[only_model] = c_model
         overlap[both] = c_both
         
-        cv2.putText(overlap, f"BLUE: Etalon (s={scale:.2f}, r={rot:.1f})", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, c_etalon, 2)
+        cv2.putText(overlap, f"BLUE: Etalon (s={total_scale:.2f}, r={total_rot:.1f})", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, c_etalon, 2)
         cv2.putText(overlap, "ORANGE: 3D Model", (20, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.8, c_model, 2)
         cv2.putText(overlap, "GREEN: Match", (20, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.8, c_both, 2)
         
@@ -191,12 +226,12 @@ def main():
             im_buf_arr.tofile(out_path)
         
         results[cam] = {
-            "scale": float(scale),
-            "rot": float(rot),
-            "du": float(du),
-            "dv": float(dv),
-            "overlap_file": f"overlap_{cam}.png",
-            "overlap_path": f"/files/{args.session}/overlap_{cam}.png"
+            "scale": float(total_scale),
+            "rot": float(total_rot),
+            "du": float(total_du),
+            "dv": float(total_dv),
+            "overlap_file": f'overlap_{cam}.png',
+            "overlap_path": f'/files/{args.session}/overlap_{cam}.png'
         }
         
     with open(os.path.join(results_dir, 'step04_result.json'), 'w') as f:
