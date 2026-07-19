@@ -599,10 +599,10 @@ function handleStep02Result(data) {
             const dx = step00GlobalData[name].look_at_offset_x_mm;
             const dy = step00GlobalData[name].look_at_offset_y_mm;
             if (name === 'Сзади') {
-                look_at[0] += dx;
+                look_at[1] -= dx;
                 look_at[2] += dy;
             } else if (name === 'Слева') {
-                look_at[1] -= dx;
+                look_at[0] += dx;
                 look_at[2] += dy;
             } else if (name === 'Сверху') {
                 look_at[1] -= dx;
@@ -617,7 +617,7 @@ function handleStep02Result(data) {
     btnBack.innerText = 'Сзади (Back)';
     btnBack.onclick = () => {
         const opt = getOptics('Сзади', cx, cy, cz);
-        if (visCont.setCameraView) visCont.setCameraView([cx, cy + 2500, cz], opt.look_at, [0, 0, -1], opt.f_px);
+        if (visCont.setCameraView) visCont.setCameraView([cx + 2500, cy, cz], opt.look_at, [0, 0, -1], opt.f_px);
     };
     btnRow.appendChild(btnBack);
     
@@ -626,7 +626,7 @@ function handleStep02Result(data) {
     btnLeft.innerText = 'Слева (Left)';
     btnLeft.onclick = () => {
         const opt = getOptics('Слева', cx, cy, cz);
-        if (visCont.setCameraView) visCont.setCameraView([cx + 1650, cy, cz], opt.look_at, [0, 0, -1], opt.f_px);
+        if (visCont.setCameraView) visCont.setCameraView([cx, cy + 1650, cz], opt.look_at, [0, 0, -1], opt.f_px);
     };
     btnRow.appendChild(btnLeft);
     
