@@ -39,9 +39,9 @@ def find_2d_transform(target_mask, proj_mask, cam_name):
         ]
     elif cam_name == 'Сверху':
         passes = [
-            {'scales': [0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15], 'rots': [-10, -5, 0, 5, 10]},
-            {'scales': [0.96, 0.98, 1.0, 1.02, 1.04], 'rots': [-3, -1, 0, 1, 3], 'relative': True},
-            {'scales': [0.99, 1.0, 1.01], 'rots': [-1, 0, 1], 'relative': True}
+            {'scales': [1.0], 'rots': range(0, 360, 10)},
+            {'scales': [0.85, 0.95, 1.05, 1.15], 'rots': [-10, -5, 0, 5, 10], 'relative': True},
+            {'scales': [0.98, 1.0, 1.02], 'rots': [-2, 0, 2], 'relative': True}
         ]
     else:
         passes = [{'scales': [1.0], 'rots': [0]}]
@@ -82,8 +82,19 @@ def find_2d_transform(target_mask, proj_mask, cam_name):
                 # phaseCorrelate returns shift from img2 to img1
                 (shift_x, shift_y), response = cv2.phaseCorrelate(img1_f, img2_f)
                 
-                if response > pass_best_score:
-                    pass_best_score = response
+                # Calculate exact contour overlap score
+                M_trans = np.float32([[1, 0, shift_x], [0, 1, shift_y]])
+                aligned_edges2 = cv2.warpAffine(warped_edges2, M_trans, (target_w, target_h), flags=cv2.INTER_NEAREST)
+                if cutoff:
+                    aligned_edges2[cutoff:, :] = 0
+                    
+                intersection = cv2.bitwise_and(img1_f.astype(np.uint8), aligned_edges2)
+                union = cv2.bitwise_or(img1_f.astype(np.uint8), aligned_edges2)
+                
+                overlap_score = np.sum(intersection > 0) / max(1, np.sum(union > 0))
+                
+                if overlap_score > pass_best_score:
+                    pass_best_score = overlap_score
                     pass_best_s = s
                     pass_best_r = r
                     pass_best_tx = shift_x
