@@ -635,7 +635,7 @@ function handleStep02Result(data) {
     btnTop.innerText = 'Сверху (Top)';
     btnTop.onclick = () => {
         const opt = getOptics('Сверху', cx, cy, cz);
-        if (visCont.setCameraView) visCont.setCameraView([cx, cy, cz + 2000], opt.look_at, [-1, 0, 0], opt.f_px);
+        if (visCont.setCameraView) visCont.setCameraView([cx, cy, cz + 2000], opt.look_at, [0, 1, 0], opt.f_px);
     };
     btnRow.appendChild(btnTop);
     
