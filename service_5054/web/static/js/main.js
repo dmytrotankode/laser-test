@@ -1,5 +1,6 @@
 let currentSessionId = null;
 let stepPollInterval = null;
+let step00GlobalData = null;
 let step02GlobalData = null;
 
 async function startSession() {
@@ -10,9 +11,13 @@ async function startSession() {
     document.getElementById('session-label').innerText = `Сесія: ${currentSessionId}`;
     document.getElementById('session-label').style.color = '#00d2ff';
     
-    // Enable Step 1
-    document.getElementById('btn-run-01').disabled = false;
-    document.getElementById('card-01').classList.add('active');
+    // Enable Step 0
+    document.getElementById('btn-run-00').disabled = false;
+    document.getElementById('card-00').classList.add('active');
+    
+    // Enable Step 1 initially disabled until Step 0 completes
+    document.getElementById('btn-run-01').disabled = true;
+    document.getElementById('card-01').classList.remove('active');
     
     // Enable Step 2 initially disabled until Step 1 completes
     document.getElementById('btn-run-02').disabled = true;
@@ -171,11 +176,15 @@ function initThreeScene(container, pointSets, stlOptions = null, sceneOptions = 
         });
     }
 
-    container.setCameraView = function(pos, look_at, up_vector) {
+    container.setCameraView = function(pos, look_at, up_vector, f_px) {
         camera.position.set(pos[0], pos[1], pos[2]);
         controls.target.set(look_at[0], look_at[1], look_at[2]);
         if (up_vector) {
             camera.up.set(up_vector[0], up_vector[1], up_vector[2]);
+        }
+        if (f_px) {
+            camera.fov = 2 * Math.atan(3000 / (2 * f_px)) * 180 / Math.PI;
+            camera.updateProjectionMatrix();
         }
         camera.lookAt(look_at[0], look_at[1], look_at[2]);
         controls.update();
@@ -204,6 +213,50 @@ function initThreeScene(container, pointSets, stlOptions = null, sceneOptions = 
     animate();
 }
 
+// --- STEP 0 ---
+async function runStep00() {
+    if (!currentSessionId) return;
+    
+    const btn = document.getElementById('btn-run-00');
+    btn.disabled = true;
+    btn.innerText = "Обробка...";
+    
+    await fetch(`/api/step00?session_id=${currentSessionId}&action=start`);
+    
+    stepPollInterval = setInterval(async () => {
+        const res = await fetch(`/api/step00?session_id=${currentSessionId}&action=poll`);
+        const result = await res.json();
+        
+        if (result.status === 'done' || result.data) { // sometimes it returns data directly if it was fast enough or format changed
+            clearInterval(stepPollInterval);
+            btn.innerText = "Виконано";
+            btn.style.background = "#4CAF50";
+            
+            step00GlobalData = result.data || result; // store optics
+            handleStep00Result(step00GlobalData);
+            
+            document.getElementById('btn-run-01').disabled = false;
+            document.getElementById('card-01').classList.add('active');
+            
+        } else if (result.status === 'error') {
+            clearInterval(stepPollInterval);
+            btn.innerText = "Помилка";
+            btn.style.background = "#f44336";
+            alert("Помилка: " + result.message);
+        }
+    }, 1000);
+}
+
+function handleStep00Result(data) {
+    addMetricGroup('Крок 0: Оптика та Камери');
+    Object.keys(data).forEach(cam => {
+        addMetric(`${cam} (f_px)`, data[cam].f_px.toFixed(1));
+        addMetric(`${cam} (Зміщення X)`, data[cam].look_at_offset_x_mm.toFixed(1) + " мм");
+        addMetric(`${cam} (Зміщення Y)`, data[cam].look_at_offset_y_mm.toFixed(1) + " мм");
+    });
+}
+
+// --- STEP 1 ---
 async function runStep01() {
     if (!currentSessionId) return;
     
@@ -369,7 +422,22 @@ function handleStep02Result(data) {
             camera.updateProjectionMatrix();
 
             views.forEach(v => {
-                container.setCameraView(v.pos, [cx, cy, cz], v.up);
+                let look_at = [cx, cy, cz];
+                let f_px = null;
+                if (step00GlobalData && step00GlobalData[v.name]) {
+                    f_px = step00GlobalData[v.name].f_px;
+                    const dx = step00GlobalData[v.name].look_at_offset_x_mm;
+                    const dy = step00GlobalData[v.name].look_at_offset_y_mm;
+                    if (v.name === 'Сзади') {
+                        look_at[0] += dx; look_at[2] += dy;
+                    } else if (v.name === 'Слева') {
+                        look_at[1] -= dx; look_at[2] += dy;
+                    } else if (v.name === 'Сверху') {
+                        look_at[1] -= dx; look_at[0] += dy;
+                    }
+                }
+                
+                container.setCameraView(v.pos, look_at, v.up, f_px);
                 renderer.render(scene, camera);
                 const dataURL = renderer.domElement.toDataURL('image/png');
                 
@@ -515,14 +583,37 @@ function handleStep02Result(data) {
     btnRow.style.marginBottom = '10px';
     btnRow.style.justifyContent = 'center';
     
+    const cx = visCont.stlCenter ? visCont.stlCenter[0] : data.tx;
+    const cy = visCont.stlCenter ? visCont.stlCenter[1] : data.ty;
+    const cz = visCont.stlCenter ? visCont.stlCenter[2] : data.tz;
+    
+    function getOptics(name, cx, cy, cz) {
+        let look_at = [cx, cy, cz];
+        let f_px = null;
+        if (step00GlobalData && step00GlobalData[name]) {
+            f_px = step00GlobalData[name].f_px;
+            const dx = step00GlobalData[name].look_at_offset_x_mm;
+            const dy = step00GlobalData[name].look_at_offset_y_mm;
+            if (name === 'Сзади') {
+                look_at[0] += dx;
+                look_at[2] += dy;
+            } else if (name === 'Слева') {
+                look_at[1] -= dx;
+                look_at[2] += dy;
+            } else if (name === 'Сверху') {
+                look_at[1] -= dx;
+                look_at[0] += dy;
+            }
+        }
+        return { look_at, f_px };
+    }
+
     // Сзади (Back)
     const btnBack = document.createElement('button');
     btnBack.innerText = 'Сзади (Back)';
     btnBack.onclick = () => {
-        const cx = visCont.stlCenter ? visCont.stlCenter[0] : data.tx;
-        const cy = visCont.stlCenter ? visCont.stlCenter[1] : data.ty;
-        const cz = visCont.stlCenter ? visCont.stlCenter[2] : data.tz;
-        if (visCont.setCameraView) visCont.setCameraView([cx, cy + 2500, cz], [cx, cy, cz], [0, 0, -1]);
+        const opt = getOptics('Сзади', cx, cy, cz);
+        if (visCont.setCameraView) visCont.setCameraView([cx, cy + 2500, cz], opt.look_at, [0, 0, -1], opt.f_px);
     };
     btnRow.appendChild(btnBack);
     
@@ -530,10 +621,8 @@ function handleStep02Result(data) {
     const btnLeft = document.createElement('button');
     btnLeft.innerText = 'Слева (Left)';
     btnLeft.onclick = () => {
-        const cx = visCont.stlCenter ? visCont.stlCenter[0] : data.tx;
-        const cy = visCont.stlCenter ? visCont.stlCenter[1] : data.ty;
-        const cz = visCont.stlCenter ? visCont.stlCenter[2] : data.tz;
-        if (visCont.setCameraView) visCont.setCameraView([cx + 1650, cy, cz], [cx, cy, cz], [0, 0, -1]);
+        const opt = getOptics('Слева', cx, cy, cz);
+        if (visCont.setCameraView) visCont.setCameraView([cx + 1650, cy, cz], opt.look_at, [0, 0, -1], opt.f_px);
     };
     btnRow.appendChild(btnLeft);
     
@@ -541,10 +630,8 @@ function handleStep02Result(data) {
     const btnTop = document.createElement('button');
     btnTop.innerText = 'Сверху (Top)';
     btnTop.onclick = () => {
-        const cx = visCont.stlCenter ? visCont.stlCenter[0] : data.tx;
-        const cy = visCont.stlCenter ? visCont.stlCenter[1] : data.ty;
-        const cz = visCont.stlCenter ? visCont.stlCenter[2] : data.tz;
-        if (visCont.setCameraView) visCont.setCameraView([cx, cy, cz + 2000], [cx, cy, cz], [-1, 0, 0]);
+        const opt = getOptics('Сверху', cx, cy, cz);
+        if (visCont.setCameraView) visCont.setCameraView([cx, cy, cz + 2000], opt.look_at, [-1, 0, 0], opt.f_px);
     };
     btnRow.appendChild(btnTop);
     

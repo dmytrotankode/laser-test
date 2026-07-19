@@ -22,6 +22,12 @@
             <span id="session-label" style="color: #aaa;">Немає активної сесії</span>
         </div>
 
+        <div class="step-card" id="card-00">
+            <h3>Крок 0: Аналіз еталонної оптики</h3>
+            <p style="font-size: 0.85rem; color: #888;">Розрахунок точної фокусної відстані та точок фокусування для 100% ідентичної віртуальної камери.</p>
+            <button id="btn-run-00" onclick="runStep00()" disabled>Виконати етап 0</button>
+        </div>
+
         <div class="step-card" id="card-01">
             <h3>Крок 1: Створення еталонної лінії обрізки</h3>
             <p style="font-size: 0.85rem; color: #888;">Завантажує еталонний LS, розраховує 10мм відступ та кути різака (15°).</p>
@@ -84,6 +90,6 @@
         <div id="modal-caption" class="modal-caption"></div>
     </div>
 
-    <script src="/static/js/main.js?v=7"></script>
+    <script src="/static/js/main.js?v=8"></script>
 </body>
 </html>
