@@ -396,9 +396,9 @@ function handleStep02Result(data) {
             const cz = container.stlCenter[2];
 
             const views = [
-                { name: 'Сзади', pos: [cx, cy + 2500, cz], up: [0, 0, -1] },
-                { name: 'Слева', pos: [cx + 1650, cy, cz], up: [0, 0, -1] },
-                { name: 'Сверху', pos: [cx, cy, cz + 2000], up: [-1, 0, 0] }
+                { name: 'Сзади', pos: [cx + 2500, cy, cz], up: [0, 0, -1] },
+                { name: 'Слева', pos: [cx, cy + 1650, cz], up: [0, 0, -1] },
+                { name: 'Сверху', pos: [cx, cy, cz + 2000], up: [0, 1, 0] }
             ];
 
             const panel = document.createElement('div');
@@ -433,9 +433,9 @@ function handleStep02Result(data) {
                     const dx = step00GlobalData[v.name].look_at_offset_x_mm;
                     const dy = step00GlobalData[v.name].look_at_offset_y_mm;
                     if (v.name === 'Сзади') {
-                        look_at[0] += dx; look_at[2] += dy;
-                    } else if (v.name === 'Слева') {
                         look_at[1] -= dx; look_at[2] += dy;
+                    } else if (v.name === 'Слева') {
+                        look_at[0] += dx; look_at[2] += dy;
                     } else if (v.name === 'Сверху') {
                         look_at[1] -= dx; look_at[0] += dy;
                     }
