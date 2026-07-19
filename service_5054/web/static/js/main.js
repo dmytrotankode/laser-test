@@ -416,7 +416,7 @@ function handleStep01Result(data) {
     
     const vis2Cont = createVisualizationBlock('vis-01-offset', 'Зона обрізки (Contact Points)', '01');
     initThreeScene(vis2Cont, [
-        { points: data.offset_points, color: 0x00ff00, size: 3.0 }
+        { points: data.contact_points, color: 0x00ff00, size: 3.0 }
     ]);
 }
 
