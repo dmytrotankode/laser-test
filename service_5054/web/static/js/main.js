@@ -357,6 +357,16 @@ function handleStep02Result(data) {
             const oldBg = scene.background;
             scene.background = null;
             renderer.setClearColor(0x000000, 0);
+            
+            // Temporarily set high resolution for screenshots (match 4096x3000 photos exactly)
+            const renderWidth = 4096;
+            const renderHeight = 3000;
+            const oldWidth = container.clientWidth;
+            const oldHeight = 300;
+            
+            renderer.setSize(renderWidth, renderHeight);
+            camera.aspect = renderWidth / renderHeight;
+            camera.updateProjectionMatrix();
 
             views.forEach(v => {
                 container.setCameraView(v.pos, [cx, cy, cz], v.up);
@@ -364,8 +374,8 @@ function handleStep02Result(data) {
                 const dataURL = renderer.domElement.toDataURL('image/png');
                 
                 const canvas = document.createElement('canvas');
-                canvas.width = renderer.domElement.width;
-                canvas.height = renderer.domElement.height;
+                canvas.width = renderWidth;
+                canvas.height = renderHeight;
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(renderer.domElement, 0, 0);
                 const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -433,6 +443,11 @@ function handleStep02Result(data) {
                 maskCont.appendChild(maskLabel);
                 rowMasks.appendChild(maskCont);
             });
+
+            // Restore renderer size for the UI
+            renderer.setSize(oldWidth, oldHeight);
+            camera.aspect = oldWidth / oldHeight;
+            camera.updateProjectionMatrix();
 
             scene.background = oldBg;
             
