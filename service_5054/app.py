@@ -113,6 +113,14 @@ def api_step03():
 def api_step04():
     return generic_step_api("step04_fit_masks.py", request.args.get('session_id'), request.args.get('action'), "step04_result.json")
 
+@app.route('/api/step05')
+def api_step05():
+    return generic_step_api("step05_segment_current.py", request.args.get('session_id'), request.args.get('action'), "step05_result.json")
+
+@app.route('/api/step06')
+def api_step06():
+    return generic_step_api("step06_fit_3d.py", request.args.get('session_id'), request.args.get('action'), "step06_result.json")
+
 import base64
 
 @app.route('/api/save_screenshot', methods=['POST'])

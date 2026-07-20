@@ -53,6 +53,18 @@
             <button id="btn-run-04" onclick="runStep04()" disabled>Виконати етап 4</button>
         </div>
 
+        <div class="step-card" id="card-05">
+            <h3>Крок 5: Обрізка фото поточного шолома</h3>
+            <p style="font-size: 0.85rem; color: #888;">Сегментація фотографій поточного встановленого шолома, створення прозорих та однотонних масок.</p>
+            <button id="btn-run-05" onclick="runStep05()" disabled>Виконати етап 5</button>
+        </div>
+        
+        <div class="step-card" id="card-06">
+            <h3>Крок 6: 3D-суміщення (3D Fit)</h3>
+            <p style="font-size: 0.85rem; color: #888;">Синтез глобального 3D-положення (X,Y,Z, Крен, Тангаж, Рискання) 3D-моделі для ідеального збігу з трьома масками поточного шолома.</p>
+            <button id="btn-run-06" onclick="runStep06()" disabled>Виконати етап 6</button>
+        </div>
+
 
 
 
@@ -91,6 +103,6 @@
         <div id="modal-caption" class="modal-caption"></div>
     </div>
 
-    <script src="/static/js/main.js?v=24"></script>
+    <script src="/static/js/main.js?v=26"></script>
 </body>
 </html>

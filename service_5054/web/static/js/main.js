@@ -964,6 +964,245 @@ function handleStep04Result(data) {
     visZone.appendChild(panel);
 }
 
+async function runStep05() {
+    if (!currentSessionId) return;
+    
+    let btn = document.getElementById('btn-run-05');
+    if (!btn) btn = document.getElementById('btn-step05');
+    if (btn && btn.classList.contains('recalc-btn')) {
+        clearStepData('05');
+    }
+    if (btn) {
+        btn.disabled = true;
+        btn.innerText = "Обробка...";
+    }
+    
+    await fetch(`/api/step05?session_id=${currentSessionId}&action=start`);
+    
+    let poll = setInterval(async () => {
+        const res = await fetch(`/api/step05?session_id=${currentSessionId}&action=poll`);
+        const result = await res.json();
+        
+        if (result.status === 'done') {
+            clearInterval(poll);
+            if (btn) {
+                btn.innerText = "Виконано";
+                btn.style.background = "#4CAF50";
+            }
+            handleStep05Result(result.data);
+            markStepDone('05');
+        } else if (result.status === 'error') {
+            clearInterval(poll);
+            if (btn) {
+                btn.innerText = "Помилка";
+                btn.style.background = "#f44336";
+            }
+            alert("Помилка: " + result.message);
+        }
+    }, 1000);
+}
+
+function handleStep05Result(data) {
+    addMetricGroup('Етап 5: Сегментація поточного шолома', '05');
+    const visZone = document.getElementById('visualizations');
+    
+    const panelOriginal = document.createElement('div');
+    panelOriginal.className = 'vis-panel';
+    panelOriginal.setAttribute('data-step', '05');
+    panelOriginal.innerHTML = `<h3>Оригінальні фото поточного шолома</h3><div style="display:flex; justify-content:space-around;"></div>`;
+    const rowOriginal = panelOriginal.querySelector('div');
+    
+    const panelCropped = document.createElement('div');
+    panelCropped.className = 'vis-panel';
+    panelCropped.setAttribute('data-step', '05');
+    panelCropped.innerHTML = `<h3>Обрізані фото поточного шолома</h3><div style="display:flex; justify-content:space-around;"></div>`;
+    const rowCropped = panelCropped.querySelector('div');
+    
+    const panelMasks = document.createElement('div');
+    panelMasks.className = 'vis-panel';
+    panelMasks.setAttribute('data-step', '05');
+    panelMasks.innerHTML = `<h3>Однотонні маски поточного шолома</h3><div style="display:flex; justify-content:space-around;"></div>`;
+    const rowMasks = panelMasks.querySelector('div');
+    
+    const panelOverlay = document.createElement('div');
+    panelOverlay.className = 'vis-panel';
+    panelOverlay.setAttribute('data-step', '05');
+    panelOverlay.innerHTML = `<h3>Накладення маски на поточний шолом</h3><div style="display:flex; justify-content:space-around;"></div>`;
+    const rowOverlay = panelOverlay.querySelector('div');
+    
+    const cams = [
+        { id: "back", label: "Сзади" },
+        { id: "left", label: "Слева" },
+        { id: "top", label: "Сверху" }
+    ];
+    
+    cams.forEach(cam => {
+        if (data[cam.id]) {
+            const info = data[cam.id];
+            
+            addMetric(`${cam.label} вихідне фото`, info.source_path, '05');
+            addMetric(`${cam.label} маска (солід)`, info.solid_path, '05');
+            addMetric(`${cam.label} вирізане фото`, info.rgba_path, '05');
+            
+            // Add to original UI
+            const img0 = document.createElement('img');
+            img0.src = `${info.source_path}?t=${Date.now()}`;
+            img0.style.width = "30%";
+            img0.title = cam.label;
+            img0.style.cursor = 'pointer';
+            img0.onclick = () => openModal(img0.src, `${cam.label} (Оригінал)`);
+            rowOriginal.appendChild(img0);
+            
+            // Add to cropped UI
+            const img1 = document.createElement('img');
+            img1.src = `${info.rgba_path}?t=${Date.now()}`;
+            img1.style.width = "30%";
+            img1.title = cam.label;
+            img1.style.cursor = 'pointer';
+            img1.onclick = () => openModal(img1.src, `${cam.label} (Вирізано)`);
+            rowCropped.appendChild(img1);
+            
+            // Add to masks UI
+            const img2 = document.createElement('img');
+            img2.src = `${info.solid_path}?t=${Date.now()}`;
+            img2.style.width = "30%";
+            img2.title = cam.label;
+            img2.style.cursor = 'pointer';
+            img2.onclick = () => openModal(img2.src, `${cam.label} (Маска)`);
+            rowMasks.appendChild(img2);
+            
+            // Add to overlay UI
+            const overlayCont = document.createElement('div');
+            overlayCont.style.position = 'relative';
+            overlayCont.style.width = '30%';
+            overlayCont.title = cam.label;
+            
+            const imgBg = document.createElement('img');
+            imgBg.src = `${info.source_path}?t=${Date.now()}`;
+            imgBg.style.width = '100%';
+            imgBg.style.display = 'block';
+            
+            const imgFg = document.createElement('img');
+            imgFg.src = `${info.solid_path}?t=${Date.now()}`;
+            imgFg.style.position = 'absolute';
+            imgFg.style.top = '0';
+            imgFg.style.left = '0';
+            imgFg.style.width = '100%';
+            imgFg.style.height = '100%';
+            imgFg.style.opacity = '0.5';
+            
+            overlayCont.appendChild(imgBg);
+            overlayCont.appendChild(imgFg);
+            rowOverlay.appendChild(overlayCont);
+        }
+    });
+    
+    visZone.appendChild(panelOriginal);
+    visZone.appendChild(panelCropped);
+    visZone.appendChild(panelMasks);
+    visZone.appendChild(panelMasks);
+    visZone.appendChild(panelOverlay);
+}
+
+async function runStep06() {
+    if (!currentSessionId) return;
+    
+    let btn = document.getElementById('btn-run-06');
+    if (!btn) btn = document.getElementById('btn-step06');
+    if (btn && btn.classList.contains('recalc-btn')) {
+        clearStepData('06');
+    }
+    if (btn) {
+        btn.disabled = true;
+        btn.innerText = "Обробка...";
+    }
+    
+    await fetch(`/api/step06?session_id=${currentSessionId}&action=start`);
+    
+    let poll = setInterval(async () => {
+        const res = await fetch(`/api/step06?session_id=${currentSessionId}&action=poll`);
+        const result = await res.json();
+        
+        if (result.status === 'done') {
+            clearInterval(poll);
+            if (btn) {
+                btn.innerText = "Виконано";
+                btn.style.background = "#4CAF50";
+            }
+            handleStep06Result(result.data);
+            markStepDone('06');
+        } else if (result.status === 'error') {
+            clearInterval(poll);
+            if (btn) {
+                btn.innerText = "Помилка";
+                btn.style.background = "#f44336";
+            }
+            alert("Помилка: " + result.message);
+        }
+    }, 1000);
+}
+
+function handleStep06Result(data) {
+    addMetricGroup('Етап 6: 3D-Оптимізація', '06');
+    const visZone = document.getElementById('visualizations');
+    
+    if (data.global_3d) {
+        const g = data.global_3d;
+        addMetric('Глобальний зсув X', `${g.x_mm.toFixed(2)} мм`, '06');
+        addMetric('Глобальний зсув Y', `${g.y_mm.toFixed(2)} мм`, '06');
+        addMetric('Глобальний зсув Z', `${g.z_mm.toFixed(2)} мм`, '06');
+        addMetric('Глобальний Крен (Roll)', `${g.roll_deg.toFixed(2)}°`, '06');
+        addMetric('Глобальний Тангаж (Pitch)', `${g.pitch_deg.toFixed(2)}°`, '06');
+        addMetric('Глобальне Рискання (Yaw)', `${g.yaw_deg.toFixed(2)}°`, '06');
+        addMetric('Глобальний масштаб', `${g.scale.toFixed(3)}`, '06');
+    }
+    
+    const panel = document.createElement('div');
+    panel.className = 'vis-panel';
+    panel.setAttribute('data-step', '06');
+    panel.innerHTML = `<h3>Фінальне 3D-суміщення (Зелений: шолом, Червоний: CAD)</h3><div style="display:flex; justify-content:space-around;"></div>`;
+    
+    const row = panel.querySelector('div');
+    
+    const cams = [
+        { id: "back", label: "Сзади" },
+        { id: "left", label: "Слева" },
+        { id: "top", label: "Сверху" }
+    ];
+    
+    cams.forEach(cam => {
+        if (data[cam.id]) {
+            const info = data[cam.id];
+            
+            const cont = document.createElement('div');
+            cont.style.width = '30%';
+            cont.style.textAlign = 'center';
+            
+            const img = document.createElement('img');
+            img.src = `${info.overlap_path}?t=${Date.now()}`;
+            img.style.width = '100%';
+            img.style.marginBottom = '5px';
+            img.style.background = '#222';
+            img.style.cursor = 'pointer';
+            
+            const captionText = `${cam.label} | dx=${info.du.toFixed(1)} dy=${info.dv.toFixed(1)} rot=${info.rot.toFixed(1)}°`;
+            
+            img.onclick = () => openModal(img.src, captionText);
+            
+            const label = document.createElement('div');
+            label.innerText = cam.label;
+            label.style.fontSize = '0.9rem';
+            label.style.color = '#ccc';
+            
+            cont.appendChild(img);
+            cont.appendChild(label);
+            row.appendChild(cont);
+        }
+    });
+    
+    visZone.appendChild(panel);
+}
+
 function openModal(src, caption) {
     const modal = document.getElementById('image-modal');
     const modalImg = document.getElementById('modal-img');
@@ -994,7 +1233,7 @@ async function startAutoRun() {
         }
         
         // Are any steps currently running?
-        const isRunning = [0,1,2,3,4].some(i => {
+        const isRunning = [0,1,2,3,4,5,6].some(i => {
             const btnId = 'btn-run-0' + i;
             const btn = document.getElementById(btnId);
             return btn && btn.innerText.includes('Обробка');
@@ -1003,12 +1242,14 @@ async function startAutoRun() {
         if (isRunning) return; // Wait for current step to finish
         
         // Find next step to run
-        for (let i = 0; i <= 4; i++) {
+        for (let i = 0; i <= 6; i++) {
             let btnId = 'btn-run-0' + i;
             let btn = document.getElementById(btnId);
             
             // Fallback for cached old index.html
             if (!btn && i === 3) btn = document.getElementById('btn-step03');
+            if (!btn && i === 5) btn = document.getElementById('btn-step05');
+            if (!btn && i === 6) btn = document.getElementById('btn-step06');
             
             // We can run it if it's enabled, NOT running, and NOT a recalc button
             if (btn && !btn.disabled && !btn.classList.contains('recalc-btn') && !btn.innerText.includes('Виконано')) {
@@ -1018,10 +1259,12 @@ async function startAutoRun() {
         }
         
         // Check if all done
-        const allDone = [0,1,2,3,4].every(i => {
+        const allDone = [0,1,2,3,4,5,6].every(i => {
             let btnId = 'btn-run-0' + i;
             let btn = document.getElementById(btnId);
             if (!btn && i === 3) btn = document.getElementById('btn-step03');
+            if (!btn && i === 5) btn = document.getElementById('btn-step05');
+            if (!btn && i === 6) btn = document.getElementById('btn-step06');
             return btn && btn.innerText.includes('Виконано');
         });
         
