@@ -127,6 +127,7 @@ def main():
         "cost": float(best_cost),
         "stl_rim": [{"x": float(p[0]), "y": float(p[1]), "z": float(p[2])} for p in transformed_stl],
         "stl_mesh": [{"x": float(p[0]), "y": float(p[1]), "z": float(p[2])} for p in subsampled],
+        "original_points": step01_data['original_points'],
         "ls_contour": step01_data['contour_points'],
         "contact_points": step01_data['contact_points']
     }

@@ -58,7 +58,7 @@ async function resumeSession() {
             document.getElementById('visualizations').innerHTML = '';
             document.getElementById('metrics-table').innerHTML = '';
             
-            const steps = ['00', '01', '02', '03', '04', '05', '06'];
+            const steps = ['00', '01', '02', '03', '04', '05', '06', '07', '08'];
             let lastDone = null;
             
             for (const step of steps) {
@@ -134,7 +134,7 @@ function createVisualizationBlock(id, title, stepId = '00') {
 }
 
 function clearStepData(fromStepId) {
-    const steps = ['00', '01', '02', '03', '04', '05', '06'];
+    const steps = ['00', '01', '02', '03', '04', '05', '06', '07', '08'];
     const startIndex = steps.indexOf(fromStepId);
     if (startIndex === -1) return;
     
@@ -314,6 +314,8 @@ function initThreeScene(container, pointSets, stlOptions = null, sceneOptions = 
         renderer.render(scene, camera);
     }
     animate();
+    
+    return { scene, camera, renderer, controls };
 }
 
 // --- STEP 0 ---
@@ -792,21 +794,25 @@ function handleStep03Result(data) {
     
     const panelOriginal = document.createElement('div');
     panelOriginal.className = 'vis-panel';
+    panelOriginal.setAttribute('data-step', '03');
     panelOriginal.innerHTML = `<h3>Оригінальні фото еталона</h3><div style="display:flex; justify-content:space-around;"></div>`;
     const rowOriginal = panelOriginal.querySelector('div');
     
     const panelCropped = document.createElement('div');
     panelCropped.className = 'vis-panel';
+    panelCropped.setAttribute('data-step', '03');
     panelCropped.innerHTML = `<h3>Обрізані фото еталона</h3><div style="display:flex; justify-content:space-around;"></div>`;
     const rowCropped = panelCropped.querySelector('div');
     
     const panelMasks = document.createElement('div');
     panelMasks.className = 'vis-panel';
+    panelMasks.setAttribute('data-step', '03');
     panelMasks.innerHTML = `<h3>Однотонні маски еталона</h3><div style="display:flex; justify-content:space-around;"></div>`;
     const rowMasks = panelMasks.querySelector('div');
     
     const panelOverlay = document.createElement('div');
     panelOverlay.className = 'vis-panel';
+    panelOverlay.setAttribute('data-step', '03');
     panelOverlay.innerHTML = `<h3>Накладення маски на оригінал</h3><div style="display:flex; justify-content:space-around;"></div>`;
     const rowOverlay = panelOverlay.querySelector('div');
     
@@ -926,13 +932,18 @@ function handleStep04Result(data) {
     panel.innerHTML = `<h3>Накладення масок 3D-моделі на маски еталона (2D Fit)</h3><div style="display:flex; justify-content:space-around;"></div>`;
     const row = panel.querySelector('div');
     
-    const order = ['Сзади', 'Слева', 'Сверху'];
-    for (const cam of order) {
-        if (!data[cam]) continue;
-        const info = data[cam];
-        addMetric(`Зсув ${cam} (X, Y)`, `dx: ${info.du.toFixed(2)}px, dy: ${info.dv.toFixed(2)}px`, '04');
-        addMetric(`Масштаб ${cam}`, info.scale.toFixed(3), '04');
-        addMetric(`Поворот ${cam}`, `${info.rot.toFixed(2)}°`, '04');
+    const cams = [
+        { key: 'back', label: 'Сзади' },
+        { key: 'left', label: 'Слева' },
+        { key: 'top', label: 'Сверху' }
+    ];
+    
+    for (const cam of cams) {
+        if (!data[cam.key]) continue;
+        const info = data[cam.key];
+        addMetric(`Зсув ${cam.label} (X, Y)`, `dx: ${info.du.toFixed(2)}px, dy: ${info.dv.toFixed(2)}px`, '04');
+        addMetric(`Масштаб ${cam.label}`, info.scale.toFixed(3), '04');
+        addMetric(`Поворот ${cam.label}`, `${info.rot.toFixed(2)}°`, '04');
         
         const cont = document.createElement('div');
         cont.style.width = '30%';
@@ -945,19 +956,19 @@ function handleStep04Result(data) {
         img.style.background = '#222';
         img.style.cursor = 'pointer';
         
-        const captionText = `${cam} | Зсув: dx=${info.du.toFixed(1)} dy=${info.dv.toFixed(1)} | Масштаб: ${info.scale.toFixed(3)} | Поворот: ${info.rot.toFixed(1)}°`;
+        const captionText = `${cam.label} | Зсув: dx=${info.du.toFixed(1)} dy=${info.dv.toFixed(1)} | Масштаб: ${info.scale.toFixed(3)} | Поворот: ${info.rot.toFixed(1)}°`;
         
         img.onclick = () => {
             openModal(img.src, captionText);
         };
         
-        const label = document.createElement('div');
-        label.innerText = cam;
-        label.style.fontSize = '0.9rem';
-        label.style.color = '#ccc';
+        const labelDiv = document.createElement('div');
+        labelDiv.innerText = cam.label;
+        labelDiv.style.fontSize = '0.9rem';
+        labelDiv.style.color = '#ccc';
         
         cont.appendChild(img);
-        cont.appendChild(label);
+        cont.appendChild(labelDiv);
         row.appendChild(cont);
     }
     
@@ -1203,6 +1214,371 @@ function handleStep06Result(data) {
     visZone.appendChild(panel);
 }
 
+
+async function runStep07() {
+    if (!currentSessionId) return;
+    let btn = document.getElementById('btn-run-07');
+    if (!btn) btn = document.getElementById('btn-step07');
+    if (btn && btn.classList.contains('recalc-btn')) clearStepData('07');
+    if (btn) { btn.disabled = true; btn.innerText = "Обробка..."; }
+    
+    await fetch(`/api/step07?session_id=${currentSessionId}&action=start`);
+    
+    let poll = setInterval(async () => {
+        const res = await fetch(`/api/step07?session_id=${currentSessionId}&action=poll`);
+        const result = await res.json();
+        
+        if (result.status === 'done') {
+            clearInterval(poll);
+            if (btn) { btn.innerText = "Виконано"; btn.style.background = "#4CAF50"; }
+            handleStep07Result(result.data);
+            markStepDone('07');
+        } else if (result.status === 'error') {
+            clearInterval(poll);
+            if (btn) { btn.innerText = "Помилка"; btn.style.background = "#f44336"; }
+            alert("Помилка: " + result.message);
+        }
+    }, 1000);
+}
+
+function handleStep07Result(data) {
+    addMetricGroup('Етап 7: Порівняння 3D-масок', '07');
+    const visZone = document.getElementById('visualizations');
+    
+    if (data.delta_3d) {
+        const d = data.delta_3d;
+        addMetric('Дельта X', `${d.x_mm.toFixed(2)} мм`, '07');
+        addMetric('Дельта Y', `${d.y_mm.toFixed(2)} мм`, '07');
+        addMetric('Дельта Z', `${d.z_mm.toFixed(2)} мм`, '07');
+        addMetric('Дельта Крен (Roll)', `${d.roll_deg.toFixed(2)}°`, '07');
+        addMetric('Дельта Тангаж (Pitch)', `${d.pitch_deg.toFixed(2)}°`, '07');
+        addMetric('Дельта Рискання (Yaw)', `${d.yaw_deg.toFixed(2)}°`, '07');
+    }
+    
+    const cams = [{ key: "back", label: "Сзади" }, { key: "left", label: "Слева" }, { key: "top", label: "Сверху" }];
+    
+    // Panel 1: Etalon masks (from Step 4)
+    const panelEtalon = document.createElement('div');
+    panelEtalon.className = 'vis-panel';
+    panelEtalon.setAttribute('data-step', '07');
+    panelEtalon.innerHTML = `<h3>Маска 3D-моделі еталона (Етап 4)</h3><div style="display:flex; justify-content:space-around;"></div>`;
+    const rowEtalon = panelEtalon.querySelector('div');
+    
+    // Panel 2: Current masks (from Step 6)
+    const panelCurrent = document.createElement('div');
+    panelCurrent.className = 'vis-panel';
+    panelCurrent.setAttribute('data-step', '07');
+    panelCurrent.innerHTML = `<h3>Маска 3D-моделі поточна (Етап 6)</h3><div style="display:flex; justify-content:space-around;"></div>`;
+    const rowCurrent = panelCurrent.querySelector('div');
+    
+    // Panel 3: Overlay
+    const panelOverlay = document.createElement('div');
+    panelOverlay.className = 'vis-panel';
+    panelOverlay.setAttribute('data-step', '07');
+    panelOverlay.innerHTML = `<h3>Накладення та перетин (Червоний: Еталон, Зелений: Поточний, Жовтий: Перетин)</h3><div style="display:flex; justify-content:space-around;"></div>`;
+    const rowOverlay = panelOverlay.querySelector('div');
+    
+    cams.forEach(cam => {
+        if (data[cam.key]) {
+            // Etalon image
+            const cont1 = document.createElement('div');
+            cont1.style.width = '30%'; cont1.style.textAlign = 'center';
+            const img1 = document.createElement('img');
+            img1.src = `${data[cam.key].etalon_mask_path}?t=${Date.now()}`;
+            img1.style.width = '100%'; img1.style.marginBottom = '5px'; img1.style.background = '#222'; img1.style.cursor = 'pointer';
+            img1.onclick = () => openModal(img1.src, cam.label + " (Еталон)");
+            const lbl1 = document.createElement('div'); lbl1.innerText = cam.label; lbl1.style.fontSize = '0.9rem'; lbl1.style.color = '#ccc';
+            cont1.appendChild(img1); cont1.appendChild(lbl1);
+            rowEtalon.appendChild(cont1);
+            
+            // Current image
+            const cont2 = document.createElement('div');
+            cont2.style.width = '30%'; cont2.style.textAlign = 'center';
+            const img2 = document.createElement('img');
+            img2.src = `${data[cam.key].current_mask_path}?t=${Date.now()}`;
+            img2.style.width = '100%'; img2.style.marginBottom = '5px'; img2.style.background = '#222'; img2.style.cursor = 'pointer';
+            img2.onclick = () => openModal(img2.src, cam.label + " (Поточна)");
+            const lbl2 = document.createElement('div'); lbl2.innerText = cam.label; lbl2.style.fontSize = '0.9rem'; lbl2.style.color = '#ccc';
+            cont2.appendChild(img2); cont2.appendChild(lbl2);
+            rowCurrent.appendChild(cont2);
+            
+            // Overlay image
+            const cont3 = document.createElement('div');
+            cont3.style.width = '30%'; cont3.style.textAlign = 'center';
+            const img3 = document.createElement('img');
+            img3.src = `${data[cam.key].compare_path}?t=${Date.now()}`;
+            img3.style.width = '100%'; img3.style.marginBottom = '5px'; img3.style.background = '#222'; img3.style.cursor = 'pointer';
+            img3.onclick = () => openModal(img3.src, cam.label + " (Накладення)");
+            const lbl3 = document.createElement('div'); lbl3.innerText = cam.label; lbl3.style.fontSize = '0.9rem'; lbl3.style.color = '#ccc';
+            cont3.appendChild(img3); cont3.appendChild(lbl3);
+            rowOverlay.appendChild(cont3);
+        }
+    });
+    
+    // Add Legend for Overlay
+    const overlayLegend = document.createElement('div');
+    overlayLegend.style.marginTop = '15px';
+    overlayLegend.style.padding = '10px';
+    overlayLegend.style.background = '#2a2a2a';
+    overlayLegend.style.borderRadius = '5px';
+    overlayLegend.style.display = 'flex';
+    overlayLegend.style.justifyContent = 'center';
+    overlayLegend.style.gap = '20px';
+    overlayLegend.style.fontSize = '0.9rem';
+    overlayLegend.style.color = '#ddd';
+    
+    const legendItems = [
+        { label: 'Еталонна маска', color: '#ff0000' },
+        { label: 'Поточна маска', color: '#00ff00' },
+        { label: 'Перетин (співпадіння)', color: '#ffff00' }
+    ];
+    
+    legendItems.forEach(item => {
+        const span = document.createElement('span');
+        span.style.display = 'flex';
+        span.style.alignItems = 'center';
+        
+        const colorBox = document.createElement('span');
+        colorBox.style.display = 'inline-block';
+        colorBox.style.width = '14px';
+        colorBox.style.height = '14px';
+        colorBox.style.backgroundColor = item.color;
+        colorBox.style.marginRight = '8px';
+        colorBox.style.border = '1px solid #000';
+        
+        span.appendChild(colorBox);
+        span.appendChild(document.createTextNode(item.label));
+        overlayLegend.appendChild(span);
+    });
+    
+    panelOverlay.appendChild(overlayLegend);
+    
+    visZone.appendChild(panelEtalon);
+    visZone.appendChild(panelCurrent);
+    visZone.appendChild(panelOverlay);
+}
+
+async function runStep08() {
+    if (!currentSessionId) return;
+    let btn = document.getElementById('btn-run-08');
+    if (btn && btn.classList.contains('recalc-btn')) clearStepData('08');
+    if (btn) { btn.disabled = true; btn.innerText = "Обробка..."; }
+    
+    await fetch(`/api/step08?session_id=${currentSessionId}&action=start`);
+    
+    let poll = setInterval(async () => {
+        const res = await fetch(`/api/step08?session_id=${currentSessionId}&action=poll`);
+        const result = await res.json();
+        
+        if (result.status === 'done') {
+            clearInterval(poll);
+            if (btn) { btn.innerText = "Виконано"; btn.style.background = "#4CAF50"; }
+            handleStep08Result(result.data);
+            markStepDone('08');
+        } else if (result.status === 'error') {
+            clearInterval(poll);
+            if (btn) { btn.innerText = "Помилка"; btn.style.background = "#f44336"; }
+            alert("Помилка: " + result.message);
+        }
+    }, 1000);
+}
+
+function handleStep08Result(data) {
+    try {
+        addMetricGroup('Етап 8: Візуалізація 3D-зміщення', '08');
+        
+        const blockId = 'vis-08-3d';
+        const container = createVisualizationBlock(blockId, '3D Сцена з поточним шоломом', '08');
+        
+        // We recreate the scene similar to step 2 but with an extra model
+        const s2 = data.step02_data;
+        const sceneInfo = initThreeScene(container, [
+            { points: s2.ls_contour, color: 0x00d2ff, size: 2, isLine: true, name: 'ls_contour' },
+            { points: s2.contact_points, color: 0xff0000, size: 4, isLine: true, name: 'trim_line' }
+        ], {
+            url: '/files/model_3d/helmet_ref.stl',
+            tx: s2.tx, ty: s2.ty, tz: s2.tz,
+            rx: s2.rx, ry: s2.ry, rz: s2.rz,
+            scale: s2.scale,
+            color: 0x555555,
+            opacity: 0.5,
+            wireframe: false
+        });
+        
+        // Load the second (shifted) model
+        if (sceneInfo && sceneInfo.scene) {
+            const loader = new THREE.STLLoader();
+            loader.load('/files/model_3d/helmet_ref.stl', function (geometry) {
+                const material = new THREE.MeshStandardMaterial({ 
+                    color: 0x00ff00, // Green for current helmet
+                    roughness: 0.5, 
+                    metalness: 0.5,
+                    transparent: true,
+                    opacity: 0.7
+                });
+                const mesh = new THREE.Mesh(geometry, material);
+                mesh.name = 'current_helmet';
+                
+                // Base transform from Step 2
+                mesh.scale.set(s2.scale, s2.scale, s2.scale);
+                
+                // Apply delta_3d offset
+                if (data.delta_3d) {
+                    const d = data.delta_3d;
+                    
+                    mesh.position.set(d.x_mm + s2.tx, d.y_mm + s2.ty, d.z_mm + s2.tz);
+                    
+                    const eulerEtalon = new THREE.Euler(
+                        THREE.MathUtils.degToRad(s2.rx),
+                        THREE.MathUtils.degToRad(s2.ry),
+                        THREE.MathUtils.degToRad(s2.rz),
+                        'ZYX'
+                    );
+                    const qEtalon = new THREE.Quaternion().setFromEuler(eulerEtalon);
+                    
+                    const eulerDelta = new THREE.Euler(
+                        THREE.MathUtils.degToRad(d.roll_deg),
+                        THREE.MathUtils.degToRad(d.pitch_deg),
+                        THREE.MathUtils.degToRad(d.yaw_deg),
+                        'ZYX' // Note: small delta rotations, order doesn't strictly matter as much, but ZYX is consistent
+                    );
+                    const qDelta = new THREE.Quaternion().setFromEuler(eulerDelta);
+                    
+                    const qFinal = new THREE.Quaternion().multiplyQuaternions(qDelta, qEtalon);
+                    mesh.setRotationFromQuaternion(qFinal);
+                    
+                    // Transform lines for current helmet
+                    const transformPoint = (pt) => {
+                        // 1. Translate relative to center of rotation (tx, ty, tz)
+                        const v = new THREE.Vector3(pt.x - s2.tx, pt.y - s2.ty, pt.z - s2.tz);
+                        // 2. Rotate by delta quaternion
+                        v.applyQuaternion(qDelta);
+                        // 3. Translate back, plus delta translation
+                        v.x += s2.tx + d.x_mm;
+                        v.y += s2.ty + d.y_mm;
+                        v.z += s2.tz + d.z_mm;
+                        return v;
+                    };
+                    
+                    const createTransformedLine = (points, color, name) => {
+                        const geom = new THREE.BufferGeometry();
+                        const positions = new Float32Array(points.length * 3);
+                        points.forEach((pt, i) => {
+                            const v = transformPoint(pt);
+                            positions[i*3] = v.x;
+                            positions[i*3+1] = v.y;
+                            positions[i*3+2] = v.z;
+                        });
+                        geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                        const mat = new THREE.LineBasicMaterial({ color: color });
+                        const line = new THREE.Line(geom, mat);
+                        line.name = name;
+                        sceneInfo.scene.add(line);
+                    };
+                    
+                    if (s2.ls_contour) createTransformedLine(s2.ls_contour, 0x00ffaa, 'current_ls_contour');
+                    if (s2.contact_points) createTransformedLine(s2.contact_points, 0xffaa00, 'current_trim_line');
+                    if (s2.original_points) createTransformedLine(s2.original_points, 0xffffff, 'current_original_ls');
+                    
+                } else {
+                    mesh.position.set(s2.tx, s2.ty, s2.tz);
+                    mesh.rotation.set(
+                        THREE.MathUtils.degToRad(s2.rx),
+                        THREE.MathUtils.degToRad(s2.ry),
+                        THREE.MathUtils.degToRad(s2.rz),
+                        'ZYX'
+                    );
+                }
+                
+                sceneInfo.scene.add(mesh);
+            });
+            
+            // Add Legend UI
+            const legend = document.createElement('div');
+            legend.style.marginTop = '10px';
+            legend.style.padding = '10px';
+            legend.style.background = '#2a2a2a';
+            legend.style.borderRadius = '5px';
+            legend.style.display = 'flex';
+            legend.style.flexDirection = 'column';
+            legend.style.gap = '8px';
+            legend.style.fontSize = '0.9rem';
+            legend.style.color = '#ddd';
+            
+            const items = [
+                { name: 'current_helmet', label: 'Поточний шолом (Зсунутий)', color: '#00ff00' },
+                { name: 'current_original_ls', label: 'Точки LS (Не обрізані) Поточні', color: '#ffffff' },
+                { name: 'current_ls_contour', label: 'Лінія лазера Поточна', color: '#00ffaa' },
+                { name: 'current_trim_line', label: 'Точки на шоломі Поточні', color: '#ffaa00' },
+                { name: 'stl_mesh', label: 'Еталонний шолом (Сірий)', color: '#555555' },
+                { name: 'ls_contour', label: 'Лінія лазера Еталонна (Блакитна)', color: '#00d2ff' },
+                { name: 'trim_line', label: 'Точки на шоломі Еталонні (Червоні)', color: '#ff0000' }
+            ];
+            
+            legend.innerHTML = `<strong>Легенда об'єктів (вимкнути/увімкнути)</strong><div class="legend-cb-container" style="display:flex; gap: 15px; flex-wrap: wrap; margin-top:5px;"></div>`;
+            
+            if (data.current_ls_path) {
+                const downloadBtn = document.createElement('a');
+                downloadBtn.href = data.current_ls_path;
+                downloadBtn.download = data.current_ls_file || 'current_helmet.ls';
+                downloadBtn.innerHTML = '⬇️ Завантажити фінальний .ls файл (Поточний шолом)';
+                downloadBtn.style.display = 'inline-block';
+                downloadBtn.style.marginTop = '15px';
+                downloadBtn.style.padding = '8px 15px';
+                downloadBtn.style.background = '#4CAF50';
+                downloadBtn.style.color = '#fff';
+                downloadBtn.style.textDecoration = 'none';
+                downloadBtn.style.borderRadius = '5px';
+                downloadBtn.style.fontWeight = 'bold';
+                
+                const dlContainer = document.createElement('div');
+                dlContainer.style.textAlign = 'center';
+                dlContainer.style.width = '100%';
+                dlContainer.appendChild(downloadBtn);
+                legend.appendChild(dlContainer);
+            }
+            
+            const legendDiv = legend.querySelector('.legend-cb-container');
+            
+            items.forEach(item => {
+                const label = document.createElement('label');
+                label.style.display = 'flex';
+                label.style.alignItems = 'center';
+                label.style.cursor = 'pointer';
+                
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.checked = true;
+                cb.onchange = (e) => {
+                    if (container.toggleObject) container.toggleObject(item.name, e.target.checked);
+                };
+                
+                const colorBox = document.createElement('span');
+                colorBox.style.display = 'inline-block';
+                colorBox.style.width = '12px';
+                colorBox.style.height = '12px';
+                colorBox.style.backgroundColor = item.color;
+                colorBox.style.marginLeft = '8px';
+                colorBox.style.marginRight = '8px';
+                colorBox.style.border = '1px solid #000';
+                
+                const text = document.createTextNode(item.label);
+                
+                label.appendChild(cb);
+                label.appendChild(colorBox);
+                label.appendChild(text);
+                
+                legendDiv.appendChild(label);
+            });
+            
+            container.parentElement.appendChild(legend);
+        }
+    } catch (e) {
+        alert("JS Error in Step 8: " + e.message);
+        console.error(e);
+    }
+}
+
 function openModal(src, caption) {
     const modal = document.getElementById('image-modal');
     const modalImg = document.getElementById('modal-img');
@@ -1233,7 +1609,7 @@ async function startAutoRun() {
         }
         
         // Are any steps currently running?
-        const isRunning = [0,1,2,3,4,5,6].some(i => {
+        const isRunning = [0,1,2,3,4,5,6,7,8].some(i => {
             const btnId = 'btn-run-0' + i;
             const btn = document.getElementById(btnId);
             return btn && btn.innerText.includes('Обробка');
@@ -1242,7 +1618,7 @@ async function startAutoRun() {
         if (isRunning) return; // Wait for current step to finish
         
         // Find next step to run
-        for (let i = 0; i <= 6; i++) {
+        for (let i = 0; i <= 8; i++) {
             let btnId = 'btn-run-0' + i;
             let btn = document.getElementById(btnId);
             
@@ -1250,6 +1626,8 @@ async function startAutoRun() {
             if (!btn && i === 3) btn = document.getElementById('btn-step03');
             if (!btn && i === 5) btn = document.getElementById('btn-step05');
             if (!btn && i === 6) btn = document.getElementById('btn-step06');
+            if (!btn && i === 7) btn = document.getElementById('btn-step07');
+            if (!btn && i === 8) btn = document.getElementById('btn-step08');
             
             // We can run it if it's enabled, NOT running, and NOT a recalc button
             if (btn && !btn.disabled && !btn.classList.contains('recalc-btn') && !btn.innerText.includes('Виконано')) {
@@ -1259,12 +1637,14 @@ async function startAutoRun() {
         }
         
         // Check if all done
-        const allDone = [0,1,2,3,4,5,6].every(i => {
+        const allDone = [0,1,2,3,4,5,6,7,8].every(i => {
             let btnId = 'btn-run-0' + i;
             let btn = document.getElementById(btnId);
             if (!btn && i === 3) btn = document.getElementById('btn-step03');
             if (!btn && i === 5) btn = document.getElementById('btn-step05');
             if (!btn && i === 6) btn = document.getElementById('btn-step06');
+            if (!btn && i === 7) btn = document.getElementById('btn-step07');
+            if (!btn && i === 8) btn = document.getElementById('btn-step08');
             return btn && btn.innerText.includes('Виконано');
         });
         

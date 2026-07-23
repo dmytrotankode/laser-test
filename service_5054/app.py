@@ -46,8 +46,10 @@ def start_session():
 @app.route('/api/latest_session')
 def latest_session():
     try:
-        runs = sorted([d for d in os.listdir(RESULTS_DIR) if d.startswith('run_')])
+        runs = [d for d in os.listdir(RESULTS_DIR) if d.startswith('run_')]
         if runs:
+            # Sort by folder creation/modification time to reliably get the newest one
+            runs.sort(key=lambda x: os.path.getmtime(os.path.join(RESULTS_DIR, x)))
             return jsonify({"session_id": runs[-1]})
     except Exception:
         pass
@@ -120,6 +122,15 @@ def api_step05():
 @app.route('/api/step06')
 def api_step06():
     return generic_step_api("step06_fit_3d.py", request.args.get('session_id'), request.args.get('action'), "step06_result.json")
+
+
+@app.route('/api/step07')
+def api_step07():
+    return generic_step_api("step07_compare.py", request.args.get('session_id'), request.args.get('action'), "step07_result.json")
+
+@app.route('/api/step08')
+def api_step08():
+    return generic_step_api("step08_visualize.py", request.args.get('session_id'), request.args.get('action'), "step08_result.json")
 
 import base64
 

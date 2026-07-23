@@ -252,6 +252,8 @@ def main():
         
         proj_aligned = cv2.warpAffine(proj_mask, M_total, (w, h), flags=cv2.INTER_NEAREST)
         
+        cv2.imwrite(os.path.join(results_dir, f'current_3d_mask_{eng_cam}.png'), proj_aligned)
+        
         overlap = np.full((h, w, 3), 30, dtype=np.uint8)
         
         mask1 = target_mask > 0
@@ -291,24 +293,31 @@ def main():
     if "top" in results and "back" in results and "left" in results:
         scale_3d = (results["top"]["scale"] + results["back"]["scale"] + results["left"]["scale"]) / 3.0
         
-        # Translation in pixels (we map to 3D axes, assuming Top looks down Z, Back looks down Y, Left looks down X)
-        # 1 pixel is ~ 1 mm based on our optics
-        x_3d = (results["top"]["du"] + results["back"]["du"]) / 2.0
-        y_3d = (results["top"]["dv"] + results["left"]["du"]) / 2.0
-        z_3d = (results["back"]["dv"] + results["left"]["dv"]) / 2.0
+        # Translation in pixels to mm conversion
+        # f_px = 30000, distance = 450 => scale is 66.666 px/mm
+        px_to_mm = 450.0 / 30000.0
         
-        rx_3d = results["back"]["rot"]
-        ry_3d = results["left"]["rot"]
+        # Axes mapping:
+        # Back (looking -X, up -Z): u is -Y, v is +Z. Rot is around X.
+        # Left (looking -Y, up -Z): u is +X, v is +Z. Rot is around Y.
+        # Top (looking +Z, up -Y): u is +X, v is +Y. Rot is around Z.
+        
+        x_3d = (results["left"]["du"] + results["top"]["du"]) / 2.0 * px_to_mm
+        y_3d = (-results["back"]["du"] + results["top"]["dv"]) / 2.0 * px_to_mm
+        z_3d = (results["back"]["dv"] + results["left"]["dv"]) / 2.0 * px_to_mm
+        
+        rx_3d = -results["back"]["rot"]
+        ry_3d = -results["left"]["rot"]
         rz_3d = results["top"]["rot"]
         
         results["global_3d"] = {
-            "x_mm": x_3d,
-            "y_mm": y_3d,
-            "z_mm": z_3d,
-            "roll_deg": rx_3d,
-            "pitch_deg": ry_3d,
-            "yaw_deg": rz_3d,
-            "scale": scale_3d
+            "x_mm": float(x_3d),
+            "y_mm": float(y_3d),
+            "z_mm": float(z_3d),
+            "roll_deg": float(rx_3d),
+            "pitch_deg": float(ry_3d),
+            "yaw_deg": float(rz_3d),
+            "scale": float(scale_3d)
         }
         
     with open(os.path.join(results_dir, 'step06_result.json'), 'w', encoding='utf-8') as f:
