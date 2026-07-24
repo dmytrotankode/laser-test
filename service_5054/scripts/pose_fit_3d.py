@@ -127,7 +127,93 @@ def iou_score(rendered, target, cutoff_frac=None):
     return inter / union
 
 
-def score_pose(params, world_vertices, pivot, etalon_center, step00_cams, target_masks, cam_cache=None):
+# Area-IoU barely responds to yaw for this helmet (empirically confirmed
+# 2026-07-24: +-15deg changes IoU by <1%, see ROADMAP.md "Направление 1") -
+# the dome is close to rotationally symmetric, so silhouette AREA looks
+# almost the same at any yaw. The only place the shape is NOT symmetric is
+# the rim/cut-edge near the bottom of the (post-cutoff) silhouette, and area
+# overlap dilutes that small asymmetric region into a sea of symmetric dome
+# pixels. A boundary/contour distance is far more sensitive to a rotated
+# edge than an area ratio is, and weighting it toward the rim gives the
+# optimizer an actual yaw signal instead of a nearly-flat one.
+RIM_WEIGHT = 3.0
+CHAMFER_WEIGHT = 0.5  # blend factor between area-IoU and rim-weighted chamfer
+
+
+def _contour_points_and_boundary(mask_u8):
+    contours, _ = cv2.findContours(mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    if not contours:
+        return None, None
+    boundary = np.zeros_like(mask_u8)
+    cv2.drawContours(boundary, contours, -1, 255, 1)
+    pts = np.concatenate([c.reshape(-1, 2) for c in contours], axis=0)
+    return pts, boundary
+
+
+def prep_target_chamfer(target, cutoff_frac):
+    """Precompute the target's contour/distance-transform once per camera -
+    it doesn't change across candidate poses within one optimization run, so
+    this must NOT be recomputed on every score_pose() call (would dominate
+    runtime for no reason)."""
+    t = target > 0
+    rows = np.where(t.any(axis=1))[0]
+    if len(rows) == 0:
+        return None
+    y0, y1 = int(rows[0]), int(rows[-1])
+    cutoff_y = int(y0 + (y1 - y0) * cutoff_frac) if cutoff_frac is not None else y1 + 1
+    t = t.copy()
+    t[cutoff_y:, :] = False
+    t_u8 = (t * 255).astype(np.uint8)
+    pts_t, boundary_t = _contour_points_and_boundary(t_u8)
+    if pts_t is None:
+        return None
+    dt_t = cv2.distanceTransform(255 - boundary_t, cv2.DIST_L2, 5)
+    return {'pts': pts_t, 'dt': dt_t, 'y0': y0, 'y1': y1, 'cutoff_y': cutoff_y}
+
+
+def _rim_weights(pts, y0, span):
+    y = pts[:, 1].astype(np.float64)
+    frac = np.clip((y - y0) / span, 0.0, 1.0)
+    return 1.0 + (RIM_WEIGHT - 1.0) * frac
+
+
+def chamfer_score(rendered, target_prep):
+    """Symmetric boundary chamfer distance between rendered and target
+    silhouettes (cropped to the same cutoff as target_prep), weighted toward
+    the rim (bottom of the post-cutoff region). Returns a score in [0, 1],
+    higher = better match, comparable in scale to iou_score."""
+    if target_prep is None:
+        return 0.0
+    r = rendered > 0
+    r = r.copy()
+    r[target_prep['cutoff_y']:, :] = False
+    r_u8 = (r * 255).astype(np.uint8)
+    pts_r, boundary_r = _contour_points_and_boundary(r_u8)
+    pts_t, dt_t = target_prep['pts'], target_prep['dt']
+    if pts_r is None:
+        return 0.0
+    dt_r = cv2.distanceTransform(255 - boundary_r, cv2.DIST_L2, 5)
+
+    h, w = dt_t.shape
+    px_r = np.clip(pts_r[:, 0], 0, w - 1)
+    py_r = np.clip(pts_r[:, 1], 0, h - 1)
+    px_t = np.clip(pts_t[:, 0], 0, w - 1)
+    py_t = np.clip(pts_t[:, 1], 0, h - 1)
+
+    d_r_to_t = dt_t[py_r, px_r]
+    d_t_to_r = dt_r[py_t, px_t]
+
+    span = max(target_prep['y1'] - target_prep['y0'], 1)
+    w_r = _rim_weights(pts_r, target_prep['y0'], span)
+    w_t = _rim_weights(pts_t, target_prep['y0'], span)
+
+    mean_dist = (np.sum(d_r_to_t * w_r) + np.sum(d_t_to_r * w_t)) / (np.sum(w_r) + np.sum(w_t))
+    normalized = mean_dist / span
+    return max(0.0, 1.0 - normalized)
+
+
+def score_pose(params, world_vertices, pivot, etalon_center, step00_cams, target_masks,
+               cam_cache=None, chamfer_cache=None):
     """Cameras are physically fixed (bolted to the rig) and are always set up
     relative to the ETALON's own center - they must NOT move with the
     candidate pose, or every hypothesis looks identical (translating both the
@@ -139,7 +225,7 @@ def score_pose(params, world_vertices, pivot, etalon_center, step00_cams, target
     T = np.array([tx, ty, tz])
     posed = pivot + (R @ (world_vertices - pivot).T).T + T
 
-    total_iou = 0.0
+    total_score = 0.0
     for cam_name in ['back', 'left', 'top']:
         if cam_cache is not None and cam_name in cam_cache:
             pos, look_at, up, f_px = cam_cache[cam_name]
@@ -150,8 +236,16 @@ def score_pose(params, world_vertices, pivot, etalon_center, step00_cams, target
             if cam_cache is not None:
                 cam_cache[cam_name] = (pos, look_at, up, f_px)
         rendered = render_silhouette(posed, pos, look_at, up, f_px, IMG_W, IMG_H)
-        total_iou += iou_score(rendered, target_masks[cam_name], CUTOFF_FRACTION[cam_name])
-    return total_iou / 3.0
+        iou = iou_score(rendered, target_masks[cam_name], CUTOFF_FRACTION[cam_name])
+
+        if chamfer_cache is not None:
+            if cam_name not in chamfer_cache:
+                chamfer_cache[cam_name] = prep_target_chamfer(target_masks[cam_name], CUTOFF_FRACTION[cam_name])
+            chamfer = chamfer_score(rendered, chamfer_cache[cam_name])
+            total_score += (1.0 - CHAMFER_WEIGHT) * iou + CHAMFER_WEIGHT * chamfer
+        else:
+            total_score += iou
+    return total_score / 3.0
 
 
 def main():
@@ -194,6 +288,7 @@ def main():
     for cam_name in ['back', 'left', 'top']:
         pos, look_at, up = get_camera_pose(cam_name, center, step00_cams)
         cam_cache[cam_name] = (pos, look_at, up, calibrated_f_px[cam_name])
+    chamfer_cache = {}
 
     if args.probe:
         for label, params in [
@@ -212,14 +307,14 @@ def main():
             ('roll -3, pitch -2, yaw -1', [-3, -2, -1, 0, 0, 0]),
             ('roll -3, pitch -2, yaw -1, tx-10,ty+15,tz+1', [-3, -2, -1, -10, 15, 1]),
         ]:
-            s = score_pose(params, world, pivot, center, step00_cams, target_masks, cam_cache)
-            print(f"{label}: mean IoU = {s:.4f}")
+            s = score_pose(params, world, pivot, center, step00_cams, target_masks, cam_cache, chamfer_cache)
+            print(f"{label}: score = {s:.4f}")
         return
 
     from scipy.optimize import minimize
 
     def neg_score(params):
-        return -score_pose(params, world, pivot, center, step00_cams, target_masks, cam_cache)
+        return -score_pose(params, world, pivot, center, step00_cams, target_masks, cam_cache, chamfer_cache)
 
     # Multi-start: a single Powell run can settle into a local optimum: start
     # from a handful of small, plausible initial guesses (rather than just
