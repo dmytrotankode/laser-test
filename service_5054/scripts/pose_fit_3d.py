@@ -48,6 +48,37 @@ def find_apex_pivot(world_vertices):
     return tip.mean(axis=0)
 
 
+def calibrate_f_px(world_vertices, center, step00_cams, results_dir):
+    """step00_analyze_cameras.py derives f_px from an ASSUMED physical size
+    and working distance per camera - if either assumption is off, f_px is
+    off by the same factor, and nothing downstream can tell (self-consistent
+    but wrong). Found empirically 2026-07-24: rendering the model at zero
+    pose and comparing against the real ETALON segmentation (not a "current"
+    photo, so this is independent of any actual pose-fit test) shows back/
+    left within ~1%, but "top" off by ~7% (render bigger than the real
+    photo) - consistent with the OLD 2D-heuristic pipeline's own etalon
+    self-check, which separately found top's scale (0.924) noticeably worse
+    than back/left (0.977/0.981). Re-derive f_px directly from this size
+    ratio instead of trusting step00's number blindly."""
+    from render3d import get_camera_pose as _get_cam_pose
+
+    calibrated = {}
+    for cam_name in ['back', 'left', 'top']:
+        pos, look_at, up = _get_cam_pose(cam_name, center, step00_cams)
+        f_px = step00_cams[NAME_MAP_RU[cam_name]]['f_px']
+        rendered = render_silhouette(world_vertices, pos, look_at, up, f_px, IMG_W, IMG_H)
+        etalon_mask = load_mask(os.path.join(results_dir, f'solid_{cam_name}.png'))
+
+        r_nz = cv2.findNonZero(rendered)
+        t_nz = cv2.findNonZero(etalon_mask)
+        _, _, rw, rh = cv2.boundingRect(r_nz)
+        _, _, tw, th = cv2.boundingRect(t_nz)
+        ratio = ((rw / tw) + (rh / th)) / 2.0
+        calibrated[cam_name] = f_px / ratio
+        print(f"  f_px calibration [{cam_name}]: {f_px:.1f} -> {calibrated[cam_name]:.1f} (size ratio was {ratio:.4f})")
+    return calibrated
+
+
 def load_mask(path):
     data = np.fromfile(path, dtype=np.uint8)
     img = cv2.imdecode(data, cv2.IMREAD_UNCHANGED)
@@ -61,9 +92,34 @@ def load_mask(path):
     return mask
 
 
-def iou_score(rendered, target):
+# Bottom fraction of the frame to ignore per camera when scoring - the mount/
+# stand is visible there in real photos (confirmed 2026-07-24: a bracket
+# sticking out sideways in the "left" view, not cleanly removable by the old
+# per-camera stand-removal heuristic, which only ever ran for "back" anyway),
+# and it's also where the laser cut-zone/rim geometry is least trustworthy.
+# Same convention (75%/90%) already used in the old 2D heuristic
+# (find_2d_transform's cutoff), kept here for continuity, not re-derived.
+CUTOFF_FRACTION = {"back": 0.75, "left": 0.75, "top": 0.90}
+
+
+def iou_score(rendered, target, cutoff_frac=None):
     r = rendered > 0
     t = target > 0
+    if cutoff_frac is not None:
+        # Cutoff is a fraction of the way down the TARGET's own bounding box
+        # (top of silhouette to bottom), not the whole image frame - the
+        # helmet doesn't fill the frame, so a raw image-height fraction would
+        # cut an arbitrary, inconsistent amount depending on framing. Uses
+        # the target (real photo) as the reference for both images so the
+        # same absolute region is excluded from each.
+        rows = np.where(t.any(axis=1))[0]
+        if len(rows) > 0:
+            y0, y1 = rows[0], rows[-1]
+            cutoff_y = int(y0 + (y1 - y0) * cutoff_frac)
+            r = r.copy()
+            t = t.copy()
+            r[cutoff_y:, :] = False
+            t[cutoff_y:, :] = False
     inter = np.count_nonzero(r & t)
     union = np.count_nonzero(r | t)
     if union == 0:
@@ -94,7 +150,7 @@ def score_pose(params, world_vertices, pivot, etalon_center, step00_cams, target
             if cam_cache is not None:
                 cam_cache[cam_name] = (pos, look_at, up, f_px)
         rendered = render_silhouette(posed, pos, look_at, up, f_px, IMG_W, IMG_H)
-        total_iou += iou_score(rendered, target_masks[cam_name])
+        total_iou += iou_score(rendered, target_masks[cam_name], CUTOFF_FRACTION[cam_name])
     return total_iou / 3.0
 
 
@@ -125,8 +181,14 @@ def main():
     for cam_name in ['back', 'left', 'top']:
         target_masks[cam_name] = load_mask(os.path.join(results_dir, f'current_solid_{cam_name}.png'))
 
+    print("Calibrating f_px per camera against the real etalon segmentation...")
+    calibrated_f_px = calibrate_f_px(world, center, step00_cams, results_dir)
+    cam_cache = {}
+    for cam_name in ['back', 'left', 'top']:
+        pos, look_at, up = get_camera_pose(cam_name, center, step00_cams)
+        cam_cache[cam_name] = (pos, look_at, up, calibrated_f_px[cam_name])
+
     if args.probe:
-        cam_cache = {}
         for label, params in [
             ('zero (no change from etalon)', [0, 0, 0, 0, 0, 0]),
             ('roll +2deg', [2, 0, 0, 0, 0, 0]),
@@ -148,8 +210,6 @@ def main():
         return
 
     from scipy.optimize import minimize
-
-    cam_cache = {}
 
     def neg_score(params):
         return -score_pose(params, world, pivot, center, step00_cams, target_masks, cam_cache)
