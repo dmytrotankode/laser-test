@@ -181,8 +181,15 @@ def main():
     for cam_name in ['back', 'left', 'top']:
         target_masks[cam_name] = load_mask(os.path.join(results_dir, f'current_solid_{cam_name}.png'))
 
-    print("Calibrating f_px per camera against the real etalon segmentation...")
-    calibrated_f_px = calibrate_f_px(world, center, step00_cams, results_dir)
+    multipose_calib_path = os.path.join(results_dir, 'camera_calibration_multipose.json')
+    if os.path.exists(multipose_calib_path):
+        print(f"Using multi-pose f_px calibration from {multipose_calib_path} "
+              "(see scripts/calibrate_cameras_multipose.py)")
+        with open(multipose_calib_path) as f:
+            calibrated_f_px = json.load(f)['f_px_calibrated']
+    else:
+        print("Calibrating f_px per camera against the real etalon segmentation...")
+        calibrated_f_px = calibrate_f_px(world, center, step00_cams, results_dir)
     cam_cache = {}
     for cam_name in ['back', 'left', 'top']:
         pos, look_at, up = get_camera_pose(cam_name, center, step00_cams)
