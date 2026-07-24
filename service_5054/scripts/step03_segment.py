@@ -64,26 +64,37 @@ def main():
             
         print(f"Processing {filename}...")
         img = cv2.imread(in_path)
-        
-        # Scale down to avoid OOM
         orig_h, orig_w = img.shape[:2]
+
+        # Run rembg on a downscaled copy for speed, but bring the mask back to
+        # full resolution before doing anything else with it. model_mask_*.png
+        # (the rendered 3D model, used for comparison in step04/06) is saved at
+        # full 4096x3000 - if this mask stayed at the downscaled size, the two
+        # would be compared at mismatched resolutions (a plain ~4x scale
+        # difference), which throws off both the base_scale bounding-box ratio
+        # and, more importantly, the px_to_mm pixel-to-millimeter conversion.
         max_dim = 1024
         if max(orig_h, orig_w) > max_dim:
             scale = max_dim / max(orig_h, orig_w)
             new_w, new_h = int(orig_w * scale), int(orig_h * scale)
-            img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
-            
+            img_small = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        else:
+            img_small = img
+
         # remove background
-        _, encoded_img = cv2.imencode('.png', img)
+        _, encoded_img = cv2.imencode('.png', img_small)
         output_data = remove(encoded_img.tobytes(), only_mask=True)
         nparr = np.frombuffer(output_data, np.uint8)
         mask = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
-        
+
+        if mask.shape[:2] != (orig_h, orig_w):
+            mask = cv2.resize(mask, (orig_w, orig_h), interpolation=cv2.INTER_LINEAR)
+
         # Morphological open to remove noise
         _, mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
-        
+
         # Remove stand for back camera
         mask = remove_stand(mask, cam)
         

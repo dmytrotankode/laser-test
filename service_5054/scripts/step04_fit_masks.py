@@ -6,13 +6,40 @@ import numpy as np
 import cv2
 import argparse
 
+# Real working distance of each camera from the helmet, in mm. Must match
+# step00_analyze_cameras.py's cameras_info and the camera positions used in
+# web/static/js/main.js (both hardcode the same 2500/1650/2000).
+CAMERA_DISTANCES_MM = {"back": 2500.0, "left": 1650.0, "top": 2000.0}
+
+
+def get_px_to_mm_per_camera(results_dir):
+    """Per-camera mm/px, from this camera's own calibrated focal length
+    (step00_analyze_cameras.py) and its real working distance."""
+    step00_path = os.path.join(results_dir, 'step00_cameras.json')
+    if not os.path.exists(step00_path):
+        print(f"Error: {step00_path} not found - run Step 0 first.")
+        sys.exit(1)
+    with open(step00_path, 'r', encoding='utf-8') as f:
+        step00_cams = json.load(f)
+    name_map = {"back": "Сзади", "left": "Слева", "top": "Сверху"}
+    px_to_mm = {}
+    for eng, dist in CAMERA_DISTANCES_MM.items():
+        f_px = step00_cams[name_map[eng]]["f_px"]
+        px_to_mm[eng] = dist / f_px
+    return px_to_mm
+
+
 def find_2d_transform(target_mask, proj_mask, cam_name):
     target_w = 512
     scale_factor = target_w / target_mask.shape[1]
     target_h = int(target_mask.shape[0] * scale_factor)
     
-    img1 = cv2.resize(target_mask, (target_w, target_h), interpolation=cv2.INTER_NEAREST)
-    img2 = cv2.resize(proj_mask, (target_w, target_h), interpolation=cv2.INTER_NEAREST)
+    # INTER_AREA (not NEAREST) for shrinking: target_mask/proj_mask are now
+    # 4096px wide (post resolution-mismatch fix), so this is an 8x downscale
+    # to the 512px working size - NEAREST just drops pixels and aliases badly
+    # at that ratio; AREA does a proper weighted average first.
+    img1 = cv2.resize(target_mask, (target_w, target_h), interpolation=cv2.INTER_AREA)
+    img2 = cv2.resize(proj_mask, (target_w, target_h), interpolation=cv2.INTER_AREA)
     
     edges1_base = cv2.Canny(img1, 100, 200)
     edges2_base = cv2.Canny(img2, 100, 200)
@@ -289,20 +316,22 @@ def main():
     # Calculate global 3D parameters
     if "top" in results and "back" in results and "left" in results:
         scale_3d = (results["top"]["scale"] + results["back"]["scale"] + results["left"]["scale"]) / 3.0
-        
-        # Translation in pixels to mm conversion
-        # f_px = 30000, distance = 450 => scale is 66.666 px/mm
-        px_to_mm = 450.0 / 30000.0
-        
+
+        px_to_mm = get_px_to_mm_per_camera(results_dir)
+
         # Axes mapping:
         # Back (looking -X, up -Z): u is -Y, v is +Z. Rot is around X.
         # Left (looking -Y, up -Z): u is +X, v is +Z. Rot is around Y.
         # Top (looking +Z, up -Y): u is +X, v is +Y. Rot is around Z.
-        
-        x_3d = (results["left"]["du"] + results["top"]["du"]) / 2.0 * px_to_mm
-        y_3d = (-results["back"]["du"] + results["top"]["dv"]) / 2.0 * px_to_mm
-        z_3d = (results["back"]["dv"] + results["left"]["dv"]) / 2.0 * px_to_mm
-        
+        # Each camera's du/dv is converted to mm with ITS OWN px_to_mm before
+        # combining - back/left/top sit at different distances (2500/1650/2000mm)
+        # so they have different mm/px ratios; averaging raw pixels first and
+        # applying one shared factor afterward would misweight whichever
+        # camera's pixel count happens to be larger.
+        x_3d = (results["left"]["du"] * px_to_mm["left"] + results["top"]["du"] * px_to_mm["top"]) / 2.0
+        y_3d = (-results["back"]["du"] * px_to_mm["back"] + results["top"]["dv"] * px_to_mm["top"]) / 2.0
+        z_3d = (results["back"]["dv"] * px_to_mm["back"] + results["left"]["dv"] * px_to_mm["left"]) / 2.0
+
         rx_3d = -results["back"]["rot"]
         ry_3d = -results["left"]["rot"]
         rz_3d = results["top"]["rot"]
