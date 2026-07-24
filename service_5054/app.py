@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import json
 import subprocess
@@ -22,6 +23,12 @@ def index():
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
+    return response
+
+@app.route('/vis/compare_ls')
+def vis_compare_ls():
+    response = make_response(render_template('ls_compare.html'))
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     return response
 
 @app.route('/files/<session_id>/<path:filename>')
@@ -60,7 +67,7 @@ def run_script_async(script_name, session_id):
     def worker():
         try:
             # We pass session_id to the script
-            subprocess.run(["python", script_path, "--session", session_id], cwd=BASE_DIR, check=True)
+            subprocess.run([sys.executable, script_path, "--session", session_id], cwd=BASE_DIR, check=True)
             # Write a done marker
             with open(os.path.join(RESULTS_DIR, session_id, f"{script_name}.done"), 'w') as f:
                 f.write("done")
