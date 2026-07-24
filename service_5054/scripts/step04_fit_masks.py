@@ -64,7 +64,22 @@ def find_2d_transform(target_mask, proj_mask, cam_name):
             
     if cutoff2 is not None:
         edges2_base[cutoff2:, :] = 0
-        
+
+    # Rotate/scale around the (post-cutoff) silhouette's own center, not the
+    # frame's geometric center - see KNOWN_ISSUES.md [6]. Rotating/scaling an
+    # off-center object around the frame center displaces it as a side
+    # effect, and phase correlation then folds that displacement into the
+    # measured du/dv as if it were real translation - a contamination
+    # proportional to the rotation angle (and to how far off-center the
+    # object sits).
+    coords2_for_center = cv2.findNonZero(edges2_base)
+    if coords2_for_center is not None:
+        ccx, ccy, ccw, cch = cv2.boundingRect(coords2_for_center)
+        center = (ccx + ccw / 2.0, ccy + cch / 2.0)
+    else:
+        center = (target_w / 2.0, target_h / 2.0)
+
+
     if cam_name == 'Сзади':
         passes = [
             {'scales': [0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15, 1.2], 'rots': list(range(-16, 17, 2))},
@@ -99,9 +114,7 @@ def find_2d_transform(target_mask, proj_mask, cam_name):
     img1_uint8 = img1_f.astype(np.uint8)
     inv_edges = 255 - img1_uint8
     dt = cv2.distanceTransform(inv_edges, cv2.DIST_L2, cv2.DIST_MASK_PRECISE)
-        
-    center = (target_w / 2, target_h / 2)
-    
+
     for p in passes:
         is_rel = p.get('relative', False)
         pass_best_score = -999999.0
@@ -169,8 +182,13 @@ def find_2d_transform(target_mask, proj_mask, cam_name):
         
     du = best_tx / scale_factor
     dv = best_ty / scale_factor
-    
-    return best_scale, best_rot, du, dv
+    # Rescale the pivot used internally back to the caller's (full-resolution)
+    # pixel space, so main() can reconstruct M_fine around this SAME point
+    # instead of its own frame center - otherwise the fix above is undone
+    # one level up.
+    center_full_res = (center[0] / scale_factor, center[1] / scale_factor)
+
+    return best_scale, best_rot, du, dv, center_full_res
 
 def main():
     parser = argparse.ArgumentParser()
@@ -250,11 +268,14 @@ def main():
         proj_pre_aligned = cv2.warpAffine(proj_mask, M_base, (w, h), flags=cv2.INTER_NEAREST)
         
         # 2) Find fine transform mapping proj_pre_aligned to target_mask
-        fine_scale, rot, fine_du, fine_dv = find_2d_transform(target_mask, proj_pre_aligned, cam)
-        
-        # 3) Construct M_fine
-        center = (w / 2.0, h / 2.0)
-        M_fine_2x3 = cv2.getRotationMatrix2D(center, rot, fine_scale)
+        fine_scale, rot, fine_du, fine_dv, fine_center = find_2d_transform(target_mask, proj_pre_aligned, cam)
+
+        # 3) Construct M_fine - pivot MUST be the same silhouette-center
+        # find_2d_transform actually rotated/scaled around internally
+        # (see KNOWN_ISSUES.md [6]). Using the frame center (w/2, h/2) here
+        # instead would reintroduce the exact contamination that computing
+        # fine_center was meant to avoid.
+        M_fine_2x3 = cv2.getRotationMatrix2D(fine_center, rot, fine_scale)
         M_fine_2x3[0, 2] += fine_du
         M_fine_2x3[1, 2] += fine_dv
         
