@@ -130,14 +130,24 @@ def iou_score(rendered, target, cutoff_frac=None):
 # Area-IoU barely responds to yaw for this helmet (empirically confirmed
 # 2026-07-24: +-15deg changes IoU by <1%, see ROADMAP.md "Направление 1") -
 # the dome is close to rotationally symmetric, so silhouette AREA looks
-# almost the same at any yaw. The only place the shape is NOT symmetric is
-# the rim/cut-edge near the bottom of the (post-cutoff) silhouette, and area
-# overlap dilutes that small asymmetric region into a sea of symmetric dome
-# pixels. A boundary/contour distance is far more sensitive to a rotated
-# edge than an area ratio is, and weighting it toward the rim gives the
-# optimizer an actual yaw signal instead of a nearly-flat one.
+# almost the same at any yaw. A boundary/contour distance is more sensitive
+# to a rotated edge than an area ratio is, but only if weighted toward
+# whatever part of the contour actually carries shape asymmetry.
+#
+# That part is CAMERA-DEPENDENT, not a universal "bottom of the frame":
+# yaw is rotation about the vertical (Z) axis, so a side-view camera
+# (back/left) of a near-axisymmetric body cannot see a yaw-induced silhouette
+# change at all - that's geometry, not a metric limitation (confirmed
+# empirically 2026-07-24, see 3D_POSE_FIT_STATUS.md "Направление 1, попытка
+# 1"). Only "top" (looking down that axis) can carry yaw signal, and for it
+# the informative direction is ANGULAR position around the contour (which
+# arc deviates from a circle - the rim's real cut pattern), not image row -
+# a straight-down view has no "dome vs rim by height" distinction, the whole
+# visible contour sits at roughly one physical height already.
 RIM_WEIGHT = 3.0
-CHAMFER_WEIGHT = 0.5  # blend factor between area-IoU and rim-weighted chamfer
+CHAMFER_WEIGHT = 0.5  # blend factor between area-IoU and weighted chamfer
+ANGULAR_WEIGHT_CAMS = {'top'}
+ANGULAR_BINS = 72  # 5-degree bins
 
 
 def _contour_points_and_boundary(mask_u8):
@@ -171,16 +181,52 @@ def prep_target_chamfer(target, cutoff_frac):
     return {'pts': pts_t, 'dt': dt_t, 'y0': y0, 'y1': y1, 'cutoff_y': cutoff_y}
 
 
-def _rim_weights(pts, y0, span):
+def _row_weights(pts, y0, span):
     y = pts[:, 1].astype(np.float64)
     frac = np.clip((y - y0) / span, 0.0, 1.0)
     return 1.0 + (RIM_WEIGHT - 1.0) * frac
 
 
-def chamfer_score(rendered, target_prep):
+def _angular_weights(pts):
+    """Weight each contour point by how much its radius (from the point
+    set's own centroid) deviates from a smoothed circular baseline at that
+    angle - the deviation IS the shape asymmetry that carries yaw signal for
+    a top-down view. Self-referential (each point set uses its own centroid/
+    baseline) rather than compared against the other set's frame: the same
+    physical rim feature exists on both the render and the target, just
+    rotated relative to each other by whatever the current yaw error is, so
+    "how much does this arc deviate from circular" is meaningful per-set
+    without needing to align them first."""
+    cx, cy = pts[:, 0].mean(), pts[:, 1].mean()
+    dx = pts[:, 0].astype(np.float64) - cx
+    dy = pts[:, 1].astype(np.float64) - cy
+    radius = np.sqrt(dx * dx + dy * dy)
+    angle = np.arctan2(dy, dx)
+
+    bin_idx = ((angle + np.pi) / (2 * np.pi) * ANGULAR_BINS).astype(int) % ANGULAR_BINS
+    baseline = np.array([
+        np.median(radius[bin_idx == b]) if np.any(bin_idx == b) else np.median(radius)
+        for b in range(ANGULAR_BINS)
+    ])
+    # circular moving-average low-pass filter: keeps the slow, wide-arc shape
+    # (a real rim feature spans many degrees) and averages out per-point
+    # segmentation noise, which would otherwise look like "deviation" too
+    k = 9
+    baseline_smooth = np.array([
+        np.mean(np.take(baseline, range(b - k // 2, b + k // 2 + 1), mode='wrap'))
+        for b in range(ANGULAR_BINS)
+    ])
+
+    deviation = np.abs(radius - baseline_smooth[bin_idx])
+    scale = max(np.mean(deviation), 1e-6)
+    return 1.0 + RIM_WEIGHT * (deviation / scale)
+
+
+def chamfer_score(rendered, target_prep, cam_name):
     """Symmetric boundary chamfer distance between rendered and target
     silhouettes (cropped to the same cutoff as target_prep), weighted toward
-    the rim (bottom of the post-cutoff region). Returns a score in [0, 1],
+    whichever part of the contour actually carries shape information for
+    that camera (see module docstring above). Returns a score in [0, 1],
     higher = better match, comparable in scale to iou_score."""
     if target_prep is None:
         return 0.0
@@ -204,8 +250,12 @@ def chamfer_score(rendered, target_prep):
     d_t_to_r = dt_r[py_t, px_t]
 
     span = max(target_prep['y1'] - target_prep['y0'], 1)
-    w_r = _rim_weights(pts_r, target_prep['y0'], span)
-    w_t = _rim_weights(pts_t, target_prep['y0'], span)
+    if cam_name in ANGULAR_WEIGHT_CAMS:
+        w_r = _angular_weights(pts_r)
+        w_t = _angular_weights(pts_t)
+    else:
+        w_r = _row_weights(pts_r, target_prep['y0'], span)
+        w_t = _row_weights(pts_t, target_prep['y0'], span)
 
     mean_dist = (np.sum(d_r_to_t * w_r) + np.sum(d_t_to_r * w_t)) / (np.sum(w_r) + np.sum(w_t))
     normalized = mean_dist / span
@@ -241,7 +291,7 @@ def score_pose(params, world_vertices, pivot, etalon_center, step00_cams, target
         if chamfer_cache is not None:
             if cam_name not in chamfer_cache:
                 chamfer_cache[cam_name] = prep_target_chamfer(target_masks[cam_name], CUTOFF_FRACTION[cam_name])
-            chamfer = chamfer_score(rendered, chamfer_cache[cam_name])
+            chamfer = chamfer_score(rendered, chamfer_cache[cam_name], cam_name)
             total_score += (1.0 - CHAMFER_WEIGHT) * iou + CHAMFER_WEIGHT * chamfer
         else:
             total_score += iou
