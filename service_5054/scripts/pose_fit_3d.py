@@ -147,6 +147,49 @@ def main():
             print(f"{label}: mean IoU = {s:.4f}")
         return
 
+    from scipy.optimize import minimize
+
+    cam_cache = {}
+
+    def neg_score(params):
+        return -score_pose(params, world, pivot, center, step00_cams, target_masks, cam_cache)
+
+    # Multi-start: a single Powell run can settle into a local optimum: start
+    # from a handful of small, plausible initial guesses (rather than just
+    # zero) and keep the best - same reasoning as step02_align_3d_to_trim.py's
+    # multi-start Powell for the etalon fit.
+    initial_guesses = [
+        [0, 0, 0, 0, 0, 0],
+        [2, -2, 0, 0, 0, 0],
+        [-2, 2, 0, 0, 0, 0],
+        [0, 0, 2, 0, 0, 0],
+        [3, -3, -1, 0, 0, 0],
+    ]
+
+    best = None
+    for guess in initial_guesses:
+        res = minimize(neg_score, guess, method='Powell',
+                        options={'maxiter': 200, 'xtol': 0.1, 'ftol': 1e-4})
+        print(f"start={guess} -> score={-res.fun:.4f} params={np.round(res.x, 2)}")
+        if best is None or res.fun < best.fun:
+            best = res
+
+    rx, ry, rz, tx, ty, tz = best.x
+    print(f"\nBest: mean IoU = {-best.fun:.4f}")
+    print(f"delta_rotvec (deg, xyz euler about pivot): roll={rx:.2f} pitch={ry:.2f} yaw={rz:.2f}")
+    print(f"delta_translation (mm): x={tx:.2f} y={ty:.2f} z={tz:.2f}")
+
+    out = {
+        'pivot': pivot.tolist(),
+        'iou_score': float(-best.fun),
+        'delta_rotation_deg_xyz': [float(rx), float(ry), float(rz)],
+        'delta_translation_mm': [float(tx), float(ty), float(tz)],
+    }
+    out_path = os.path.join(results_dir, 'pose_fit_3d_result.json')
+    with open(out_path, 'w') as f:
+        json.dump(out, f, indent=2)
+    print(f"Saved to {out_path}")
+
 
 if __name__ == '__main__':
     main()
