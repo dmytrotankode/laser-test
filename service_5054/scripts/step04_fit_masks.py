@@ -65,19 +65,12 @@ def find_2d_transform(target_mask, proj_mask, cam_name):
     if cutoff2 is not None:
         edges2_base[cutoff2:, :] = 0
 
-    # Rotate/scale around the (post-cutoff) silhouette's own center, not the
-    # frame's geometric center - see KNOWN_ISSUES.md [6]. Rotating/scaling an
-    # off-center object around the frame center displaces it as a side
-    # effect, and phase correlation then folds that displacement into the
-    # measured du/dv as if it were real translation - a contamination
-    # proportional to the rotation angle (and to how far off-center the
-    # object sits).
-    coords2_for_center = cv2.findNonZero(edges2_base)
-    if coords2_for_center is not None:
-        ccx, ccy, ccw, cch = cv2.boundingRect(coords2_for_center)
-        center = (ccx + ccw / 2.0, ccy + cch / 2.0)
-    else:
-        center = (target_w / 2.0, target_h / 2.0)
+    # Frame-center pivot (NOT the silhouette-center pivot from the old
+    # fix [6], which is reverted here - see MEASUREMENT_ACCURACY.md
+    # 2026-07-25: on real archive data, silhouette-center + zero-yaw
+    # together scored worse than frame-center + zero-yaw across a full
+    # 2x2 comparison, despite [6] being individually well-motivated).
+    center = (target_w / 2.0, target_h / 2.0)
 
 
     if cam_name == 'Сзади':
@@ -355,7 +348,7 @@ def main():
 
         rx_3d = -results["back"]["rot"]
         ry_3d = -results["left"]["rot"]
-        rz_3d = 0.0  # EXPERIMENT: yaw measurement may be net noise, not signal - testing
+        rz_3d = 0.0  # measurement is net noise, not signal - see MEASUREMENT_ACCURACY.md
         
         results["global_3d"] = {
             "x_mm": x_3d,
