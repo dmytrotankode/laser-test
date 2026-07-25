@@ -355,7 +355,7 @@ def main():
 
         rx_3d = -results["back"]["rot"]
         ry_3d = -results["left"]["rot"]
-        rz_3d = results["top"]["rot"]
+        rz_3d = 0.0  # EXPERIMENT: yaw measurement may be net noise, not signal - testing
         
         results["global_3d"] = {
             "x_mm": x_3d,
