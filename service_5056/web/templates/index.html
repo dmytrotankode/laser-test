@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>High-Precision Laser Pipeline — Сервіс 5056 (3D Safe Zone Fit)</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --panel-bg: rgba(30, 41, 59, 0.75);
+            --accent-blue: #3b82f6;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-yellow: #f59e0b;
+            --text-color: #f8fafc;
+            --text-muted: #94a3b8;
+            --border-color: rgba(255, 255, 255, 0.1);
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+        header {
+            background: linear-gradient(135deg, #1e3a8a, #0f172a);
+            padding: 20px 30px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            margin-bottom: 25px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        header h1 { margin: 0; font-size: 1.8rem; color: #60a5fa; }
+        header p { margin: 5px 0 0 0; color: var(--text-muted); font-size: 0.95rem; }
+        
+        .session-ctrl {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+        .btn {
+            background: var(--accent-blue);
+            color: #fff;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn:hover { background: #2563eb; transform: translateY(-1px); }
+        .btn-green { background: var(--accent-green); }
+        .btn-green:hover { background: #059669; }
+
+        .pipeline-container {
+            display: flex;
+            flex-direction: column;
+            gap: 25px;
+        }
+        .step-card {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+        .step-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 12px;
+            margin-bottom: 15px;
+        }
+        .step-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .badge {
+            background: #334155;
+            color: #38bdf8;
+            font-size: 0.75rem;
+            padding: 3px 8px;
+            border-radius: 12px;
+            text-transform: uppercase;
+        }
+        .step-desc {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin-bottom: 15px;
+        }
+        .step-vis {
+            min-height: 50px;
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 8px;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border: 1px dashed var(--border-color);
+        }
+        .vis-caption {
+            margin-top: 15px;
+            padding: 12px 18px;
+            background: rgba(16, 185, 129, 0.15);
+            border-left: 4px solid var(--accent-green);
+            border-radius: 4px;
+            font-size: 0.95rem;
+            color: #a7f3d0;
+            line-height: 1.4;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .vis-img {
+            max-width: 100%;
+            border-radius: 6px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+        }
+        #scene-container {
+            width: 100%;
+            height: 550px;
+            border-radius: 8px;
+            overflow: hidden;
+            position: relative;
+        }
+        .status-badge {
+            font-weight: bold;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+        }
+        .status-idle { background: #334155; color: #cbd5e1; }
+        .status-running { background: #d97706; color: #fff; }
+        .status-done { background: #059669; color: #fff; }
+    </style>
+    <!-- Three.js dependencies -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+</head>
+<body>
+
+<header>
+    <div>
+        <h1>🎯 Сервіс 5056: High-Precision 3D Safe Zone Metrology</h1>
+        <p>Пряма 6-осева 3D оптимізація монохромних знімків із відсіканням необрізаних виступів (точність 0.1 мм)</p>
+    </div>
+    <div class="session-ctrl">
+        <select id="variant-select" onchange="onVariantChange()" style="background:#1e293b; color:#fff; border:1px solid #38bdf8; padding:8px 12px; border-radius:6px; font-weight:600; cursor:pointer;">
+            <option value="default">📷 Поточні фото (за замовчуванням)</option>
+            <option value="v1">📂 Архів v1: Поточна позиція (знімок LS №1)</option>
+            <option value="v2">📂 Архів v2: Та ж позиція (знімок LS №2)</option>
+            <option value="v3">📂 Архів v3: Зміщене розміщення №1</option>
+            <option value="v4">📂 Архів v4: Зміщене розміщення №2</option>
+            <option value="v5">📂 Архів v5: Зміщене розміщення №3</option>
+        </select>
+        <span id="current-session-display" style="font-family: monospace; color: #f59e0b;">Сесія: немає</span>
+        <button class="btn btn-green" onclick="startNewSession()">⚡ Нова сесія</button>
+    </div>
+</header>
+
+<div class="pipeline-container">
+
+    <!-- STEP 1 -->
+    <div class="step-card" id="card-step1">
+        <div class="step-header">
+            <div class="step-title"><span>Етап 1: Офлайн-профілювання 3D-моделі</span> <span class="badge">Офлайн</span></div>
+            <div>
+                <span class="status-badge status-idle" id="status-step1">Очікування</span>
+                <button class="btn" style="margin-left:10px;" onclick="runStep(1)">▶ Виконати</button>
+            </div>
+        </div>
+        <div class="step-desc">
+            Вимірювання асиметрії купола (довжина vs ширина, кривизна) для однозначної фіксації повороту Yaw без міток. Встановлення висоти зрізу «Зони довіри» (Safe Zone Cutoff).
+        </div>
+        <div class="step-vis" id="vis-step1"><span style="color:var(--text-muted);">Натисніть «Виконати» для генерації геометричного профілю моделі</span></div>
+    </div>
+
+    <!-- STEP 2 -->
+    <div class="step-card" id="card-step2">
+        <div class="step-header">
+            <div class="step-title"><span>Етап 2: Прив'язка Еталонного лазерного контуру</span> <span class="badge">Офлайн</span></div>
+            <div>
+                <span class="status-badge status-idle" id="status-step2">Очікування</span>
+                <button class="btn" style="margin-left:10px;" onclick="runStep(2)">▶ Виконати</button>
+            </div>
+        </div>
+        <div class="step-desc">
+            Завантаження вихідного файлу робота <code>TORXL_NEW_PROG.LS</code> та його ICP-суміщення з 3D-моделлю для визначення базових координат Еталона.
+        </div>
+        <div class="step-vis" id="vis-step2"><span style="color:var(--text-muted);">Очікування виконання етапу</span></div>
+    </div>
+
+    <!-- STEP 3 -->
+    <div class="step-card" id="card-step3">
+        <div class="step-header">
+            <div class="step-title"><span>Етап 3: Субпіксельна сегментація монохромних фото</span> <span class="badge">Онлайн (Стенд)</span></div>
+            <div>
+                <span class="status-badge status-idle" id="status-step3">Очікування</span>
+                <button class="btn" style="margin-left:10px;" onclick="runStep(3)">▶ Виконати</button>
+            </div>
+        </div>
+        <div class="step-desc">
+            Виділення країв шолома на знімках з монохромних камер. <b>Автоматичне відсікання нижніх 25% силуету</b> (видалення нерівних необрізаних виступів кевлару).
+        </div>
+        <div class="step-vis" id="vis-step3"><span style="color:var(--text-muted);">Очікування виконання етапу</span></div>
+    </div>
+
+    <!-- STEP 4 -->
+    <div class="step-card" id="card-step4">
+        <div class="step-header">
+            <div class="step-title"><span>Етап 4: Єдина 6-осева 3D оптимізація пози</span> <span class="badge">Онлайн (Стенд)</span></div>
+            <div>
+                <span class="status-badge status-idle" id="status-step4">Очікування</span>
+                <button class="btn" style="margin-left:10px;" onclick="runStep(4)">▶ Виконати</button>
+            </div>
+        </div>
+        <div class="step-desc">
+            Одночасна пряма 3D-проекція моделі на всі 3 камери. Усунення взаємного викривлення осей Roll/Pitch/Yaw та отримання точності 0.1 мм.
+        </div>
+        <div class="step-vis" id="vis-step4"><span style="color:var(--text-muted);">Очікування виконання етапу</span></div>
+    </div>
+
+    <!-- STEP 5 -->
+    <div class="step-card" id="card-step5">
+        <div class="step-header">
+            <div class="step-title"><span>Етап 5: 3D Візуалізація та Експорт файлу для робота</span> <span class="badge">Фінал</span></div>
+            <div>
+                <span class="status-badge status-idle" id="status-step5">Очікування</span>
+                <button class="btn btn-green" style="margin-left:10px;" onclick="runStep(5)">🏁 3D Візуалізація & Експорт</button>
+            </div>
+        </div>
+        <div class="step-desc">
+            Інтерактивне 3D-середовище (Червоний Еталон, Зелений Поточний, Біла лінія лазера). Завантаження готового <code>current_helmet.ls</code> зі збереженням усієї службової розмітки Fanuc.
+        </div>
+        <div class="step-vis" id="vis-step5"><span style="color:var(--text-muted);">Очікування фінального етапу</span></div>
+    </div>
+
+</div>
+
+<script src="/static/js/main.js?v=5056_10"></script>
+</body>
+</html>
