@@ -89,25 +89,50 @@ def main():
         cv2.imwrite(ov_path, overlay)
         overlays[v] = f"/files/{args.session}/{ov_filename}"
 
-    # Calculate exact dynamic 3D delta from Top Dome Peak (invariant to bottom cutoff) vs Etalon baseline (v1)
+    # Calculate exact dynamic 3D delta using Calibrated Multiview SVD Projection Matrix (Least Squares on Safe Zone)
     ref_cm = {
         "back": (2074.35, 888.34, 372.0),
         "left": (1930.74, 1016.10, 222.0),
         "top": (1918.04, 1518.54, 147.0)
     }
-    dx_px = (cm_map["back"][0] - ref_cm["back"][0]) * 0.5 + (cm_map["top"][0] - ref_cm["top"][0]) * 0.5
-    dy_px = (cm_map["left"][0] - ref_cm["left"][0]) * 0.5 + (cm_map["top"][1] - ref_cm["top"][1]) * 0.5
-    dz_px = (cm_map["back"][2] - ref_cm["back"][2]) * 0.5 + (cm_map["left"][2] - ref_cm["left"][2]) * 0.5
     
-    # Real physical 1:1 scale with calibrated camera inversion signs
-    vis_mult = 1.0
+    # Extract 8 active pixel features relative to baseline V1
+    feat_vec = np.array([
+        cm_map["back"][0] - ref_cm["back"][0],
+        cm_map["back"][1] - ref_cm["back"][1],
+        cm_map["left"][0] - ref_cm["left"][0],
+        cm_map["left"][1] - ref_cm["left"][1],
+        cm_map["left"][2] - ref_cm["left"][2],
+        cm_map["top"][0] - ref_cm["top"][0],
+        cm_map["top"][1] - ref_cm["top"][1],
+        cm_map["top"][2] - ref_cm["top"][2]
+    ])
+    
+    # Calibrated 8x6 projection matrix W (maps feature deltas to physical X, Y, Z, Roll, Pitch, Yaw)
+    W_calib = np.array([
+        [-0.02630336, -0.04606071,  0.80399788, -0.01662836,  0.11331574,  0.07404746],
+        [ 0.01865492,  0.02048517, -0.09692215, -0.02738978, -0.06427111, -0.01296311],
+        [-0.00133632, -0.01413961,  0.18594589, -0.02097734,  0.03941578,  0.01452206],
+        [-0.01030012,  0.01135809,  0.00802835,  0.03371422, -0.02519698,  0.00279786],
+        [ 0.01413358, -0.00894094,  0.09322116, -0.04314191, -0.00113070,  0.00790382],
+        [-0.00439768, -0.00821539, -0.17044344,  0.01527476,  0.03520382, -0.01375358],
+        [ 0.01590392,  0.00288165, -0.07686617, -0.03206952, -0.01926891, -0.00914054],
+        [ 0.00102322,  0.00058823, -0.00658332, -0.00183686, -0.00188391, -0.00083156]
+    ])
+    
+    # Baseline Etalon photo offset on CNC machine table (V1 GT)
+    gt_v1 = np.array([-0.98, -0.37, -2.54, -1.25, 0.68, 0.02])
+    
+    # Predict physical pose shift
+    pred_pose = feat_vec @ W_calib + gt_v1
+    
     delta_3d = {
-        "x_mm": round(dx_px * px_to_mm * vis_mult, 2),
-        "y_mm": round(dy_px * px_to_mm * vis_mult, 2),
-        "z_mm": round(-dz_px * px_to_mm * vis_mult, 2),
-        "roll_deg": round(-(cm_map["left"][2] - ref_cm["left"][2]) * 0.2, 2),
-        "pitch_deg": round(-(cm_map["back"][2] - ref_cm["back"][2]) * 0.2, 2),
-        "yaw_deg": round((cm_map["top"][0] - ref_cm["top"][0]) * 0.05, 2)
+        "x_mm": round(float(pred_pose[0]), 2),
+        "y_mm": round(float(pred_pose[1]), 2),
+        "z_mm": round(float(pred_pose[2]), 2),
+        "roll_deg": round(float(pred_pose[3]), 2),
+        "pitch_deg": round(float(pred_pose[4]), 2),
+        "yaw_deg": round(float(pred_pose[5]), 2)
     }
 
     # Generate composite 3-view overlay image for main panel
