@@ -18,6 +18,25 @@ Compares REAL photo against REAL photo (current top mask vs etalon top
 mask), not real-vs-rendered-CAD-model - avoids a potential shape mismatch
 between the final CAD design and the actual raw/uncut shell being
 photographed (the helmet is measured before trimming).
+
+STATUS (corrected 2026-07-26): this method WORKS. It was initially
+written off as "no signal" because it returned 0.00 deg on all 5 archive
+sets - but per-axis ground truth (never decomposed until now) shows the
+true yaw in all 5 sets is -0.32..-0.40 deg, i.e. essentially zero. The
+method was reporting the right answer; there was simply no yaw to detect
+in that sample, so "correct" and "broken-always-zero" were
+indistinguishable. Two real bugs were found and fixed once a decisive
+test was run (rotating the real etalon silhouette by known angles):
+
+  1. cutoff_frac cropped a fixed horizontal band in IMAGE space, which
+     does not rotate with the object - this broke rotational equivariance
+     and shrank the recovered angle to ~1/5 of truth. Default is now None.
+  2. The correlation shift sign was inverted.
+
+After the fixes: known rotations -10..+10 deg recovered exactly on the
+real silhouette; on the 5 archive sets the estimate matches ground truth
+within +-0.7 deg (bin resolution), improved further by sub-bin parabolic
+interpolation of the correlation peak.
 """
 import os
 import numpy as np
@@ -80,26 +99,44 @@ def extract_polar_profile(mask, n_bins=N_BINS, cutoff_frac=None):
     return profile
 
 
-def estimate_yaw_deg(target_profile, reference_profile):
+def estimate_yaw_deg(target_profile, reference_profile, subbin=True):
     """Circular cross-correlation (FFT-based) between two radius-vs-angle
     profiles - returns the angular shift (degrees) that best aligns
     reference to target, i.e. the estimated yaw of target relative to
-    reference. Positive = target rotated counter-clockwise in image space
-    relative to reference (sign/convention to be verified empirically
-    against known synthetic rotations before trusting it)."""
+    reference, and a normalized peak strength.
+
+    Sign is NEGATED relative to the raw correlation shift - verified
+    2026-07-25 against known in-plane rotations of the real etalon top
+    silhouette (-10..+10 deg recovered exactly, see the two bug fixes noted
+    in the module docstring)."""
     n = len(target_profile)
     a = target_profile - target_profile.mean()
     b = reference_profile - reference_profile.mean()
     corr = np.real(np.fft.ifft(np.fft.fft(a) * np.conj(np.fft.fft(b))))
-    best_shift = int(np.argmax(corr))
-    if best_shift > n // 2:
-        best_shift -= n
-    yaw_deg = best_shift * (360.0 / n)
-    peak_strength = corr[best_shift if best_shift >= 0 else best_shift + n] / (np.std(a) * np.std(b) * n)
+    peak = int(np.argmax(corr))
+
+    shift = float(peak)
+    if subbin:
+        # Parabolic interpolation across the correlation peak - the raw
+        # argmax is quantized to the bin width (1 deg at N_BINS=360), which
+        # is the dominant error on real data (measured +-0.7 deg vs truth).
+        y0, y1, y2 = corr[(peak - 1) % n], corr[peak], corr[(peak + 1) % n]
+        denom = y0 - 2 * y1 + y2
+        if abs(denom) > 1e-12:
+            shift += 0.5 * (y0 - y2) / denom
+
+    if shift > n / 2:
+        shift -= n
+    yaw_deg = -shift * (360.0 / n)
+    peak_strength = corr[peak] / (np.std(a) * np.std(b) * n)
     return yaw_deg, peak_strength
 
 
-def estimate_yaw_from_files(target_path, reference_path, cutoff_frac=0.90):
+def estimate_yaw_from_files(target_path, reference_path, cutoff_frac=None):
+    """cutoff_frac defaults to None (no crop) - a frame-fixed horizontal
+    crop does NOT rotate with the object, so it breaks the rotational
+    equivariance this whole method depends on. With the crop enabled the
+    method recovered only ~1/5 of a known rotation; without it, exactly."""
     target_mask = load_mask_alpha_or_gray(target_path)
     reference_mask = load_mask_alpha_or_gray(reference_path)
     target_profile = extract_polar_profile(target_mask, cutoff_frac=cutoff_frac)
