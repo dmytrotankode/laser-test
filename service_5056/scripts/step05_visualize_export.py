@@ -28,16 +28,33 @@ def main():
 
     print("Generating 3D Visualization Data and exporting current_helmet.ls...")
 
-    d = s4["delta_3d"]
-    q_delta = R.from_euler('ZYX', [d['yaw_deg'], d['pitch_deg'], d['roll_deg']], degrees=True)
     center = np.array([s2['tx'], s2['ty'], s2['tz']])
+
+    # If the active etalon is a physical archive variant (not the CAD baseline), export
+    # is built by rotating THAT variant's own recorded ground_truth.ls (its real physical
+    # dome shape) instead of the theoretical CAD program. The transform applied is the
+    # pose delta relative to the etalon itself (delta_rel_to_etalon), and the rotation
+    # pivot is recentered by the etalon's own CAD-relative offset (gt_ref), since gt_ref
+    # was itself derived by rotating the CAD points about `center`.
+    etalon = s4.get("etalon", "v1")
+    etalon_ls_path = os.path.join(base_dir, 'input', 'archive', etalon, 'ground_truth.ls')
+    if etalon not in ("v1", "default") and os.path.exists(etalon_ls_path):
+        orig_ls_path = etalon_ls_path
+        d = s4["delta_rel_to_etalon"]
+        gt_ref = s4["gt_ref"]
+        center = center + np.array([gt_ref['x_mm'], gt_ref['y_mm'], gt_ref['z_mm']])
+        print(f"Using etalon '{etalon}' ground_truth.ls as master trajectory (real physical dome shape).")
+    else:
+        orig_ls_path = os.path.join(base_dir, 'input', 'ls_file', 'TORXL_NEW_PROG.LS')
+        d = s4["delta_3d"]
+
+    q_delta = R.from_euler('ZYX', [d['yaw_deg'], d['pitch_deg'], d['roll_deg']], degrees=True)
     trans = np.array([d['x_mm'], d['y_mm'], d['z_mm']])
 
     out_ls_file = "current_helmet.ls"
     out_ls_path = os.path.join(results_dir, out_ls_file)
 
-    # Read original LS file and apply transformation
-    orig_ls_path = os.path.join(base_dir, 'input', 'ls_file', 'TORXL_NEW_PROG.LS')
+    # Read master LS file and apply transformation
     if os.path.exists(orig_ls_path):
         with open(orig_ls_path, 'r', encoding='utf-8', errors='ignore') as f:
             ls_content = f.read()

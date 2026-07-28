@@ -89,14 +89,55 @@ def main():
         cv2.imwrite(ov_path, overlay)
         overlays[v] = f"/files/{args.session}/{ov_filename}"
 
-    # Calculate exact dynamic 3D delta using Calibrated Multiview SVD Projection Matrix (Least Squares on Safe Zone)
-    ref_cm = {
-        "back": (2074.35, 888.34, 372.0),
-        "left": (1930.74, 1016.10, 222.0),
-        "top": (1918.04, 1518.54, 147.0)
+    # Calibration profiles: pixel-feature baseline (ref_cm), physical GT offset (gt_ref)
+    # and the 8x6 least-squares projection matrix (W_calib), all refit around a chosen
+    # baseline variant. Every profile below was fit on the SAME v1..v5 dataset via
+    # scratch/fit_optimal_matrix.py (V1) / scratch/fit_v3_calibration.py (V3) - only the
+    # anchor point changes. v6 is never part of this fit; it is held out for validation.
+    ETALON_PROFILES = {
+        "v1": {
+            "ref_cm": {
+                "back": (2074.35, 888.34, 372.0),
+                "left": (1930.74, 1016.10, 222.0),
+                "top": (1918.04, 1518.54, 147.0)
+            },
+            "gt_ref": np.array([-0.98, -0.37, -2.54, -1.25, 0.68, 0.02]),
+            "W_calib": np.array([
+                [-0.02630336, -0.04606071,  0.80399788, -0.01662836,  0.11331574,  0.07404746],
+                [ 0.01865492,  0.02048517, -0.09692215, -0.02738978, -0.06427111, -0.01296311],
+                [-0.00133632, -0.01413961,  0.18594589, -0.02097734,  0.03941578,  0.01452206],
+                [-0.01030012,  0.01135809,  0.00802835,  0.03371422, -0.02519698,  0.00279786],
+                [ 0.01413358, -0.00894094,  0.09322116, -0.04314191, -0.00113070,  0.00790382],
+                [-0.00439768, -0.00821539, -0.17044344,  0.01527476,  0.03520382, -0.01375358],
+                [ 0.01590392,  0.00288165, -0.07686617, -0.03206952, -0.01926891, -0.00914054],
+                [ 0.00102322,  0.00058823, -0.00658332, -0.00183686, -0.00188391, -0.00083156]
+            ])
+        },
+        "v3": {
+            "ref_cm": {
+                "back": (2074.82, 885.82, 372.0),
+                "left": (1929.83, 1010.64, 232.0),
+                "top": (1920.66, 1523.06, 147.0)
+            },
+            "gt_ref": np.array([-0.78, -0.59, -2.0, -1.89, 0.99, 0.06]),
+            "W_calib": np.array([
+                [-0.02466695, -0.04305132,  0.75122898, -0.01531718,  0.10597502,  0.06920823],
+                [ 0.01843577,  0.02008308, -0.08985969, -0.02756452, -0.06329017, -0.01231548],
+                [-0.0009124 , -0.01336016,  0.17227925, -0.02063809,  0.03751465,  0.01326866],
+                [-0.01030683,  0.01134883,  0.00821173,  0.03371282, -0.02517344,  0.00281472],
+                [ 0.01430949, -0.00861954,  0.087561  , -0.04300315, -0.00191463,  0.00738473],
+                [-0.00477144, -0.00890224, -0.1583843 ,  0.01497518,  0.03687888, -0.01264777],
+                [ 0.0156717 ,  0.00245695, -0.06938406, -0.03225349, -0.01823359, -0.00845436],
+                [ 0.00101018,  0.0005642 , -0.00616195, -0.00184738, -0.00182531, -0.00079292]
+            ])
+        }
     }
-    
-    # Extract 8 active pixel features relative to baseline V1
+
+    ACTIVE_ETALON = "v3"
+    profile = ETALON_PROFILES[ACTIVE_ETALON]
+    ref_cm = profile["ref_cm"]
+
+    # Extract 8 active pixel features relative to the active baseline
     feat_vec = np.array([
         cm_map["back"][0] - ref_cm["back"][0],
         cm_map["back"][1] - ref_cm["back"][1],
@@ -107,25 +148,15 @@ def main():
         cm_map["top"][1] - ref_cm["top"][1],
         cm_map["top"][2] - ref_cm["top"][2]
     ])
-    
-    # Calibrated 8x6 projection matrix W (maps feature deltas to physical X, Y, Z, Roll, Pitch, Yaw)
-    W_calib = np.array([
-        [-0.02630336, -0.04606071,  0.80399788, -0.01662836,  0.11331574,  0.07404746],
-        [ 0.01865492,  0.02048517, -0.09692215, -0.02738978, -0.06427111, -0.01296311],
-        [-0.00133632, -0.01413961,  0.18594589, -0.02097734,  0.03941578,  0.01452206],
-        [-0.01030012,  0.01135809,  0.00802835,  0.03371422, -0.02519698,  0.00279786],
-        [ 0.01413358, -0.00894094,  0.09322116, -0.04314191, -0.00113070,  0.00790382],
-        [-0.00439768, -0.00821539, -0.17044344,  0.01527476,  0.03520382, -0.01375358],
-        [ 0.01590392,  0.00288165, -0.07686617, -0.03206952, -0.01926891, -0.00914054],
-        [ 0.00102322,  0.00058823, -0.00658332, -0.00183686, -0.00188391, -0.00083156]
-    ])
-    
-    # Baseline Etalon photo offset on CNC machine table (V1 GT)
-    gt_v1 = np.array([-0.98, -0.37, -2.54, -1.25, 0.68, 0.02])
-    
-    # Predict physical pose shift
-    pred_pose = feat_vec @ W_calib + gt_v1
-    
+
+    W_calib = profile["W_calib"]
+    gt_ref = profile["gt_ref"]
+
+    # Pose relative to CAD nominal (feat_vec @ W + gt_ref) - used for accuracy reporting
+    # against the V1..V5 ground truth table.
+    rel_vec = feat_vec @ W_calib
+    pred_pose = rel_vec + gt_ref
+
     delta_3d = {
         "x_mm": round(float(pred_pose[0]), 2),
         "y_mm": round(float(pred_pose[1]), 2),
@@ -133,6 +164,27 @@ def main():
         "roll_deg": round(float(pred_pose[3]), 2),
         "pitch_deg": round(float(pred_pose[4]), 2),
         "yaw_deg": round(float(pred_pose[5]), 2)
+    }
+
+    # Pose relative to the active etalon itself (zero for the etalon variant by construction).
+    # Used to transform the etalon's OWN recorded ground_truth.ls shape instead of the CAD
+    # nominal program, so the exported trajectory follows the etalon's real physical dome
+    # shape rather than the theoretical CAD shape.
+    delta_rel_to_etalon = {
+        "x_mm": round(float(rel_vec[0]), 2),
+        "y_mm": round(float(rel_vec[1]), 2),
+        "z_mm": round(float(rel_vec[2]), 2),
+        "roll_deg": round(float(rel_vec[3]), 2),
+        "pitch_deg": round(float(rel_vec[4]), 2),
+        "yaw_deg": round(float(rel_vec[5]), 2)
+    }
+    gt_ref_dict = {
+        "x_mm": round(float(gt_ref[0]), 2),
+        "y_mm": round(float(gt_ref[1]), 2),
+        "z_mm": round(float(gt_ref[2]), 2),
+        "roll_deg": round(float(gt_ref[3]), 2),
+        "pitch_deg": round(float(gt_ref[4]), 2),
+        "yaw_deg": round(float(gt_ref[5]), 2)
     }
 
     # Generate composite 3-view overlay image for main panel
@@ -155,6 +207,9 @@ def main():
     results = {
         "status": "success",
         "delta_3d": delta_3d,
+        "etalon": ACTIVE_ETALON,
+        "gt_ref": gt_ref_dict,
+        "delta_rel_to_etalon": delta_rel_to_etalon,
         "overlays": overlays,
         "vis_image": f"/files/{args.session}/{comp_filename}",
         "caption": f"Єдина 6-осева 3D оптимізація успішно завершена! Розраховано точне зміщення шолома в просторі: X={delta_3d['x_mm']}мм, Y={delta_3d['y_mm']}мм, Z={delta_3d['z_mm']}мм, Roll={delta_3d['roll_deg']}°, Pitch={delta_3d['pitch_deg']}°, Yaw={delta_3d['yaw_deg']}°. Завдяки відсіканню низу та врахуванню асиметрії, похибка обчислень знижена до десятих долей міліметра (0.1 мм)."
