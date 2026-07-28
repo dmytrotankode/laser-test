@@ -30,20 +30,41 @@ def main():
 
     center = np.array([s2['tx'], s2['ty'], s2['tz']])
 
-    # If the active etalon is a physical archive variant (not the CAD baseline), export
-    # is built by rotating THAT variant's own recorded ground_truth.ls (its real physical
-    # dome shape) instead of the theoretical CAD program. The transform applied is the
-    # pose delta relative to the etalon itself (delta_rel_to_etalon), and the rotation
-    # pivot is recentered by the etalon's own CAD-relative offset (gt_ref), since gt_ref
-    # was itself derived by rotating the CAD points about `center`.
+    def load_ls_points_xyz(path):
+        with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+        pattern_xyz = re.compile(r'P\[\d+\]\{.*?X\s*=\s*([-\d.]+).*?Y\s*=\s*([-\d.]+).*?Z\s*=\s*([-\d.]+)', re.DOTALL | re.IGNORECASE)
+        return [(float(a), float(b), float(c)) for a, b, c in pattern_xyz.findall(content)]
+
+    # Variant 1 (k-NN dynamic etalon): step04 picks the 1-2 archive variants closest in
+    # pixel-feature space to the current photo (s4["selected_neighbors"]/["neighbor_weights"]).
+    # If those are real physical archive variants (not the CAD baseline), export is built by
+    # rotating a WEIGHTED BLEND of their own recorded ground_truth.ls points (real physical
+    # dome shape) instead of the theoretical CAD program. The transform applied is the pose
+    # delta relative to the blended reference (delta_rel_to_etalon), and the rotation pivot
+    # is recentered by the blended CAD-relative offset (gt_ref), since gt_ref was itself
+    # derived by rotating the CAD points about `center`.
     etalon = s4.get("etalon", "v1")
-    etalon_ls_path = os.path.join(base_dir, 'input', 'archive', etalon, 'ground_truth.ls')
-    if etalon not in ("v1", "default") and os.path.exists(etalon_ls_path):
-        orig_ls_path = etalon_ls_path
+    neighbors = s4.get("selected_neighbors", [etalon])
+    neighbor_weights = s4.get("neighbor_weights", [1.0])
+    neighbor_paths = [os.path.join(base_dir, 'input', 'archive', n, 'ground_truth.ls') for n in neighbors]
+
+    blended_points = None
+    if all(os.path.exists(p) for p in neighbor_paths):
+        orig_ls_path = neighbor_paths[0]
         d = s4["delta_rel_to_etalon"]
         gt_ref = s4["gt_ref"]
         center = center + np.array([gt_ref['x_mm'], gt_ref['y_mm'], gt_ref['z_mm']])
-        print(f"Using etalon '{etalon}' ground_truth.ls as master trajectory (real physical dome shape).")
+
+        neighbor_point_lists = [load_ls_points_xyz(p) for p in neighbor_paths]
+        n_pts = min(len(pl) for pl in neighbor_point_lists)
+        blended_points = []
+        for i in range(n_pts):
+            acc = np.zeros(3)
+            for pl, w in zip(neighbor_point_lists, neighbor_weights):
+                acc += w * np.array(pl[i])
+            blended_points.append(acc)
+        print(f"Using blended ground_truth.ls from {neighbors} (weights {neighbor_weights}) as master trajectory.")
     else:
         orig_ls_path = os.path.join(base_dir, 'input', 'ls_file', 'TORXL_NEW_PROG.LS')
         d = s4["delta_3d"]
@@ -59,22 +80,34 @@ def main():
         with open(orig_ls_path, 'r', encoding='utf-8', errors='ignore') as f:
             ls_content = f.read()
 
-        def replace_point(match):
-            g1 = match.group(1)
-            x = float(match.group(2))
-            g3 = match.group(3)
-            y = float(match.group(4))
-            g5 = match.group(5)
-            z = float(match.group(6))
-
-            pt = np.array([x, y, z])
-            pt_rel = pt - center
-            pt_rot = q_delta.apply(pt_rel)
-            pt_final = pt_rot + center + trans
-
-            return f"{g1}{pt_final[0]:.3f}{g3}{pt_final[1]:.3f}{g5}{pt_final[2]:.3f}"
-
         pattern = re.compile(r'(P\[\d+\]\{.*?X\s*=\s*)([-\d.]+)(.*?Y\s*=\s*)([-\d.]+)(.*?Z\s*=\s*)([-\d.]+)', re.DOTALL | re.IGNORECASE)
+
+        if blended_points is not None:
+            point_iter = iter(blended_points)
+
+            def replace_point(match):
+                g1, g3, g5 = match.group(1), match.group(3), match.group(5)
+                pt = np.array(next(point_iter))
+                pt_rel = pt - center
+                pt_rot = q_delta.apply(pt_rel)
+                pt_final = pt_rot + center + trans
+                return f"{g1}{pt_final[0]:.3f}{g3}{pt_final[1]:.3f}{g5}{pt_final[2]:.3f}"
+        else:
+            def replace_point(match):
+                g1 = match.group(1)
+                x = float(match.group(2))
+                g3 = match.group(3)
+                y = float(match.group(4))
+                g5 = match.group(5)
+                z = float(match.group(6))
+
+                pt = np.array([x, y, z])
+                pt_rel = pt - center
+                pt_rot = q_delta.apply(pt_rel)
+                pt_final = pt_rot + center + trans
+
+                return f"{g1}{pt_final[0]:.3f}{g3}{pt_final[1]:.3f}{g5}{pt_final[2]:.3f}"
+
         new_ls_content = pattern.sub(replace_point, ls_content)
 
         with open(out_ls_path, 'w', encoding='utf-8') as f:

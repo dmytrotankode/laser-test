@@ -133,11 +133,84 @@ def main():
         }
     }
 
-    ACTIVE_ETALON = "v3"
-    profile = ETALON_PROFILES[ACTIVE_ETALON]
-    ref_cm = profile["ref_cm"]
+    # Variant 1 - dynamic etalon selection (k-NN) among v1..v5. Instead of always rotating
+    # V3's ground_truth.ls, pick whichever archived variant(s) are closest in pixel-feature
+    # space to the CURRENT photo, and blend their shape/pose data. v6 is never in this
+    # library - it stays held-out for validation only (per fit_v3_calibration.py / this
+    # experiment's design, see ANALYSIS_V3_ETALON_MIGRATION.md).
+    KNN_LIBRARY = {
+        "v1": {
+            "ref_cm": {"back": (2074.35, 888.34, 372.0), "left": (1930.74, 1016.10, 222.0), "top": (1918.03, 1518.54, 147.0)},
+            "gt_ref": np.array([-0.98, -0.37, -2.54, -1.25, 0.68, 0.02]),
+        },
+        "v2": {
+            "ref_cm": {"back": (2074.69, 888.31, 372.0), "left": (1930.89, 1016.04, 222.0), "top": (1918.01, 1518.52, 147.0)},
+            "gt_ref": np.array([-0.99, -0.39, -2.21, -1.26, 0.73, 0.05]),
+        },
+        "v3": {
+            "ref_cm": {"back": (2074.82, 885.82, 372.0), "left": (1929.83, 1010.64, 232.0), "top": (1920.66, 1523.06, 147.0)},
+            "gt_ref": np.array([-0.78, -0.59, -2.0, -1.89, 0.99, 0.06]),
+        },
+        "v4": {
+            "ref_cm": {"back": (2074.08, 900.10, 372.0), "left": (1920.51, 1026.89, 232.0), "top": (1899.57, 1520.96, 147.0)},
+            "gt_ref": np.array([-0.59, 0.22, -1.82, -1.78, -1.49, 0.04]),
+        },
+        "v5": {
+            "ref_cm": {"back": (2073.06, 910.99, 372.0), "left": (1936.94, 1010.61, 232.0), "top": (1901.95, 1529.98, 148.0)},
+            "gt_ref": np.array([-0.08, 0.08, -1.88, -3.21, -1.34, -0.1]),
+        },
+    }
+    # Normalization scale for the k-NN distance (std of each active feature across the library)
+    KNN_SCALE = np.array([0.6254, 9.5377, 5.2815, 4.899, 8.9705, 4.2381, 5.9407, 0.4])
+    # Max nearest-neighbor gap seen within the library itself (x1.5 safety margin) -
+    # beyond this, a new photo is considered outside the calibrated envelope.
+    OUT_OF_RANGE_THRESHOLD = 8.2
 
-    # Extract 8 active pixel features relative to the active baseline
+    def feat8(cm_or_ref):
+        """Build the 8-dim active feature vector (back_cx,back_cy,left_cx,left_cy,left_top,top_cx,top_cy,top_top)."""
+        return np.array([
+            cm_or_ref["back"][0], cm_or_ref["back"][1],
+            cm_or_ref["left"][0], cm_or_ref["left"][1], cm_or_ref["left"][2],
+            cm_or_ref["top"][0], cm_or_ref["top"][1], cm_or_ref["top"][2]
+        ])
+
+    W_calib = ETALON_PROFILES["v3"]["W_calib"]
+
+    current_feat = feat8(cm_map)
+
+    # Distance (normalized) from the current photo to every library variant
+    distances = {}
+    for v, entry in KNN_LIBRARY.items():
+        lib_feat = feat8(entry["ref_cm"])
+        distances[v] = float(np.linalg.norm((current_feat - lib_feat) / KNN_SCALE))
+
+    ranked = sorted(distances.items(), key=lambda kv: kv[1])
+    nearest_name, nearest_dist = ranked[0]
+    second_name, second_dist = ranked[1]
+
+    out_of_range = nearest_dist > OUT_OF_RANGE_THRESHOLD
+
+    # Blend the 2 nearest neighbors by inverse distance (falls back to the single nearest
+    # if it's an almost-exact match, to avoid diluting a perfect hit with a noisy neighbor).
+    if nearest_dist < 0.05:
+        neighbors = [nearest_name]
+        weights = [1.0]
+    else:
+        w1 = 1.0 / nearest_dist
+        w2 = 1.0 / second_dist
+        wsum = w1 + w2
+        neighbors = [nearest_name, second_name]
+        weights = [w1 / wsum, w2 / wsum]
+
+    ref_cm_blend = {}
+    for view in ["back", "left", "top"]:
+        ref_cm_blend[view] = tuple(
+            sum(w * np.array(KNN_LIBRARY[n]["ref_cm"][view]) for n, w in zip(neighbors, weights))
+        )
+    gt_ref = sum(w * KNN_LIBRARY[n]["gt_ref"] for n, w in zip(neighbors, weights))
+    ref_cm = ref_cm_blend
+
+    # Extract 8 active pixel features relative to the blended baseline
     feat_vec = np.array([
         cm_map["back"][0] - ref_cm["back"][0],
         cm_map["back"][1] - ref_cm["back"][1],
@@ -148,9 +221,6 @@ def main():
         cm_map["top"][1] - ref_cm["top"][1],
         cm_map["top"][2] - ref_cm["top"][2]
     ])
-
-    W_calib = profile["W_calib"]
-    gt_ref = profile["gt_ref"]
 
     # Pose relative to CAD nominal (feat_vec @ W + gt_ref) - used for accuracy reporting
     # against the V1..V5 ground truth table.
@@ -166,10 +236,9 @@ def main():
         "yaw_deg": round(float(pred_pose[5]), 2)
     }
 
-    # Pose relative to the active etalon itself (zero for the etalon variant by construction).
-    # Used to transform the etalon's OWN recorded ground_truth.ls shape instead of the CAD
-    # nominal program, so the exported trajectory follows the etalon's real physical dome
-    # shape rather than the theoretical CAD shape.
+    # Pose relative to the blended reference itself. Used to transform the blended
+    # neighbors' OWN recorded ground_truth.ls shape instead of the CAD nominal program,
+    # so the exported trajectory follows real physical dome shape rather than CAD shape.
     delta_rel_to_etalon = {
         "x_mm": round(float(rel_vec[0]), 2),
         "y_mm": round(float(rel_vec[1]), 2),
@@ -204,15 +273,25 @@ def main():
     comp_path = os.path.join(results_dir, comp_filename)
     cv2.imwrite(comp_path, composite_overlay)
 
+    range_caption = (
+        f" УВАГА: поточна поза знаходиться поза каліброваним діапазоном (відстань {nearest_dist:.2f} > поріг {OUT_OF_RANGE_THRESHOLD:.2f}) - точність нижче гарантованої!"
+        if out_of_range else ""
+    )
+
     results = {
         "status": "success",
         "delta_3d": delta_3d,
-        "etalon": ACTIVE_ETALON,
+        "etalon": neighbors[0],
+        "selected_neighbors": neighbors,
+        "neighbor_weights": [round(w, 3) for w in weights],
+        "nearest_distance": round(nearest_dist, 3),
+        "out_of_range_threshold": OUT_OF_RANGE_THRESHOLD,
+        "out_of_range": out_of_range,
         "gt_ref": gt_ref_dict,
         "delta_rel_to_etalon": delta_rel_to_etalon,
         "overlays": overlays,
         "vis_image": f"/files/{args.session}/{comp_filename}",
-        "caption": f"Єдина 6-осева 3D оптимізація успішно завершена! Розраховано точне зміщення шолома в просторі: X={delta_3d['x_mm']}мм, Y={delta_3d['y_mm']}мм, Z={delta_3d['z_mm']}мм, Roll={delta_3d['roll_deg']}°, Pitch={delta_3d['pitch_deg']}°, Yaw={delta_3d['yaw_deg']}°. Завдяки відсіканню низу та врахуванню асиметрії, похибка обчислень знижена до десятих долей міліметра (0.1 мм)."
+        "caption": f"Єдина 6-осева 3D оптимізація успішно завершена! Розраховано точне зміщення шолома в просторі: X={delta_3d['x_mm']}мм, Y={delta_3d['y_mm']}мм, Z={delta_3d['z_mm']}мм, Roll={delta_3d['roll_deg']}°, Pitch={delta_3d['pitch_deg']}°, Yaw={delta_3d['yaw_deg']}°. Еталон: {'+'.join(neighbors)} (k-NN).{range_caption}"
     }
 
     out_path = os.path.join(results_dir, "step04_result.json")
