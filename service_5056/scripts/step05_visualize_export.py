@@ -174,6 +174,20 @@ def main():
         except Exception as e:
             print("Error computing gt_delta_3d:", e)
 
+    nearest_distance = s4.get("nearest_distance")
+    out_of_range = s4.get("out_of_range", False)
+    out_of_range_threshold = s4.get("out_of_range_threshold")
+
+    etalon_parts = [f"{n} ({w*100:.0f}%)" for n, w in zip(neighbors, neighbor_weights)]
+    etalon_summary = (
+        f"Еталон обрано динамічно (k-NN): {' + '.join(etalon_parts)} "
+        f"(відстань до найближчого={nearest_distance})."
+    )
+    range_warning = (
+        f" ⚠️ УВАГА: поза поза каліброваним діапазоном (відстань {nearest_distance} > поріг {out_of_range_threshold}) - точність нижче гарантованої!"
+        if out_of_range else ""
+    )
+
     results = {
         "status": "success",
         "step02_data": s2,
@@ -183,7 +197,10 @@ def main():
         "current_ls_path": f"/files/{args.session}/{out_ls_file}",
         "ground_truth_points": ground_truth_points,
         "variant": variant,
-        "caption": f"3D-візуалізація готова! Еталонний шолом (червоний) та Поточний шолом (зелений) відображаються у 3D-сцені. Біла лінія показує розраховану нами траєкторію лазера (current_helmet.ls). {'Жовта лінія та Жовтий шолом показують фактичне положення з верстата (Ground Truth для порівняння).' if ground_truth_points else ''}"
+        "etalon_neighbors": neighbors,
+        "etalon_weights": neighbor_weights,
+        "out_of_range": out_of_range,
+        "caption": f"3D-візуалізація готова! Еталонний шолом (червоний) та Поточний шолом (зелений) відображаються у 3D-сцені. Біла лінія показує розраховану нами траєкторію лазера (current_helmet.ls), побудовану обертанням реальної форми обраного еталона. {etalon_summary}{range_warning} {'Жовта лінія та Жовтий шолом показують фактичне положення з верстата (Ground Truth для порівняння).' if ground_truth_points else ''}"
     }
 
     out_path = os.path.join(results_dir, "step05_result.json")
