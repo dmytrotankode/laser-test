@@ -36,6 +36,30 @@ def main():
         pattern_xyz = re.compile(r'P\[\d+\]\{.*?X\s*=\s*([-\d.]+).*?Y\s*=\s*([-\d.]+).*?Z\s*=\s*([-\d.]+)', re.DOTALL | re.IGNORECASE)
         return [(float(a), float(b), float(c)) for a, b, c in pattern_xyz.findall(content)]
 
+    def whisker_indices(points, jump_factor=3.0):
+        """Indices of the leading/trailing approach-retreat points (big jump to/from the
+        neighbor). These are fixed machine-space safety positions - e.g. the retreat point
+        for the old archive batch is identically [725.689, 853.506, -242.034] across v1/v3/v6,
+        while the new batch's is identically [651.995, 781.694, -345.952] across v8/v12 - so
+        they must NOT be rotated/translated with the rest of the trajectory (see
+        ANALYSIS_V3_ETALON_MIGRATION.md)."""
+        coords = np.array(points)
+        seg = np.linalg.norm(np.diff(coords, axis=0), axis=1)
+        if len(seg) < 4:
+            return set()
+        normal_med = np.median(seg[len(seg)//4: 3*len(seg)//4])
+        threshold = normal_med * jump_factor
+        idx = set()
+        lo = 0
+        while lo < len(seg) and seg[lo] > threshold:
+            idx.add(lo)
+            lo += 1
+        hi = len(points) - 1
+        while hi > 0 and seg[hi - 1] > threshold:
+            idx.add(hi)
+            hi -= 1
+        return idx
+
     # Variant 1 (k-NN dynamic etalon): step04 picks the 1-2 archive variants closest in
     # pixel-feature space to the current photo (s4["selected_neighbors"]/["neighbor_weights"]).
     # If those are real physical archive variants (not the CAD baseline), export is built by
@@ -51,13 +75,16 @@ def main():
 
     blended_points = None
     if all(os.path.exists(p) for p in neighbor_paths):
-        orig_ls_path = neighbor_paths[0]
         d = s4["delta_rel_to_etalon"]
         gt_ref = s4["gt_ref"]
         center = center + np.array([gt_ref['x_mm'], gt_ref['y_mm'], gt_ref['z_mm']])
 
         neighbor_point_lists = [load_ls_points_xyz(p) for p in neighbor_paths]
         n_pts = min(len(pl) for pl in neighbor_point_lists)
+        # Different archive batches can have slightly different point counts (99 vs 98 - see
+        # ANALYSIS_V3_ETALON_MIGRATION.md). The template text must have exactly n_pts P[i]
+        # matches, so pick whichever neighbor file has the fewest points as the template.
+        orig_ls_path = neighbor_paths[min(range(len(neighbor_paths)), key=lambda i: len(neighbor_point_lists[i]))]
         blended_points = []
         for i in range(n_pts):
             acc = np.zeros(3)
@@ -83,17 +110,34 @@ def main():
         pattern = re.compile(r'(P\[\d+\]\{.*?X\s*=\s*)([-\d.]+)(.*?Y\s*=\s*)([-\d.]+)(.*?Z\s*=\s*)([-\d.]+)', re.DOTALL | re.IGNORECASE)
 
         if blended_points is not None:
-            point_iter = iter(blended_points)
+            # Approach/retreat are fixed machine-space safety positions (not part of the
+            # helmet's rigid body - see ANALYSIS_V3_ETALON_MIGRATION.md), so they must not be
+            # rotated/translated. Sourced from the chosen neighbor(s) as-is (CAD's own
+            # approach/retreat is a THIRD, unrelated placeholder value - tried using it as a
+            # universal reference and it broke same-family self-matches, reverted).
+            whisker_idx = whisker_indices(blended_points)
+            idx_counter = [0]
 
             def replace_point(match):
+                i = idx_counter[0]
+                idx_counter[0] += 1
                 g1, g3, g5 = match.group(1), match.group(3), match.group(5)
-                pt = np.array(next(point_iter))
-                pt_rel = pt - center
-                pt_rot = q_delta.apply(pt_rel)
-                pt_final = pt_rot + center + trans
+                pt = np.array(blended_points[i])
+                if i in whisker_idx:
+                    pt_final = pt
+                else:
+                    pt_rel = pt - center
+                    pt_rot = q_delta.apply(pt_rel)
+                    pt_final = pt_rot + center + trans
                 return f"{g1}{pt_final[0]:.3f}{g3}{pt_final[1]:.3f}{g5}{pt_final[2]:.3f}"
         else:
+            cad_points = load_ls_points_xyz(orig_ls_path)
+            whisker_idx = whisker_indices(cad_points)
+            idx_counter = [0]
+
             def replace_point(match):
+                i = idx_counter[0]
+                idx_counter[0] += 1
                 g1 = match.group(1)
                 x = float(match.group(2))
                 g3 = match.group(3)
@@ -102,9 +146,12 @@ def main():
                 z = float(match.group(6))
 
                 pt = np.array([x, y, z])
-                pt_rel = pt - center
-                pt_rot = q_delta.apply(pt_rel)
-                pt_final = pt_rot + center + trans
+                if i in whisker_idx:
+                    pt_final = pt
+                else:
+                    pt_rel = pt - center
+                    pt_rot = q_delta.apply(pt_rel)
+                    pt_final = pt_rot + center + trans
 
                 return f"{g1}{pt_final[0]:.3f}{g3}{pt_final[1]:.3f}{g5}{pt_final[2]:.3f}"
 

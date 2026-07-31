@@ -133,11 +133,18 @@ def main():
         }
     }
 
-    # Variant 1 - dynamic etalon selection (k-NN) among v1..v5. Instead of always rotating
-    # V3's ground_truth.ls, pick whichever archived variant(s) are closest in pixel-feature
-    # space to the CURRENT photo, and blend their shape/pose data. v6 is never in this
-    # library - it stays held-out for validation only (per fit_v3_calibration.py / this
-    # experiment's design, see ANALYSIS_V3_ETALON_MIGRATION.md).
+    # Variant 1 - dynamic etalon selection (k-NN) among the calibration library. Instead of
+    # always rotating one fixed variant's ground_truth.ls, pick whichever archived variant(s)
+    # are closest in pixel-feature space to the CURRENT photo, and blend their shape/pose data.
+    #
+    # Library round 2 (11 points): v1-v5 (original) + v7,v8,v9,v10,v11,v12 (new archive batch,
+    # re-indexed to match CAD's point numbering - see scratch/reindex_new_variants.py and
+    # ANALYSIS_V3_ETALON_MIGRATION.md for why that was necessary: the new batch's ground_truth.ls
+    # files used a different point start/count on the same contour, which produced a spurious
+    # ~11.5 degree "yaw" artifact before correction). v6 (original) and v13 (new) are held out
+    # for validation only - never in this library. v14/v15/v16 are excluded entirely: their
+    # recorded contour radius shrinks progressively through that capture session (not explained
+    # by rotation), suggesting unreliable ground truth - see ANALYSIS doc.
     KNN_LIBRARY = {
         "v1": {
             "ref_cm": {"back": (2074.35, 888.34, 372.0), "left": (1930.74, 1016.10, 222.0), "top": (1918.03, 1518.54, 147.0)},
@@ -159,12 +166,36 @@ def main():
             "ref_cm": {"back": (2073.06, 910.99, 372.0), "left": (1936.94, 1010.61, 232.0), "top": (1901.95, 1529.98, 148.0)},
             "gt_ref": np.array([-0.08, 0.08, -1.88, -3.21, -1.34, -0.1]),
         },
+        "v7": {
+            "ref_cm": {"back": (2073.59, 896.58, 373.0), "left": (1930.51, 1030.34, 232.0), "top": (1911.29, 1516.15, 147.0)},
+            "gt_ref": np.array([-3.01, -0.01, -2.87, -1.63, -1.79, 1.63]),
+        },
+        "v8": {
+            "ref_cm": {"back": (2074.96, 913.88, 382.0), "left": (1924.05, 1036.91, 241.0), "top": (1896.87, 1518.98, 138.0)},
+            "gt_ref": np.array([-6.35, 0.38, -2.26, -2.85, -4.07, 2.66]),
+        },
+        "v9": {
+            "ref_cm": {"back": (2074.42, 895.81, 372.0), "left": (1930.36, 1018.21, 232.0), "top": (1912.93, 1524.98, 147.0)},
+            "gt_ref": np.array([-2.42, 0.84, -2.49, -3.13, -1.5, 1.56]),
+        },
+        "v10": {
+            "ref_cm": {"back": (2074.84, 897.43, 372.0), "left": (1929.42, 1011.71, 232.0), "top": (1916.56, 1528.77, 147.0)},
+            "gt_ref": np.array([-1.9, 0.98, -2.28, -3.64, -0.95, 1.57]),
+        },
+        "v11": {
+            "ref_cm": {"back": (2072.63, 916.66, 372.0), "left": (1919.94, 1009.48, 232.0), "top": (1898.81, 1530.64, 148.0)},
+            "gt_ref": np.array([-5.5, 1.5, -2.55, -4.8, -3.65, 2.46]),
+        },
+        "v12": {
+            "ref_cm": {"back": (2072.89, 912.31, 372.0), "left": (1923.24, 1025.59, 241.0), "top": (1895.71, 1528.67, 148.0)},
+            "gt_ref": np.array([-6.2, 1.15, -2.66, -3.69, -4.33, 2.54]),
+        },
     }
     # Normalization scale for the k-NN distance (std of each active feature across the library)
-    KNN_SCALE = np.array([0.6254, 9.5377, 5.2815, 4.899, 8.9705, 4.2381, 5.9407, 0.4])
+    KNN_SCALE = np.array([0.8102, 10.6546, 4.9749, 8.8197, 5.7338, 9.2249, 5.0465, 2.709])
     # Max nearest-neighbor gap seen within the library itself (x1.5 safety margin) -
     # beyond this, a new photo is considered outside the calibrated envelope.
-    OUT_OF_RANGE_THRESHOLD = 8.2
+    OUT_OF_RANGE_THRESHOLD = 6.43
 
     def feat8(cm_or_ref):
         """Build the 8-dim active feature vector (back_cx,back_cy,left_cx,left_cy,left_top,top_cx,top_cy,top_top)."""
@@ -174,7 +205,28 @@ def main():
             cm_or_ref["top"][0], cm_or_ref["top"][1], cm_or_ref["top"][2]
         ])
 
-    W_calib = ETALON_PROFILES["v3"]["W_calib"]
+    # Refit on the 11-point library (anchor v3). With 11 points/8 features and the new batch's
+    # ~5mm inherent label noise (from imperfect ICP re-indexing - see
+    # ANALYSIS_V3_ETALON_MIGRATION.md), a plain ridge (lambda=0.01, all points equal weight)
+    # overfit badly (coefficients blew up ~50-100x, held-out error up to 7.8mm).
+    #
+    # Round 3: WEIGHTED ridge regression - v1-v5 (clean, precisely-indexed) get weight=15,
+    # v7-v12 (new batch, ~5mm re-indexing noise) get weight=1, on top of Hungarian
+    # (optimal one-to-one) re-indexing and lambda=10. This trusts the clean old data more
+    # while still letting the new data extend coverage. A locally-weighted regression variant
+    # (per-query neighborhood fit) was also tried and rejected - no consistent improvement.
+    # Held-out max error with this matrix: v6 ~3.8mm, v13 ~1.7deg (down from 4.9mm/1.8deg
+    # unweighted).
+    W_calib = np.array([
+        [ 0.17946687,  0.00506302,  0.11580220, -0.00585772,  0.06156284, -0.04575105],
+        [-0.42623666,  0.07839574, -0.07899431, -0.12389037, -0.19831263,  0.21734342],
+        [ 0.24272255, -0.07049710,  0.02807780,  0.06156752,  0.08568605, -0.11600478],
+        [-0.13565913,  0.08374389, -0.05145580, -0.02165250, -0.12417555,  0.11789830],
+        [-0.03888910, -0.05178032,  0.02030751, -0.01039632, -0.01418367,  0.01175836],
+        [-0.51121427,  0.09607193, -0.11625038, -0.11959530, -0.14337267,  0.28306837],
+        [ 0.05149736,  0.14000538, -0.00379167, -0.12776700, -0.06928411,  0.05854615],
+        [ 0.00478089,  0.04949983, -0.05166735, -0.01573234, -0.07165409,  0.04347865],
+    ])
 
     current_feat = feat8(cm_map)
 
