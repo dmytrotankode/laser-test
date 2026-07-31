@@ -344,6 +344,43 @@ def t6_regression():
               f"{o['mean']:.2f} -> {c['mean']:.2f} mm")
 
 
+# ---------------------------------------------------------------- T7
+def t7_euler_convention():
+    """Rotate a contour by a known amount, then recover it the way step05 does.
+
+    This is the check T3 cannot make. T3 hands step05 a delta and verifies it against
+    the same formula step05 applies, so a wrong convention would agree with itself.
+    Here the angles make a full round trip: applied to real geometry, then extracted
+    back through the Kabsch + euler path used for gt_delta_3d. Before the fix,
+    extraction used extrinsic 'zyx' while application used intrinsic 'ZYX' - a
+    different composition, worth ~0.4 mm mean on this contour."""
+    print("\nT7  Euler convention survives an apply -> extract round trip")
+    C, _ = gt_program('v1').contour_xyz()
+    pivot = C.mean(0)
+    for ypr in [(1.4, 3.1, -2.5), (-0.6, 0.9, 0.3), (2.7, -4.4, 5.1)]:
+        Rm = lsgeom.rot_from_ypr(*ypr)
+        moved = Rm.apply(C - pivot) + pivot
+
+        # the extraction path used by step05's gt_delta_3d
+        ca, cb = C.mean(0), moved.mean(0)
+        H = (C - ca).T @ (moved - cb)
+        U, S, Vt = np.linalg.svd(H)
+        rot = Vt.T @ U.T
+        if np.linalg.det(rot) < 0:
+            Vt[2, :] *= -1
+            rot = Vt.T @ U.T
+        back = lsgeom.ypr_from_rot(rot)
+
+        err = max(abs(a - b) for a, b in zip(ypr, back))
+        check(f"T7 yaw/pitch/roll {ypr} recovered", err < 1e-6,
+              f"got {tuple(round(x, 4) for x in back)}, max error {err:.4f} deg")
+
+        # and what that error would cost in millimetres on the real contour
+        wrong = R.from_euler('zyx', list(ypr), degrees=True).apply(C - pivot) + pivot
+        gap = float(np.linalg.norm(moved - wrong, axis=1).mean())
+        NOTES.append(f"T7 {ypr}: wrong convention would cost {gap:.2f} mm")
+
+
 if __name__ == '__main__':
     for v in VARIANTS:
         if not os.path.exists(os.path.join(sess_dir(v), 'step04_result.json')):
@@ -355,6 +392,7 @@ if __name__ == '__main__':
     t4b_blend_betweenness()
     t5_whiskers()
     t6_regression()
+    t7_euler_convention()
     print("\n" + "=" * 70)
     if NOTES:
         print("notes: " + " | ".join(NOTES))

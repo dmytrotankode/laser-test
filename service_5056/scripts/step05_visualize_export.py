@@ -95,7 +95,7 @@ def main():
         print(f"Master trajectory: CAD program (no archive neighbour available), "
               f"{len(cad_cont)} contour points.")
 
-    q_delta = R.from_euler('ZYX', [d['yaw_deg'], d['pitch_deg'], d['roll_deg']], degrees=True)
+    q_delta = lsgeom.rot_from_ypr(d['yaw_deg'], d['pitch_deg'], d['roll_deg'])
     trans = np.array([d['x_mm'], d['y_mm'], d['z_mm']])
 
     out_ls_file = "current_helmet.ls"
@@ -178,15 +178,19 @@ def main():
             center_orig = np.array([s2.get('tx', 1170.98), s2.get('ty', 785.15), s2.get('tz', -191.86)])
             center_gt = rot @ center_orig + tr
             shift = center_gt - center_orig
-            euler_diff = R.from_matrix(rot).as_euler('zyx', degrees=True)
+            # Same convention as the one used to APPLY the rotation above. This used to
+            # be as_euler('zyx') - extrinsic - while application was from_euler('ZYX') -
+            # intrinsic. Different compositions; on this data the mismatch is worth
+            # ~0.4 mm mean on the contour. See PLAN.md B8.
+            yaw_d, pitch_d, roll_d = lsgeom.ypr_from_rot(rot)
 
             gt_delta_3d = {
                 "x_mm": round(float(shift[0]), 2),
                 "y_mm": round(float(shift[1]), 2),
                 "z_mm": round(float(shift[2]), 2),
-                "roll_deg": round(float(euler_diff[2]), 2),
-                "pitch_deg": round(float(euler_diff[1]), 2),
-                "yaw_deg": round(float(euler_diff[0]), 2)
+                "roll_deg": round(roll_d, 2),
+                "pitch_deg": round(pitch_d, 2),
+                "yaw_deg": round(yaw_d, 2)
             }
             print(f"Calculated Ground Truth helmet pose shift: {gt_delta_3d}")
         except Exception as e:

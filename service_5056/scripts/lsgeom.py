@@ -13,6 +13,7 @@ section of v7..v13 and dropped one point per file; it is not used any more.
 """
 import re
 import numpy as np
+from scipy.spatial.transform import Rotation as _R
 
 _POS_RE = re.compile(
     r'P\[(\d+)\]\{.*?X\s*=\s*([-\d.]+).*?Y\s*=\s*([-\d.]+).*?Z\s*=\s*([-\d.]+)'
@@ -202,3 +203,29 @@ def curve_distance(pts, curve):
     t = np.clip((AP * AB[None, :, :]).sum(2) / denom[None, :], 0.0, 1.0)
     closest = A[None, :, :] + t[:, :, None] * AB[None, :, :]
     return np.linalg.norm(P[:, None, :] - closest, axis=2).min(axis=1)
+
+
+# -- pose conventions ------------------------------------------------------
+#
+# ONE convention, used for both directions. Fanuc's W/P/R are fixed-angle rotations
+# about the world X, Y, Z axes applied in that order, i.e. R = Rz(R)*Ry(P)*Rx(W),
+# which is exactly scipy's INTRINSIC 'ZYX' with [yaw, pitch, roll].
+#
+# The codebase used to apply from_euler('ZYX', ...) but extract with
+# as_euler('zyx', ...) - lowercase is EXTRINSIC, a different composition
+# (Rx*Ry*Rz). At the angles present in this data that mismatch is worth ~0.4 mm
+# mean on the contour, comparable to the whole measurement noise floor, so it is
+# not cosmetic. Always go through these two functions.
+
+def rot_from_ypr(yaw, pitch, roll):
+    """Rotation from yaw/pitch/roll in degrees (Fanuc-consistent: Rz*Ry*Rx)."""
+    return _R.from_euler('ZYX', [yaw, pitch, roll], degrees=True)
+
+
+def ypr_from_rot(rot):
+    """Inverse of rot_from_ypr. Accepts a Rotation or a 3x3 matrix; returns
+    (yaw, pitch, roll) in degrees."""
+    if not isinstance(rot, _R):
+        rot = _R.from_matrix(np.asarray(rot, dtype=float))
+    yaw, pitch, roll = rot.as_euler('ZYX', degrees=True)
+    return float(yaw), float(pitch), float(roll)
