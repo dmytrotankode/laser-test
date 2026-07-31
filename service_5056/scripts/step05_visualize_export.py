@@ -6,6 +6,10 @@ import numpy as np
 import re
 from scipy.spatial.transform import Rotation as R
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import lsgeom
+
+
 def main():
     parser = argparse.ArgumentParser(description="Step 5: 3D Visualize & Export Final LS")
     parser.add_argument("--session", required=True)
@@ -13,7 +17,7 @@ def main():
 
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     results_dir = os.path.join(base_dir, 'results', args.session)
-    
+
     step02_file = os.path.join(results_dir, "step02_result.json")
     step04_file = os.path.join(results_dir, "step04_result.json")
 
@@ -30,71 +34,66 @@ def main():
 
     center = np.array([s2['tx'], s2['ty'], s2['tz']])
 
-    def load_ls_points_xyz(path):
-        with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-            content = f.read()
-        pattern_xyz = re.compile(r'P\[\d+\]\{.*?X\s*=\s*([-\d.]+).*?Y\s*=\s*([-\d.]+).*?Z\s*=\s*([-\d.]+)', re.DOTALL | re.IGNORECASE)
-        return [(float(a), float(b), float(c)) for a, b, c in pattern_xyz.findall(content)]
-
-    def whisker_indices(points, jump_factor=3.0):
-        """Indices of the leading/trailing approach-retreat points (big jump to/from the
-        neighbor). These are fixed machine-space safety positions - e.g. the retreat point
-        for the old archive batch is identically [725.689, 853.506, -242.034] across v1/v3/v6,
-        while the new batch's is identically [651.995, 781.694, -345.952] across v8/v12 - so
-        they must NOT be rotated/translated with the rest of the trajectory (see
-        ANALYSIS_V3_ETALON_MIGRATION.md)."""
-        coords = np.array(points)
-        seg = np.linalg.norm(np.diff(coords, axis=0), axis=1)
-        if len(seg) < 4:
-            return set()
-        normal_med = np.median(seg[len(seg)//4: 3*len(seg)//4])
-        threshold = normal_med * jump_factor
-        idx = set()
-        lo = 0
-        while lo < len(seg) and seg[lo] > threshold:
-            idx.add(lo)
-            lo += 1
-        hi = len(points) - 1
-        while hi > 0 and seg[hi - 1] > threshold:
-            idx.add(hi)
-            hi -= 1
-        return idx
-
     # Variant 1 (k-NN dynamic etalon): step04 picks the 1-2 archive variants closest in
     # pixel-feature space to the current photo (s4["selected_neighbors"]/["neighbor_weights"]).
-    # If those are real physical archive variants (not the CAD baseline), export is built by
-    # rotating a WEIGHTED BLEND of their own recorded ground_truth.ls points (real physical
+    # If those are real physical archive variants (not the CAD baseline), the export is built
+    # by rotating a WEIGHTED BLEND of their own recorded ground_truth.ls points (real physical
     # dome shape) instead of the theoretical CAD program. The transform applied is the pose
-    # delta relative to the blended reference (delta_rel_to_etalon), and the rotation pivot
-    # is recentered by the blended CAD-relative offset (gt_ref), since gt_ref was itself
-    # derived by rotating the CAD points about `center`.
+    # delta relative to the blended reference (delta_rel_to_etalon), and the rotation pivot is
+    # recentered by the blended CAD-relative offset (gt_ref), since gt_ref was itself derived
+    # by rotating the CAD points about `center`.
+    #
+    # Point numbering is NOT consistent between the two archive batches (old: the contour runs
+    # P[2], P[99], P[3]..P[97], retreat P[98];  new: contour P[2]..P[98], retreat P[99]), so
+    # nothing below may assume that index i of one file is index i of another. Traversal order
+    # comes from /MN, blending happens in arc-length space with an explicit phase alignment,
+    # and approach/retreat points are identified from the motion program rather than from
+    # position in the file. The earlier index-based version froze the mid-contour P[99] as if
+    # it were a retreat point, and blended points a full ~10 mm step apart across batches.
     etalon = s4.get("etalon", "v1")
     neighbors = s4.get("selected_neighbors", [etalon])
     neighbor_weights = s4.get("neighbor_weights", [1.0])
-    neighbor_paths = [os.path.join(base_dir, 'input', 'archive', n, 'ground_truth.ls') for n in neighbors]
+    neighbor_paths = [os.path.join(base_dir, 'input', 'archive', n, 'ground_truth.ls')
+                      for n in neighbors]
 
-    blended_points = None
     if all(os.path.exists(p) for p in neighbor_paths):
         d = s4["delta_rel_to_etalon"]
         gt_ref = s4["gt_ref"]
         center = center + np.array([gt_ref['x_mm'], gt_ref['y_mm'], gt_ref['z_mm']])
 
-        neighbor_point_lists = [load_ls_points_xyz(p) for p in neighbor_paths]
-        n_pts = min(len(pl) for pl in neighbor_point_lists)
-        # Different archive batches can have slightly different point counts (99 vs 98 - see
-        # ANALYSIS_V3_ETALON_MIGRATION.md). The template text must have exactly n_pts P[i]
-        # matches, so pick whichever neighbor file has the fewest points as the template.
-        orig_ls_path = neighbor_paths[min(range(len(neighbor_paths)), key=lambda i: len(neighbor_point_lists[i]))]
-        blended_points = []
-        for i in range(n_pts):
-            acc = np.zeros(3)
-            for pl, w in zip(neighbor_point_lists, neighbor_weights):
-                acc += w * np.array(pl[i])
-            blended_points.append(acc)
-        print(f"Using blended ground_truth.ls from {neighbors} (weights {neighbor_weights}) as master trajectory.")
+        # The nearest neighbour supplies the program template (headers, speeds, motion
+        # instructions, approach/retreat) and defines the phase origin of the blend.
+        orig_ls_path = neighbor_paths[0]
+        progs = [lsgeom.load(p) for p in neighbor_paths]
+        broken = [(n, p.problems()) for n, p in zip(neighbors, progs) if p.problems()]
+        if broken:
+            print(f"Error: unusable source program(s): {broken}")
+            sys.exit(1)
+
+        tmpl = progs[0]
+        app_ids, cont_ids, ret_ids = tmpl.split_path()
+        # blend_contours evaluates at the template's own vertices, so the exported
+        # program keeps exactly the point count and spacing the robot expects, and a
+        # single-neighbour blend reproduces that neighbour bit-for-bit
+        blended_cont = lsgeom.blend_contours([p.contour_xyz()[0] for p in progs],
+                                             neighbor_weights)
+
+        src_xyz = {i: np.array(tmpl.points[i][:3]) for i in tmpl.points}
+        for k, i in enumerate(cont_ids):
+            src_xyz[i] = blended_cont[k]
+        transform_ids = set(cont_ids)
+        print(f"Master trajectory: blend of {neighbors} (weights {neighbor_weights}); "
+              f"template {neighbors[0]}, {len(cont_ids)} contour points, "
+              f"approach {app_ids} / retreat {ret_ids} kept fixed in machine space.")
     else:
         orig_ls_path = os.path.join(base_dir, 'input', 'ls_file', 'TORXL_NEW_PROG.LS')
         d = s4["delta_3d"]
+        cad = lsgeom.load(orig_ls_path)
+        _, cad_cont, _ = cad.split_path()
+        src_xyz = {i: np.array(cad.points[i][:3]) for i in cad.points}
+        transform_ids = set(cad_cont)
+        print(f"Master trajectory: CAD program (no archive neighbour available), "
+              f"{len(cad_cont)} contour points.")
 
     q_delta = R.from_euler('ZYX', [d['yaw_deg'], d['pitch_deg'], d['roll_deg']], degrees=True)
     trans = np.array([d['x_mm'], d['y_mm'], d['z_mm']])
@@ -102,64 +101,41 @@ def main():
     out_ls_file = "current_helmet.ls"
     out_ls_path = os.path.join(results_dir, out_ls_file)
 
-    # Read master LS file and apply transformation
-    if os.path.exists(orig_ls_path):
-        with open(orig_ls_path, 'r', encoding='utf-8', errors='ignore') as f:
-            ls_content = f.read()
+    with open(orig_ls_path, 'r', encoding='utf-8', errors='ignore') as f:
+        ls_content = f.read()
 
-        pattern = re.compile(r'(P\[\d+\]\{.*?X\s*=\s*)([-\d.]+)(.*?Y\s*=\s*)([-\d.]+)(.*?Z\s*=\s*)([-\d.]+)', re.DOTALL | re.IGNORECASE)
+    # Rewrite the X/Y/Z of each P[i] record in place, keeping every other byte of the
+    # program (headers, speeds, /MN body, W/P/R) untouched.
+    pattern = re.compile(
+        r'(P\[(\d+)\]\{.*?X\s*=\s*)([-\d.]+)(.*?Y\s*=\s*)([-\d.]+)(.*?Z\s*=\s*)([-\d.]+)',
+        re.DOTALL | re.IGNORECASE)
 
-        if blended_points is not None:
-            # Approach/retreat are fixed machine-space safety positions (not part of the
-            # helmet's rigid body - see ANALYSIS_V3_ETALON_MIGRATION.md), so they must not be
-            # rotated/translated. Sourced from the chosen neighbor(s) as-is (CAD's own
-            # approach/retreat is a THIRD, unrelated placeholder value - tried using it as a
-            # universal reference and it broke same-family self-matches, reverted).
-            whisker_idx = whisker_indices(blended_points)
-            idx_counter = [0]
+    def replace_point(match):
+        i = int(match.group(2))
+        pt = src_xyz[i]
+        if i in transform_ids:
+            pt = q_delta.apply(pt - center) + center + trans
+        return f"{match.group(1)}{pt[0]:.3f}{match.group(4)}{pt[1]:.3f}{match.group(6)}{pt[2]:.3f}"
 
-            def replace_point(match):
-                i = idx_counter[0]
-                idx_counter[0] += 1
-                g1, g3, g5 = match.group(1), match.group(3), match.group(5)
-                pt = np.array(blended_points[i])
-                if i in whisker_idx:
-                    pt_final = pt
-                else:
-                    pt_rel = pt - center
-                    pt_rot = q_delta.apply(pt_rel)
-                    pt_final = pt_rot + center + trans
-                return f"{g1}{pt_final[0]:.3f}{g3}{pt_final[1]:.3f}{g5}{pt_final[2]:.3f}"
-        else:
-            cad_points = load_ls_points_xyz(orig_ls_path)
-            whisker_idx = whisker_indices(cad_points)
-            idx_counter = [0]
+    new_ls_content = pattern.sub(replace_point, ls_content)
 
-            def replace_point(match):
-                i = idx_counter[0]
-                idx_counter[0] += 1
-                g1 = match.group(1)
-                x = float(match.group(2))
-                g3 = match.group(3)
-                y = float(match.group(4))
-                g5 = match.group(5)
-                z = float(match.group(6))
+    with open(out_ls_path, 'w', encoding='utf-8') as f:
+        f.write(new_ls_content)
 
-                pt = np.array([x, y, z])
-                if i in whisker_idx:
-                    pt_final = pt
-                else:
-                    pt_rel = pt - center
-                    pt_rot = q_delta.apply(pt_rel)
-                    pt_final = pt_rot + center + trans
-
-                return f"{g1}{pt_final[0]:.3f}{g3}{pt_final[1]:.3f}{g5}{pt_final[2]:.3f}"
-
-        new_ls_content = pattern.sub(replace_point, ls_content)
-
-        with open(out_ls_path, 'w', encoding='utf-8') as f:
-            f.write(new_ls_content)
-        print(f"Exported transformed LS file to {out_ls_path}")
+    # An unloadable program is worse than no program: fail loudly instead of handing the
+    # operator a file the controller will reject (or, worse, one it accepts with no moves).
+    check = lsgeom.load(out_ls_path)
+    problems = check.problems()
+    if len(check.order) < 90:
+        problems.append(f"only {len(check.order)} motion instructions")
+    if set(check.points) != set(src_xyz):
+        problems.append("exported point set differs from the template")
+    if problems:
+        os.remove(out_ls_path)
+        print(f"Error: refusing to emit an invalid program: {problems}")
+        sys.exit(1)
+    print(f"Exported transformed LS file to {out_ls_path} "
+          f"({len(check.order)} motion instructions, {len(check.points)} points)")
 
     cfg_path = os.path.join(results_dir, "config.json")
     variant = "default"
@@ -174,15 +150,10 @@ def main():
     if variant != "default":
         gt_ls_path = os.path.join(base_dir, 'input', 'archive', variant, 'ground_truth.ls')
         if os.path.exists(gt_ls_path):
-            with open(gt_ls_path, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read()
-            pattern_gt = re.compile(r'P\[\d+\]\{.*?X\s*=\s*([-\d.]+).*?Y\s*=\s*([-\d.]+).*?Z\s*=\s*([-\d.]+)', re.DOTALL | re.IGNORECASE)
-            for match in pattern_gt.finditer(content):
-                ground_truth_points.append({
-                    "x": float(match.group(1)),
-                    "y": float(match.group(2)),
-                    "z": float(match.group(3))
-                })
+            gt_prog = lsgeom.load(gt_ls_path)
+            for i in sorted(gt_prog.points):
+                x, y, z = gt_prog.points[i][:3]
+                ground_truth_points.append({"x": x, "y": y, "z": z})
             print(f"Loaded {len(ground_truth_points)} ground truth points from {gt_ls_path}")
 
     gt_delta_3d = None
@@ -200,12 +171,12 @@ def main():
             U, S, Vt = np.linalg.svd(H)
             rot = Vt.T @ U.T
             if np.linalg.det(rot) < 0:
-                Vt[2,:] *= -1
+                Vt[2, :] *= -1
                 rot = Vt.T @ U.T
-            trans = c_gt - rot @ c_orig
+            tr = c_gt - rot @ c_orig
 
             center_orig = np.array([s2.get('tx', 1170.98), s2.get('ty', 785.15), s2.get('tz', -191.86)])
-            center_gt = rot @ center_orig + trans
+            center_gt = rot @ center_orig + tr
             shift = center_gt - center_orig
             euler_diff = R.from_matrix(rot).as_euler('zyx', degrees=True)
 
@@ -255,6 +226,7 @@ def main():
         json.dump(results, f, indent=4, ensure_ascii=False)
 
     print(f"Saved step 5 visualization & export results to {out_path}")
+
 
 if __name__ == "__main__":
     main()
