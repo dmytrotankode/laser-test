@@ -47,27 +47,33 @@ def export_contour(v):
     return prog.contour_xyz()[0], probs
 
 
-def tool_axis(v):
+def gt_contour_and_axis(v):
+    """GT contour points plus the nozzle axis at each of them.
+
+    Fanuc W/P/R -> tool +Z, which points AWAY from the helmet (verified: 18.6 deg off
+    the outward radial, 17 deg below horizontal, matching the programmed 15 deg cutting
+    angle). A positive shift along it means the nozzle sits further from the part."""
     prog = lsgeom.load(os.path.join(BASE, 'input', 'archive', v, 'ground_truth.ls'))
     _, cont, _ = prog.split_path()
-    wpr = np.array([prog.points[i][3:] for i in cont])
-    # Fanuc W/P/R -> tool +Z, which points AWAY from the helmet (verified: 18.6 deg
-    # off the outward radial, 17 deg below horizontal, matching the programmed 15 deg
-    # cutting angle). A positive shift along it means a larger standoff.
-    return np.array([lsgeom.rot_from_ypr(r, p, w).apply([0, 0, 1.0])
-                     for w, p, r in wpr])
+    P = np.array([prog.points[i][:3] for i in cont])
+    Z = np.array([lsgeom.rot_from_ypr(r, p, w).apply([0, 0, 1.0])
+                  for w, p, r in (prog.points[i][3:] for i in cont)])
+    return P, Z
 
 
 def split_normal_tangential(pred, v):
     """Decompose the error into standoff (along the nozzle axis) and the rest.
 
     The two mean very different things on the shop floor: a standoff error changes the
-    cut depth/kerf, an in-surface error moves the cut line on the part."""
-    G = gt_contour(v)
-    z = tool_axis(v)
-    n = min(len(pred), len(z))
+    cut depth, an in-surface error moves the cut line on the part.
+
+    The nozzle axis is taken at the MATCHED GT point, not at the same list index. The
+    export is built from the nearest neighbour's template, which in general starts its
+    contour at a different physical place than the variant's own recording, so pairing
+    by index silently compares against an axis from elsewhere on the ring."""
+    G, Z = gt_contour_and_axis(v)
     d = lsgeom.curve_distance(pred, G)
-    # signed component along the tool axis, via the nearest point on the GT curve
+
     A, B = G, np.roll(G, -1, axis=0)
     AB = B - A
     den = (AB * AB).sum(1)
@@ -76,9 +82,38 @@ def split_normal_tangential(pred, v):
     t = np.clip((AP * AB[None, :, :]).sum(2) / den[None, :], 0, 1)
     close = A[None, :, :] + t[:, :, None] * AB[None, :, :]
     j = np.linalg.norm(pred[:, None, :] - close, axis=2).argmin(1)
-    vec = pred - close[np.arange(len(pred)), j]
-    along = (vec[:n] * z[:n]).sum(1)
+    k = np.arange(len(pred))
+    vec = pred - close[k, j]
+    # axis interpolated along the matched segment, same as the closest point itself
+    z = Z[j] * (1 - t[k, j])[:, None] + Z[(j + 1) % len(Z)] * t[k, j][:, None]
+    z /= np.linalg.norm(z, axis=1, keepdims=True)
+    along = (vec * z).sum(1)
     return d, along
+
+
+def fixed_baselines():
+    """Every honest "do nothing" opponent: run one fixed program on every helmet.
+
+    Which fixed program is a CHOICE, and it moves the answer a lot - on held-out the
+    range is 4.36 to 7.17 mm. Reporting a single convenient one would be cherry-picking
+    in whichever direction the author preferred, so the report shows the range and uses
+    the hardest opponent as the headline.
+
+    Both the candidates and the selection criteria use TRAIN only: scoring candidates
+    against held-out would pick the baseline using knowledge our own model is not
+    allowed to have, and a baseline tuned on the test set is not a baseline."""
+    out = {}
+    for c in dataset.TRAIN:
+        A = gt_contour(c)
+        tr = [float(lsgeom.curve_distance(A, gt_contour(v)).mean())
+              for v in dataset.TRAIN if v != c]
+        out[c] = dict(train_mean=float(np.mean(tr)), train_worst=float(max(tr)))
+    by_worst = min(out, key=lambda c: out[c]['train_worst'])
+    by_mean = min(out, key=lambda c: out[c]['train_mean'])
+    return out, by_worst, by_mean
+
+
+BASELINES, FIXED, FIXED_BY_MEAN = fixed_baselines()
 
 
 def report():
@@ -86,8 +121,14 @@ def report():
     for v in dataset.ALL:
         pred, probs = export_contour(v)
         G = gt_contour(v)
-        base = lsgeom.curve_distance(gt_contour('v1'), G)     # do nothing: v1's file as-is
-        row = dict(v=v, probs=probs, base_mean=float(base.mean()))
+        # "do nothing" = run one fixed program on every helmet. Which fixed program is
+        # a choice, and picking a bad one would flatter us, so report the BEST possible
+        # one: the training variant whose trajectory minimises the worst-case error
+        # across all variants (computed once in best_fixed()).
+        base = lsgeom.curve_distance(gt_contour(FIXED), G)
+        row = dict(v=v, probs=probs, base_mean=float(base.mean()),
+                   base_alt={c: float(lsgeom.curve_distance(gt_contour(c), G).mean())
+                             for c in dataset.TRAIN})
         if pred is not None and not probs:
             d, along = split_normal_tangential(pred, v)
             row.update(mean=float(d.mean()), p90=float(np.percentile(d, 90)),
@@ -120,6 +161,15 @@ def report():
     print("=" * 88)
     print("ТОЧНОСТЬ ПАЙПЛАЙНА  (метрика: точка -> кривая записи оператора, мм)")
     print("=" * 88)
+    print("\n«без корр.» = одна фиксированная программа на все шлемы, без коррекции вообще.")
+    ho = [r for r in rows if r['v'] in dataset.HELDOUT]
+    spread = {c: np.mean([r['base_alt'][c] for r in ho]) for c in dataset.TRAIN}
+    print(f"  В колонке — САМЫЙ СИЛЬНЫЙ такой оппонент ({FIXED}: лучший по худшему случаю")
+    print(f"  на обучающих). Выбор фиксированной программы сильно двигает ответ, поэтому")
+    print(f"  ниже приведён весь диапазон, а не одна удобная цифра.")
+    print("«зазор» = систематическое смещение вдоль оси сопла: + значит наша траектория")
+    print("  дальше от шлема, чем поставил оператор. Ось берётся в сопоставленной точке")
+    print("  кривой оператора, а не по индексу списка.")
 
     block("ОБУЧАЮЩИЕ — это САМОСОВПАДЕНИЕ, а не точность",
           dataset.TRAIN,
@@ -139,9 +189,12 @@ def report():
         print("\n" + "-" * 88)
         b = np.mean([r['base_mean'] for r in ok])
         m = np.mean([r['mean'] for r in ok])
-        print(f"ИТОГ по held-out ({', '.join(r['v'] for r in ok)}): "
-              f"без коррекции {b:.2f} мм -> пайплайн {m:.2f} мм "
-              f"({b / m:.2f}x лучше)" if m > 0 else "")
+        print(f"ИТОГ по held-out ({', '.join(r['v'] for r in ok)}): пайплайн {m:.2f} мм")
+        print(f"  против «ничего не делать», в зависимости от выбора фикс. программы:")
+        print(f"    самый сильный оппонент  {FIXED:>4s}: {spread[FIXED]:5.2f} мм  -> выигрыш {spread[FIXED] / m:.2f}x")
+        print(f"    лучший по ср. на TRAIN  {FIXED_BY_MEAN:>4s}: {spread[FIXED_BY_MEAN]:5.2f} мм  -> выигрыш {spread[FIXED_BY_MEAN] / m:.2f}x")
+        wc = max(spread, key=spread.get)
+        print(f"    худший выбор            {wc:>4s}: {spread[wc]:5.2f} мм  -> выигрыш {spread[wc] / m:.2f}x")
         print("-" * 88)
 
     broken = [r['v'] for r in rows if r['probs']]
