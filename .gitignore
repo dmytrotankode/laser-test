@@ -5,3 +5,10 @@ __pycache__/
 results/
 venv/
 calibr_photo_1/
+
+# Крупные бинарные данные - держим на диске, не в git (репозиторий уже ~815 МБ)
+*.rar
+archive/
+calib2/
+v6 (27.07.26)/
+scratch_*.png
