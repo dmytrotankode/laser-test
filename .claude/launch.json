@@ -14,6 +14,13 @@
       "runtimeArgs": ["service_5054/app.py"],
       "port": 5054,
       "autoPort": true
+    },
+    {
+      "name": "laser2-service5056",
+      "runtimeExecutable": "service_5056/venv/Scripts/python.exe",
+      "runtimeArgs": ["service_5056/app.py"],
+      "port": 5056,
+      "autoPort": true
     }
   ]
 }

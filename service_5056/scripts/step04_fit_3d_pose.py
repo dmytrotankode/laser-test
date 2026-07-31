@@ -210,22 +210,26 @@ def main():
     # ANALYSIS_V3_ETALON_MIGRATION.md), a plain ridge (lambda=0.01, all points equal weight)
     # overfit badly (coefficients blew up ~50-100x, held-out error up to 7.8mm).
     #
-    # Round 3: WEIGHTED ridge regression - v1-v5 (clean, precisely-indexed) get weight=15,
-    # v7-v12 (new batch, ~5mm re-indexing noise) get weight=1, on top of Hungarian
-    # (optimal one-to-one) re-indexing and lambda=10. This trusts the clean old data more
-    # while still letting the new data extend coverage. A locally-weighted regression variant
-    # (per-query neighborhood fit) was also tried and rejected - no consistent improvement.
-    # Held-out max error with this matrix: v6 ~3.8mm, v13 ~1.7deg (down from 4.9mm/1.8deg
-    # unweighted).
+    # Round 3 (REVERTED - see Round 4): tried weighting v1-v5 at x15/x30 vs v7-v12 at x1,
+    # picking weight+lambda by whichever gave the lowest error on v6/v13. That was invalid
+    # methodology - v6/v13 are supposed to be held-out, and hyperparameters were being chosen
+    # BY looking at them, i.e. tuned to the test set (only 2 points, easy to overfit by chance
+    # searching ~15 combinations). Caught in review.
+    #
+    # Round 4 (current): hyperparameters chosen by leave-one-out cross-validation WITHIN the
+    # 11 training points only (v6/v13 never touched during selection) - equal weight for all
+    # training points, lambda=50. Honest held-out check afterward: v6 max error ~5.8mm, v13
+    # ~1.8deg - worse-looking than Round 3's cherry-picked 3.8mm/1.7deg, but that number wasn't
+    # trustworthy. This is the real, unbiased estimate.
     W_calib = np.array([
-        [ 0.17946687,  0.00506302,  0.11580220, -0.00585772,  0.06156284, -0.04575105],
-        [-0.42623666,  0.07839574, -0.07899431, -0.12389037, -0.19831263,  0.21734342],
-        [ 0.24272255, -0.07049710,  0.02807780,  0.06156752,  0.08568605, -0.11600478],
-        [-0.13565913,  0.08374389, -0.05145580, -0.02165250, -0.12417555,  0.11789830],
-        [-0.03888910, -0.05178032,  0.02030751, -0.01039632, -0.01418367,  0.01175836],
-        [-0.51121427,  0.09607193, -0.11625038, -0.11959530, -0.14337267,  0.28306837],
-        [ 0.05149736,  0.14000538, -0.00379167, -0.12776700, -0.06928411,  0.05854615],
-        [ 0.00478089,  0.04949983, -0.05166735, -0.01573234, -0.07165409,  0.04347865],
+        [ 0.02736241, -0.00009895,  0.01478740, -0.00149989,  0.01579696, -0.00866298],
+        [-0.17597860,  0.05791611, -0.03309269, -0.08825513, -0.12480999,  0.10838215],
+        [ 0.14712938, -0.03965434,  0.00834368,  0.03283918,  0.04805010, -0.06189954],
+        [-0.07463477,  0.03543018, -0.02868674,  0.01291312, -0.07954524,  0.06498154],
+        [-0.07298104, -0.02954439,  0.01551652, -0.01830362, -0.02147613,  0.02331420],
+        [-0.13992455,  0.03297449, -0.03668490, -0.04663655, -0.01571620,  0.10375539],
+        [-0.00056931,  0.07008113, -0.00267953, -0.08187873, -0.04642142,  0.03906044],
+        [ 0.02716988,  0.03126553, -0.03203363, -0.00499295, -0.03130314,  0.00624068],
     ])
 
     current_feat = feat8(cm_map)
@@ -242,8 +246,11 @@ def main():
 
     out_of_range = nearest_dist > OUT_OF_RANGE_THRESHOLD
 
-    # Blend the 2 nearest neighbors by inverse distance (falls back to the single nearest
-    # if it's an almost-exact match, to avoid diluting a perfect hit with a noisy neighbor).
+    # Blend the 2 nearest neighbors by inverse distance. (An earlier round tried k=1 - only
+    # the nearest, no blend - because it looked better on v6/v13, but that comparison was
+    # invalid: it was chosen BY looking at the 2 held-out points. Leave-one-out cross-validation
+    # within the 11 training points (v6/v13 untouched) shows k=2/k=3 are actually both a bit
+    # better than k=1 - reverted to k=2 here as the honestly-validated choice.)
     if nearest_dist < 0.05:
         neighbors = [nearest_name]
         weights = [1.0]
