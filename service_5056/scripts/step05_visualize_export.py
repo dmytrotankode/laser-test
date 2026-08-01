@@ -58,8 +58,14 @@ def main():
 
     if all(os.path.exists(p) for p in neighbor_paths):
         d = s4["delta_rel_to_etalon"]
-        gt_ref = s4["gt_ref"]
-        center = center + np.array([gt_ref['x_mm'], gt_ref['y_mm'], gt_ref['z_mm']])
+        # The rotation pivot must be the one the model was FITTED about, otherwise the
+        # predicted rotation and translation are applied around a different point than
+        # they were measured around. step04 passes it through from input/model_pose.json.
+        if "pivot" in s4:
+            center = np.array(s4["pivot"], dtype=float)
+        else:
+            gt_ref = s4["gt_ref"]
+            center = center + np.array([gt_ref['x_mm'], gt_ref['y_mm'], gt_ref['z_mm']])
 
         # The nearest neighbour supplies the program template (headers, speeds, motion
         # instructions, approach/retreat) and defines the phase origin of the blend.

@@ -22,6 +22,7 @@ import lsgeom  # noqa: E402
 
 def describe(tag, prog):
     app, cont, ret = prog.split_path()
+    cont = cont[1:]        # lead-in excluded, same as evaluate.py - see lsgeom.cut_ring
     probs = prog.problems()
     print(f"{tag}: {len(prog.points)} точек, {len(prog.order)} команд движения, "
           f"контур {len(cont)}, подвод {app} отвод {ret}"
@@ -57,7 +58,7 @@ def main():
 
     if a.gt:
         gt_path = os.path.join(BASE, 'input', 'archive', a.gt, 'ground_truth.ls')
-        G, _ = lsgeom.load(gt_path).contour_xyz()
+        G, _ = lsgeom.cut_ring(lsgeom.load(gt_path))
         eo = lsgeom.curve_distance(A, G)
         en = lsgeom.curve_distance(B, G)
         print()

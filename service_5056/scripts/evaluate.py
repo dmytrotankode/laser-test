@@ -33,7 +33,11 @@ if hasattr(sys.stdout, "reconfigure"):
 
 
 def gt_contour(v):
-    return lsgeom.load(os.path.join(BASE, 'input', 'archive', v, 'ground_truth.ls')).contour_xyz()[0]
+    # lead-in excluded: the operator places the pierce point for the burn-through, not
+    # from the part geometry, and its scatter (7.3-24.1 mm off the ring, against 9.6-10.2
+    # for every other step) would otherwise be the entire max-error figure.
+    return lsgeom.cut_ring(lsgeom.load(
+        os.path.join(BASE, 'input', 'archive', v, 'ground_truth.ls')))[0]
 
 
 def export_contour(v):
@@ -44,7 +48,7 @@ def export_contour(v):
     probs = prog.problems()
     if len(prog.order) < 90:
         probs.append(f"only {len(prog.order)} motion instructions")
-    return prog.contour_xyz()[0], probs
+    return lsgeom.cut_ring(prog)[0], probs
 
 
 def gt_contour_and_axis(v):
@@ -54,8 +58,7 @@ def gt_contour_and_axis(v):
     the outward radial, 17 deg below horizontal, matching the programmed 15 deg cutting
     angle). A positive shift along it means the nozzle sits further from the part."""
     prog = lsgeom.load(os.path.join(BASE, 'input', 'archive', v, 'ground_truth.ls'))
-    _, cont, _ = prog.split_path()
-    P = np.array([prog.points[i][:3] for i in cont])
+    P, cont = lsgeom.cut_ring(prog)
     Z = np.array([lsgeom.rot_from_ypr(r, p, w).apply([0, 0, 1.0])
                   for w, p, r in (prog.points[i][3:] for i in cont)])
     return P, Z

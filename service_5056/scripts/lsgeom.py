@@ -100,6 +100,22 @@ class Program:
         return np.array([self.points[i][:3] for i in c]), c
 
 
+def cut_ring(prog):
+    """Contour points with the lead-in dropped, for SHAPE matching only.
+
+    The first cutting move after the approach is a pierce/lead-in: the operator places
+    it for the burn-through, not from the part geometry. Across the archive its distance
+    to the rest of the ring runs 7.3-24.1 mm while every other step sits at 9.6-10.2 mm,
+    so leaving it in drags any fit and dominates any max-error statistic.
+
+    It is still a real move and is still transformed on export - this only affects
+    matching and reporting."""
+    P, ids = prog.contour_xyz()
+    if len(P) < 10:
+        return P, ids
+    return P[1:], ids[1:]
+
+
 def load(path):
     with open(path, 'r', encoding='utf-8', errors='ignore') as f:
         return Program(f.read(), path)

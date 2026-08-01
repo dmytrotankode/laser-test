@@ -106,6 +106,31 @@ W_calib = np.array([
 
 
 
+def build_feature_vector(masks, kind):
+    """Same feature extraction as scripts/features.py, but from masks already in memory."""
+    import cv2 as _cv
+    f8, prof = [], []
+    for name in ("back", "left", "top"):
+        m = masks[name]
+        M = _cv.moments(m)
+        cx, cy = M["m10"] / M["m00"], M["m01"] / M["m00"]
+        clipped = m.copy()
+        clipped[:100, :] = 0
+        top_y = float(np.min(np.where(clipped > 0)[0]))
+        f8.append((cx, cy, top_y))
+        cnts, _ = _cv.findContours(m, _cv.RETR_EXTERNAL, _cv.CHAIN_APPROX_NONE)
+        c = max(cnts, key=_cv.contourArea)[:, 0, :].astype(float)
+        ang = np.arctan2(c[:, 1] - cy, c[:, 0] - cx)
+        rad = np.hypot(c[:, 0] - cx, c[:, 1] - cy)
+        o = np.argsort(ang)
+        grid = np.linspace(-np.pi, np.pi, 48, endpoint=False)
+        prof.append([cx, cy] + list(np.interp(grid, ang[o], rad[o], period=2 * np.pi)))
+    if kind == "f8":
+        b, l, t = f8
+        return np.array([b[0], b[1], l[0], l[1], l[2], t[0], t[1], t[2]], dtype=float)
+    return np.array([x for row in prof for x in row], dtype=float)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Step 4: 6-DOF True 3D Safe Zone Pose Fit")
     parser.add_argument("--session", required=True)
@@ -182,88 +207,64 @@ def main():
         cm_map[v] = (cx, cy, top_y)
         cur_masks[v] = cur_mask
 
-    current_feat = feat8(cm_map)
+    # ------------------------------------------------------------------ pose model
+    # Constants live in input/model_pose.json, produced by scripts/fit_model.py with
+    # every hyperparameter chosen by leave-one-variant-out inside TRAIN. The previous
+    # W_calib was hardcoded here, fitted on 11 absolute samples from a single anchor,
+    # on 8 hand-picked scalars. Two things changed:
+    #
+    #   * trained on PAIRS. The model is used on feature differences, so it is now fitted
+    #     on all 110 ordered pairs of training variants instead of 11 anchored samples.
+    #   * silhouette profile instead of the 8 scalars. Leave-one-variant-out inside TRAIN:
+    #     8 scalars 2.11 mm, profile 1.41 mm, against a do-nothing control of 2.17 mm.
+    #     The old feature set was, in other words, within 3% of not correcting at all.
+    model_path = os.path.join(base_dir, 'input', 'model_pose.json')
+    if not os.path.exists(model_path):
+        print(f"Error: missing {model_path} - run scripts/fit_model.py --emit")
+        sys.exit(1)
+    with open(model_path, encoding='utf-8') as f:
+        MODEL = json.load(f)
 
-    # Distance (normalized) from the current photo to every library variant
-    distances = {}
-    for v, entry in KNN_LIBRARY.items():
-        lib_feat = feat8(entry["ref_cm"])
-        distances[v] = float(np.linalg.norm((current_feat - lib_feat) / KNN_SCALE))
+    W_calib = np.array(MODEL["W"])
+    feat_scale = np.array(MODEL["scale"])
+    knn_scale = np.array(MODEL["knn_scale"])
+    pivot = np.array(MODEL["pivot"])
+    OUT_OF_RANGE_THRESHOLD = MODEL["out_of_range_threshold"]
+    LIB = MODEL["library"]
 
+    current_feat = build_feature_vector(cur_masks, MODEL["feature_kind"])
+
+    # nearest library variant in the model's own feature space
+    distances = {v: float(np.linalg.norm((current_feat - np.array(e["feat"])) / knn_scale))
+                 for v, e in LIB.items()}
     ranked = sorted(distances.items(), key=lambda kv: kv[1])
     nearest_name, nearest_dist = ranked[0]
     second_name, second_dist = ranked[1]
-
     out_of_range = nearest_dist > OUT_OF_RANGE_THRESHOLD
 
-    # Blend the 2 nearest neighbors by inverse distance. (An earlier round tried k=1 - only
-    # the nearest, no blend - because it looked better on v6/v13, but that comparison was
-    # invalid: it was chosen BY looking at the 2 held-out points. Leave-one-out cross-validation
-    # within the 11 training points (v6/v13 untouched) shows k=2/k=3 are actually both a bit
-    # better than k=1 - reverted to k=2 here as the honestly-validated choice.)
-    if nearest_dist < 0.05:
-        neighbors = [nearest_name]
-        weights = [1.0]
-    else:
-        w1 = 1.0 / nearest_dist
-        w2 = 1.0 / second_dist
-        wsum = w1 + w2
-        neighbors = [nearest_name, second_name]
-        weights = [w1 / wsum, w2 / wsum]
+    # k=1: cross-validation scored the NEAREST neighbour, because that is what deployment
+    # uses. Blending two neighbours was never validated under this protocol, so it is not
+    # switched on here even though lsgeom can do it.
+    neighbors = [nearest_name]
+    weights = [1.0]
 
-    ref_cm_blend = {}
-    for view in ["back", "left", "top"]:
-        ref_cm_blend[view] = tuple(
-            sum(w * np.array(KNN_LIBRARY[n]["ref_cm"][view]) for n, w in zip(neighbors, weights))
-        )
-    gt_ref = sum(w * KNN_LIBRARY[n]["gt_ref"] for n, w in zip(neighbors, weights))
-    ref_cm = ref_cm_blend
-
-    # Extract 8 active pixel features relative to the blended baseline
-    feat_vec = np.array([
-        cm_map["back"][0] - ref_cm["back"][0],
-        cm_map["back"][1] - ref_cm["back"][1],
-        cm_map["left"][0] - ref_cm["left"][0],
-        cm_map["left"][1] - ref_cm["left"][1],
-        cm_map["left"][2] - ref_cm["left"][2],
-        cm_map["top"][0] - ref_cm["top"][0],
-        cm_map["top"][1] - ref_cm["top"][1],
-        cm_map["top"][2] - ref_cm["top"][2]
-    ])
-
-    # Pose relative to CAD nominal (feat_vec @ W + gt_ref) - used for accuracy reporting
-    # against the V1..V5 ground truth table.
-    rel_vec = feat_vec @ W_calib
+    rel_vec = ((current_feat - np.array(LIB[nearest_name]["feat"])) / feat_scale) @ W_calib
+    gt_ref = np.array(LIB[nearest_name]["pose_vs_anchor"])
     pred_pose = rel_vec + gt_ref
 
-    delta_3d = {
-        "x_mm": round(float(pred_pose[0]), 2),
-        "y_mm": round(float(pred_pose[1]), 2),
-        "z_mm": round(float(pred_pose[2]), 2),
-        "roll_deg": round(float(pred_pose[3]), 2),
-        "pitch_deg": round(float(pred_pose[4]), 2),
-        "yaw_deg": round(float(pred_pose[5]), 2)
-    }
+    def as_dict(vec6):
+        return {
+            "x_mm": round(float(vec6[0]), 2), "y_mm": round(float(vec6[1]), 2),
+            "z_mm": round(float(vec6[2]), 2), "roll_deg": round(float(vec6[3]), 2),
+            "pitch_deg": round(float(vec6[4]), 2), "yaw_deg": round(float(vec6[5]), 2),
+        }
 
-    # Pose relative to the blended reference itself. Used to transform the blended
-    # neighbors' OWN recorded ground_truth.ls shape instead of the CAD nominal program,
-    # so the exported trajectory follows real physical dome shape rather than CAD shape.
-    delta_rel_to_etalon = {
-        "x_mm": round(float(rel_vec[0]), 2),
-        "y_mm": round(float(rel_vec[1]), 2),
-        "z_mm": round(float(rel_vec[2]), 2),
-        "roll_deg": round(float(rel_vec[3]), 2),
-        "pitch_deg": round(float(rel_vec[4]), 2),
-        "yaw_deg": round(float(rel_vec[5]), 2)
-    }
-    gt_ref_dict = {
-        "x_mm": round(float(gt_ref[0]), 2),
-        "y_mm": round(float(gt_ref[1]), 2),
-        "z_mm": round(float(gt_ref[2]), 2),
-        "roll_deg": round(float(gt_ref[3]), 2),
-        "pitch_deg": round(float(gt_ref[4]), 2),
-        "yaw_deg": round(float(gt_ref[5]), 2)
-    }
+    # delta_3d is the pose relative to the library anchor, for reporting only.
+    # delta_rel_to_etalon is what step05 actually applies: the pose relative to the
+    # chosen neighbour, whose own recorded contour is the master trajectory.
+    delta_3d = as_dict(pred_pose)
+    delta_rel_to_etalon = as_dict(rel_vec)
+    gt_ref_dict = as_dict(gt_ref)
 
     # Overlay against the etalon that was ACTUALLY selected.
     #
@@ -272,6 +273,7 @@ def main():
     # itself: the picture always looked like a near-perfect fit, whatever the real
     # pose was, and the operator was making judgements from it.
     ref_variant = neighbors[0]
+    REF_CM_F8 = {ref_variant: {}}
     ref_dir = os.path.join(base_dir, 'input', 'archive', ref_variant)
     cache_dir = os.path.join(base_dir, 'results', '_ref_masks')
     os.makedirs(cache_dir, exist_ok=True)
@@ -296,6 +298,11 @@ def main():
         cur_mask = cur_masks[v]
         h, w = cur_mask.shape
         ref_mask = reference_mask(v)
+        if ref_mask is not None:
+            _M = cv2.moments(ref_mask)
+            _cl = ref_mask.copy(); _cl[:100, :] = 0
+            REF_CM_F8[ref_variant][v] = (_M["m10"] / _M["m00"], _M["m01"] / _M["m00"],
+                                         float(np.min(np.where(_cl > 0)[0])))
         overlay = np.zeros((h, w, 3), dtype=np.uint8)
         overlay[:, :, 1] = cur_mask                       # green: current photo
         if ref_mask is not None and ref_mask.shape == cur_mask.shape:
@@ -309,7 +316,7 @@ def main():
 
         # the numbers the algorithm actually consumes, drawn where they are measured
         cx, cy, ty = cm_map[v]
-        rx, ry, rty = ref_cm[v]
+        rx, ry, rty = REF_CM_F8.get(ref_variant, {}).get(v, (cx, cy, ty))
         cv2.drawMarker(overlay, (int(cx), int(cy)), (0, 255, 0), cv2.MARKER_CROSS, 60, 3)
         cv2.drawMarker(overlay, (int(rx), int(ry)), (0, 0, 255), cv2.MARKER_CROSS, 60, 3)
         cv2.line(overlay, (0, int(ty)), (w, int(ty)), (0, 255, 0), 2)
@@ -359,6 +366,9 @@ def main():
         "out_of_range_threshold": OUT_OF_RANGE_THRESHOLD,
         "out_of_range": out_of_range,
         "gt_ref": gt_ref_dict,
+        "pivot": [float(x) for x in pivot],
+        "model": {k: MODEL[k] for k in ("feature_kind", "lam", "loo_nearest_mean",
+                                        "loo_do_nothing_mean")},
         "delta_rel_to_etalon": delta_rel_to_etalon,
         "overlays": overlays,
         "vis_image": f"/files/{args.session}/{comp_filename}",
