@@ -38,19 +38,46 @@ def strip_mounting_stand(mask, is_top_view=False):
             
     return mask, bot_clean
 
-def segment_image(img_path, is_top_view=False):
+# Every calibration constant downstream (KNN_LIBRARY ref_cm, W_calib) was fitted on
+# masks produced by rembg. Otsu thresholding gives a visibly different silhouette, so
+# falling back to it silently would keep the pipeline running while quietly invalidating
+# those constants - wrong pose, no error, full confidence. The fallback therefore has to
+# be asked for explicitly, and when it is used the result is marked as uncalibrated.
+BACKEND_REMBG = "rembg"
+BACKEND_OTSU = "otsu"
+
+
+def _backend_version():
+    try:
+        import rembg
+        return getattr(rembg, "__version__", "unknown")
+    except Exception:
+        return "n/a"
+
+
+def segment_image(img_path, is_top_view=False, allow_fallback=False):
     if not os.path.exists(img_path):
         raise FileNotFoundError(f"Missing {img_path}")
-    
+
     img = cv2.imread(img_path)
+    if img is None:
+        raise RuntimeError(f"Cannot decode image: {img_path}")
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    
-    # Try rembg if available, otherwise high contrast threshold
+
+    backend = BACKEND_REMBG
     try:
         from rembg import remove
         out = remove(img)
         mask = out[:, :, 3]
-    except Exception:
+    except Exception as e:
+        if not allow_fallback:
+            raise RuntimeError(
+                f"rembg segmentation failed ({type(e).__name__}: {e}). All calibration "
+                f"constants were fitted on rembg masks, so the Otsu fallback would "
+                f"produce a confident but wrong pose. Fix the rembg install (model "
+                f"cache in ~/.u2net), or pass --allow-fallback to run anyway - the "
+                f"result will be marked uncalibrated.") from e
+        backend = BACKEND_OTSU
         blur = cv2.GaussianBlur(gray, (7, 7), 0)
         _, mask = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
@@ -59,7 +86,7 @@ def segment_image(img_path, is_top_view=False):
     # Clean contours
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
-        return np.zeros_like(gray), gray, (0, 0, 0, 0), 0
+        return np.zeros_like(gray), gray, (0, 0, 0, 0), 0, backend
         
     c = max(contours, key=cv2.contourArea)
     clean_mask = np.zeros_like(gray)
@@ -70,7 +97,7 @@ def segment_image(img_path, is_top_view=False):
     
     y_indices = np.where(clean_mask > 0)[0]
     if len(y_indices) == 0:
-        return clean_mask, gray, (0, 0, 0, 0), 0
+        return clean_mask, gray, (0, 0, 0, 0), 0, backend
     top_clean = np.min(y_indices)
     true_h = bot_clean - top_clean
     
@@ -89,11 +116,14 @@ def segment_image(img_path, is_top_view=False):
     else:
         x, y, w, h = 0, 0, 0, 0
             
-    return clean_mask, gray, (x, y, w, h), cutoff_y
+    return clean_mask, gray, (x, y, w, h), cutoff_y, backend
 
 def main():
     parser = argparse.ArgumentParser(description="Step 3: Monochrome Safe Zone Segmentation")
     parser.add_argument("--session", required=True)
+    parser.add_argument("--allow-fallback", action="store_true",
+                        help="run with Otsu if rembg is unavailable; marks the result "
+                             "as uncalibrated instead of failing")
     args = parser.parse_args()
 
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -123,10 +153,13 @@ def main():
 
     vis_panels = []
     stats = {}
+    backends = set()
 
     for name, info in views.items():
         print(f"Segmenting {name} view with Stand Removal & Safe Zone Cutoff...")
-        mask, gray, (x, y, w, h), cutoff_y = segment_image(info["path"], info["top"])
+        mask, gray, (x, y, w, h), cutoff_y, backend = segment_image(
+            info["path"], info["top"], allow_fallback=args.allow_fallback)
+        backends.add(backend)
         
         mask_filename = f"mask_current_{name}.png"
         mask_path = os.path.join(results_dir, mask_filename)
@@ -162,11 +195,23 @@ def main():
     vis_path = os.path.join(results_dir, vis_filename)
     cv2.imwrite(vis_path, composite_vis)
 
+    backend = BACKEND_OTSU if BACKEND_OTSU in backends else BACKEND_REMBG
+    calibrated = (backend == BACKEND_REMBG)
+    warn = ("" if calibrated else
+            " УВАГА: сегментація виконана резервним методом (Otsu), а не rembg. "
+            "Усі калібрувальні константи налаштовані під rembg, тож результат пози "
+            "НЕ є каліброваним і використовувати його на верстаті не можна.")
+    if not calibrated:
+        print("WARNING: Otsu fallback used - result is NOT calibrated.")
+
     results = {
         "status": "success",
+        "segmentation_backend": backend,
+        "segmentation_backend_version": _backend_version(),
+        "calibrated": calibrated,
         "views": stats,
         "vis_image": f"/files/{args.session}/{vis_filename}",
-        "caption": "Субпіксельна сегментація виконана з ідеальними пропорціями (без горизонтального скручення). НАЙВАЖЛИВІШЕ: 1) Автоматично розпізнано та видалено вертикальну монтажну стійку (конструкцію, на якій стоїть шолом); 2) Лінію відсікання Cutoff встановлено на рівні 58% висоти купола — гарантовано ВИЩЕ лінії обрізу лазером, вище вушок та вище будь-яких нерівних виступів кевлару. Маска містить лише ідеально стабільний верхній купол!"
+        "caption": warn + "Субпіксельна сегментація виконана з ідеальними пропорціями (без горизонтального скручення). НАЙВАЖЛИВІШЕ: 1) Автоматично розпізнано та видалено вертикальну монтажну стійку (конструкцію, на якій стоїть шолом); 2) Лінію відсікання Cutoff встановлено на рівні 58% висоти купола — гарантовано ВИЩЕ лінії обрізу лазером, вище вушок та вище будь-яких нерівних виступів кевлару. Маска містить лише ідеально стабільний верхній купол!"
     }
 
     out_path = os.path.join(results_dir, "step03_result.json")

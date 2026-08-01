@@ -43,7 +43,21 @@ def main():
     points = load_ls_file(ls_path)
     print(f"Loaded {len(points)} points.")
 
-    # Baseline Etalon 3D alignment coordinates (known ICP alignment for Tor XL)
+    # tx/ty/tz is the pivot the pose delta is rotated about. It is NOT the output of an
+    # ICP alignment - no ICP has ever run in this project, and the CAD mesh is in its own
+    # coordinate frame with no registration to machine coordinates (see step 1).
+    #
+    # Its provenance is unknown. It is close to the CAD contour centroid in X and Y
+    # (2.2 mm, 0.9 mm) but 21 mm above it in Z, and matches no obvious quantity of the
+    # mesh or the programme. Do not "fix" it casually:
+    #   * it does NOT affect the exported geometry - the same pivot is used when labels
+    #     are extracted and when the rotation is applied, so the composition is exact for
+    #     any choice;
+    #   * it DOES affect model quality - a pivot far from the object couples rotation
+    #     into translation, which makes the linear regression's job harder. Re-deriving
+    #     it belongs with the refit (PLAN.md stage 4), together with the labels.
+    #
+    # rx/ry/rz are written to the result for backwards compatibility and read by nothing.
     tx, ty, tz = 1170.98, 785.15, -191.86
     rx, ry, rz = 181.89, -2.72, 90.53
 
@@ -72,7 +86,8 @@ def main():
             pt2 = (int(600 + (pts_arr[i+1][0]-min_p[0])*scale - 100), int(350 - (pts_arr[i+1][2]-min_p[2])*scale))
             cv2.line(vis_img, pt1, pt2, (0, 255, 0), 2)
 
-    cv2.putText(vis_img, f"Total Points: {len(points)} | ICP Alignment Locked", (220, 470), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+    cv2.putText(vis_img, f"Total Points: {len(points)} | pivot ({tx:.1f}, {ty:.1f}, {tz:.1f})",
+                (180, 470), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
     vis_filename = "step02_trim_line.png"
     vis_path = os.path.join(results_dir, vis_filename)
@@ -86,7 +101,9 @@ def main():
         "rx": rx, "ry": ry, "rz": rz,
         "original_points": points,
         "vis_image": f"/files/{args.session}/{vis_filename}",
-        "caption": f"Еталонна лінія лазера успішно завантажена ({len(points)} точок) та прив'язана до 3D-моделі через алгоритм ICP. Розраховано базову матрицю положення (tx={tx}, ty={ty}, tz={tz}). На графіку відображено точну проекцію лінії різу на купол Еталона."
+        "pivot_source": "hardcoded constant of unknown provenance - see comment in step02",
+        "icp_performed": False,
+        "caption": f"Завантажено CAD-програму лазера ({len(points)} точок). Точка повороту (pivot) для 6-осевої корекції: ({tx}, {ty}, {tz}) — це зашита константа, а НЕ результат ICP: ICP у цьому проєкті ніколи не виконувався, а CAD-меш узагалі не прив'язаний до координат верстата. На геометрію експорту вибір цієї точки не впливає (та сама точка використовується і при витягуванні, і при застосуванні повороту), але впливає на якість регресії — переоцінка запланована разом з перенавчанням моделі."
     }
 
     out_path = os.path.join(results_dir, "step02_result.json")
