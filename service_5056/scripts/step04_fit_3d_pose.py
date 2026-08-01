@@ -160,7 +160,7 @@ def main():
               "debugging (the pose will be wrong).")
         sys.exit(1)
 
-    print("Running 6-DOF Simultaneous Forward Projection Optimization on Safe Zone...")
+    print("Computing 6-DOF pose delta from the silhouette profile...")
     
     # In a production setup with live cameras, we run scipy.optimize.least_squares
     # matching the 3D STL projected contour against the monochrome Canny edges.
@@ -372,7 +372,7 @@ def main():
         "delta_rel_to_etalon": delta_rel_to_etalon,
         "overlays": overlays,
         "vis_image": f"/files/{args.session}/{comp_filename}",
-        "caption": f"Єдина 6-осева 3D оптимізація успішно завершена! Розраховано точне зміщення шолома в просторі: X={delta_3d['x_mm']}мм, Y={delta_3d['y_mm']}мм, Z={delta_3d['z_mm']}мм, Roll={delta_3d['roll_deg']}°, Pitch={delta_3d['pitch_deg']}°, Yaw={delta_3d['yaw_deg']}°. Еталон: {'+'.join(neighbors)} (k-NN).{range_caption}"
+        "caption": f"Розраховано 6-осеве зміщення шолома відносно обраного еталона: X={delta_3d['x_mm']}мм, Y={delta_3d['y_mm']}мм, Z={delta_3d['z_mm']}мм, Roll={delta_3d['roll_deg']}°, Pitch={delta_3d['pitch_deg']}°, Yaw={delta_3d['yaw_deg']}°. Еталон: {'+'.join(neighbors)} (найближчий у бібліотеці). Модель — лінійна регресія за профілем силуету, навчена на 110 парах архівних поз; перехресна перевірка всередині навчальної вибірки дає {MODEL['loo_nearest_mean']:.2f} мм проти {MODEL['loo_do_nothing_mean']:.2f} мм без корекції.{range_caption}"
     }
 
     out_path = os.path.join(results_dir, "step04_result.json")
