@@ -78,17 +78,62 @@ def main():
 
         tmpl = progs[0]
         app_ids, cont_ids, ret_ids = tmpl.split_path()
+
+        # Everything below happens in CUT-LINE space: each neighbour's recorded path is
+        # pushed back along its own tool axis by its own standoff, so what gets blended
+        # and rotated is where the beam LANDED, not where the nozzle happened to sit.
+        #
+        # This matters because the standoff drifted between capture sessions by up to
+        # 6.3 mm (v15/v16), and the customer confirmed it is slack, not a setpoint - the
+        # beam runs along the tool axis, so that drift never moved the cut. Blending
+        # nozzle paths would mix in that drift as if it were part of the helmet's shape.
+        # The nominal standoff is put back at the end, so the exported program still
+        # tells the robot to stand off 10 mm. See PLAN.md sections 2 and 4.
+        model_path = os.path.join(base_dir, 'input', 'model_pose.json')
+        with open(model_path, 'r', encoding='utf-8') as f:
+            model = json.load(f)
+        standoff_out = float(model.get("nominal_standoff", lsgeom.NOMINAL_STANDOFF))
+        standoffs = dict(model.get("standoff", {}))
+        missing = [n for n in neighbors if n not in standoffs]
+        if missing:
+            # A template outside the library (a hand-supplied program, a test fixture).
+            # Assuming the nominal here would silently bake a several-mm offset into the
+            # export, so measure it instead - the same fit fit_model.py uses, against the
+            # library anchor's cut line.
+            anchor = model.get("anchor")
+            anchor_prog = os.path.join(base_dir, 'input', 'archive', anchor,
+                                       'ground_truth.ls')
+            if anchor not in standoffs or not os.path.exists(anchor_prog):
+                print(f"Error: no fitted standoff for {missing} and no usable anchor "
+                      f"in {model_path}; re-run scripts/fit_model.py --emit")
+                sys.exit(1)
+            ref, _ = lsgeom.cut_surface(lsgeom.load(anchor_prog), standoffs[anchor])
+            for n, p in zip(neighbors, progs):
+                if n in standoffs:
+                    continue
+                standoffs[n], res = lsgeom.fit_standoff(p, ref)
+                print(f"Note: {n} is not in the library; standoff measured on the fly "
+                      f"= {standoffs[n]:.2f} mm (shape residual {res:.2f} mm)")
+
         # blend_contours evaluates at the template's own vertices, so the exported
         # program keeps exactly the point count and spacing the robot expects, and a
         # single-neighbour blend reproduces that neighbour bit-for-bit
-        blended_cont = lsgeom.blend_contours([p.contour_xyz()[0] for p in progs],
-                                             neighbor_weights)
+        blended_cut = lsgeom.blend_contours(
+            [lsgeom.cut_surface(p, standoffs[n], full=True)[0]
+             for n, p in zip(neighbors, progs)], neighbor_weights)
+
+        # The export rewrites X/Y/Z only and leaves W/P/R untouched, so the tool axes the
+        # robot will actually use are the template's. Re-projecting along those same axes
+        # is therefore self-consistent by construction, not an approximation.
+        axis_by_id = dict(zip(cont_ids, lsgeom.tool_axes(tmpl, cont_ids)))
 
         src_xyz = {i: np.array(tmpl.points[i][:3]) for i in tmpl.points}
         for k, i in enumerate(cont_ids):
-            src_xyz[i] = blended_cont[k]
+            src_xyz[i] = blended_cut[k]
         transform_ids = set(cont_ids)
-        print(f"Master trajectory: blend of {neighbors} (weights {neighbor_weights}); "
+        print(f"Master trajectory: blend of {neighbors} (weights {neighbor_weights}) "
+              f"in cut-line space, standoffs "
+              f"{[round(standoffs[n], 2) for n in neighbors]} -> {standoff_out:g} mm; "
               f"template {neighbors[0]}, {len(cont_ids)} contour points, "
               f"approach {app_ids} / retreat {ret_ids} kept fixed in machine space.")
     else:
@@ -98,6 +143,9 @@ def main():
         _, cad_cont, _ = cad.split_path()
         src_xyz = {i: np.array(cad.points[i][:3]) for i in cad.points}
         transform_ids = set(cad_cont)
+        # CAD fallback stays in nozzle coordinates: the CAD program already carries the
+        # standoff the CAM operator asked for, and there is no fitted value to strip.
+        axis_by_id, standoff_out = {}, 0.0
         print(f"Master trajectory: CAD program (no archive neighbour available), "
               f"{len(cad_cont)} contour points.")
 
@@ -121,6 +169,9 @@ def main():
         pt = src_xyz[i]
         if i in transform_ids:
             pt = q_delta.apply(pt - center) + center + trans
+            if i in axis_by_id:
+                # back from the cut line to a nozzle pose, at the nominal standoff
+                pt = pt + standoff_out * axis_by_id[i]
         return f"{match.group(1)}{pt[0]:.3f}{match.group(4)}{pt[1]:.3f}{match.group(6)}{pt[2]:.3f}"
 
     new_ls_content = pattern.sub(replace_point, ls_content)

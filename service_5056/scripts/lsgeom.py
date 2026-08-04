@@ -298,9 +298,13 @@ def icp(A, B, iters=40, n=900):
     return Rm, t
 
 
-def cut_surface(prog, standoff):
-    """(cut line, ids): the nozzle ring pushed back along the tool axis by `standoff`."""
-    P, ids = cut_ring(prog)
+def cut_surface(prog, standoff, full=False):
+    """(cut line, ids): the nozzle path pushed back along the tool axis by `standoff`.
+
+    full=False drops the lead-in (matching cut_ring) and is what matching and scoring
+    want; full=True keeps every contour point and is what the export needs, since the
+    lead-in is a real move that still has to be written out."""
+    P, ids = (prog.contour_xyz() if full else cut_ring(prog))
     return P - float(standoff) * tool_axes(prog, ids), ids
 
 

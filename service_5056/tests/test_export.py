@@ -26,6 +26,12 @@ VARIANTS = [f"v{i}" for i in range(1, 17)]
 OLD_BATCH = ["v1", "v2", "v3", "v4", "v5", "v6"]
 NEW_BATCH = [f"v{i}" for i in range(7, 17)]
 
+# The export works in cut-line space, so the tests have to as well: comparing nozzle
+# paths would flag the deliberate standoff normalisation as an error on every variant.
+_MODEL = json.load(open(os.path.join(BASE, 'input', 'model_pose.json'), encoding='utf-8'))
+NOMINAL = float(_MODEL.get("nominal_standoff", lsgeom.NOMINAL_STANDOFF))
+_STANDOFF = dict(_MODEL.get("standoff", {}))
+
 FAILURES = []
 NOTES = []
 
@@ -49,6 +55,18 @@ def run_step05(session):
 
 def gt_program(v):
     return lsgeom.load(os.path.join(BASE, 'input', 'archive', v, 'ground_truth.ls'))
+
+
+def standoff_of(v):
+    """Recorded standoff: from the shipped model where known, measured otherwise.
+
+    Held-out variants are deliberately absent from the model, so they get measured -
+    the same fit fit_model.py uses, against the library anchor."""
+    if v not in _STANDOFF:
+        anchor = _MODEL["anchor"]
+        ref, _ = lsgeom.cut_surface(gt_program(anchor), _STANDOFF[anchor])
+        _STANDOFF[v] = lsgeom.fit_standoff(gt_program(v), ref)[0]
+    return _STANDOFF[v]
 
 
 # ---------------------------------------------------------------- T1
@@ -82,11 +100,18 @@ def t1_structural():
 
 # ---------------------------------------------------------------- T2
 def t2_identity():
-    """When the computed delta is zero the export must reproduce the source exactly.
+    """Zero delta must reproduce the source CUT LINE exactly - and only the standoff
+    may differ.
 
-    Any drift here is pure plumbing error (parsing, formatting, pivot), independent
-    of whether the pose model is any good."""
-    print("\nT2  zero-delta identity")
+    The contract changed on 04.08. The export no longer copies the operator's nozzle
+    path: it strips whatever standoff that recording happened to carry and writes the
+    nominal one back. So identity now means "the beam lands in exactly the same place",
+    while the nozzle sits at a known, deliberate distance.
+
+    That makes this test stricter than the old byte-identity check, not weaker: the
+    nozzle offset is required to be exactly (nominal - recorded) along the tool axis,
+    so a plumbing error can no longer hide inside it."""
+    print("\nT2  zero-delta identity (cut line exact, standoff normalised)")
     for v in VARIANTS:
         d = sess_dir(v)
         s4 = json.load(open(os.path.join(d, 'step04_result.json'), encoding='utf-8'))
@@ -98,12 +123,25 @@ def t2_identity():
             continue
         src = gt_program(nb[0])
         exp = lsgeom.load(os.path.join(d, 'current_helmet.ls'))
-        common = sorted(set(src.points) & set(exp.points))
-        if not common:
-            check(f"T2 {v} shares points with source", False, "no common P[i]")
+        if not check(f"T2 {v} same point set as source",
+                     set(src.points) == set(exp.points), "point sets differ"):
             continue
-        err = max(np.linalg.norm(src.xyz(i) - exp.xyz(i)) for i in common)
-        check(f"T2 {v} identity (delta=0, etalon={nb[0]})", err < 1e-3, f"max drift {err:.4f} mm")
+
+        src_cut, ids = lsgeom.cut_surface(src, standoff_of(nb[0]), full=True)
+        exp_cut, _ = lsgeom.cut_surface(exp, NOMINAL, full=True)
+        err = float(np.linalg.norm(src_cut - exp_cut, axis=1).max())
+        check(f"T2 {v} cut line reproduced (etalon={nb[0]})", err < 1e-3,
+              f"max drift {err:.4f} mm")
+
+        # and the nozzle offset is exactly the standoff change, not something else
+        want = (NOMINAL - standoff_of(nb[0]))
+        got = np.array([exp.xyz(i) - src.xyz(i) for i in ids])
+        axes = lsgeom.tool_axes(src, ids)
+        along = (got * axes).sum(1)
+        off_axis = float(np.linalg.norm(got - along[:, None] * axes, axis=1).max())
+        check(f"T2 {v} offset is pure standoff ({want:+.2f} mm along the axis)",
+              abs(along - want).max() < 1e-3 and off_axis < 1e-3,
+              f"along {along.min():+.3f}..{along.max():+.3f}, off-axis {off_axis:.4f} mm")
 
 
 # ---------------------------------------------------------------- T3
@@ -139,14 +177,26 @@ def t3_roundtrip():
         src = gt_program(etalon)
         exp = lsgeom.load(os.path.join(d, 'current_helmet.ls'))
         _, cids, _ = src.split_path()
-        A = np.array([src.points[i][:3] for i in cids])
         B = np.array([exp.points[i][:3] for i in cids])
 
-        s2 = json.load(open(os.path.join(d, 'step02_result.json'), encoding='utf-8'))
-        pivot = np.array([s2['tx'], s2['ty'], s2['tz']])
+        # The pose is applied to the CUT LINE, then the nominal standoff is added back
+        # along the template's own (unrotated) tool axes - the export rewrites X/Y/Z and
+        # leaves W/P/R alone, so those are the axes the robot will really use.
+        axes = lsgeom.tool_axes(src, cids)
+        A = np.array([src.points[i][:3] for i in cids]) - standoff_of(etalon) * axes
+
+        # the pivot step05 actually rotates about, not the step02 constant: the model may
+        # ship a different one, and this test is about plumbing, not about that choice
+        if 'pivot' in s4:
+            pivot = np.array(s4['pivot'], dtype=float)
+        else:
+            s2 = json.load(open(os.path.join(d, 'step02_result.json'), encoding='utf-8'))
+            pivot = np.array([s2['tx'], s2['ty'], s2['tz']])
         Rm = R.from_euler('ZYX', [truth['yaw_deg'], truth['pitch_deg'], truth['roll_deg']],
                           degrees=True)
-        want = Rm.apply(A - pivot) + pivot + np.array([truth['x_mm'], truth['y_mm'], truth['z_mm']])
+        want = (Rm.apply(A - pivot) + pivot
+                + np.array([truth['x_mm'], truth['y_mm'], truth['z_mm']])
+                + NOMINAL * axes)
         err = float(np.abs(B - want).max())
         check(f"T3 {etalon} applied transform matches requested", err < 1e-2,
               f"max deviation {err:.4f} mm")
@@ -311,8 +361,14 @@ def t5_whiskers():
 
 # ---------------------------------------------------------------- T6
 def t6_regression():
-    """Curve error per variant against a recorded baseline."""
-    print("\nT6  accuracy regression (metric: point -> GT curve)")
+    """Curve error per variant against a recorded baseline.
+
+    Measured between CUT LINES, not nozzle paths. Nozzle distance would charge us for
+    the standoff normalisation, which by construction does not move the cut: the beam
+    runs along the tool axis, so sliding the nozzle along it leaves the beam on the same
+    line. Baselines were re-recorded when the metric changed (04.08) - numbers from
+    before that are not comparable with these."""
+    print("\nT6  accuracy regression (metric: cut line -> GT cut line)")
     base_file = os.path.join(os.path.dirname(__file__), 'baseline_errors.json')
     cur = {}
     for v in VARIANTS:
@@ -320,8 +376,8 @@ def t6_regression():
         if exp.problems():
             cur[v] = None
             continue
-        C, _ = exp.contour_xyz()
-        G, _ = gt_program(v).contour_xyz()
+        C, _ = lsgeom.cut_surface(exp, NOMINAL, full=True)
+        G, _ = lsgeom.cut_surface(gt_program(v), standoff_of(v), full=True)
         e = lsgeom.curve_distance(C, G)
         cur[v] = dict(mean=round(float(e.mean()), 3), max=round(float(e.max()), 3))
 

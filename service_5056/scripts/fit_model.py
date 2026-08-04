@@ -39,28 +39,42 @@ if hasattr(sys.stdout, "reconfigure"):
 
 
 # ---------------------------------------------------------------- geometry
-def contour(v, full=False):
-    prog = lsgeom.load(os.path.join(BASE, 'input', 'archive', v, 'ground_truth.ls'))
-    return prog.contour_xyz()[0] if full else lsgeom.cut_ring(prog)[0]
+ANCHOR = "v1"          # defines where "standoff = nominal" sits; only relative values matter
+_PROG, _STANDOFF, _CUT = {}, {}, {}
 
 
-def icp(A, B, iters=40, n=900):
-    """Rigid transform taking contour A onto contour B, without point correspondences."""
-    Bd = lsgeom.resample_closed(np.asarray(B, float), n)
-    Rm, t = np.eye(3), np.zeros(3)
-    X = np.asarray(A, float)
-    for _ in range(iters):
-        j = np.linalg.norm(X[:, None, :] - Bd[None, :, :], axis=2).argmin(1)
-        T = Bd[j]
-        ca, cb = np.asarray(A, float).mean(0), T.mean(0)
-        H = (np.asarray(A, float) - ca).T @ (T - cb)
-        U, S, Vt = np.linalg.svd(H)
-        D = np.diag([1.0, 1.0, np.sign(np.linalg.det(Vt.T @ U.T))])
-        Rm = Vt.T @ D @ U.T
-        t = cb - Rm @ ca
-        X = np.asarray(A, float) @ Rm.T + t
-    return Rm, t
+def program(v):
+    if v not in _PROG:
+        _PROG[v] = lsgeom.load(os.path.join(BASE, 'input', 'archive', v,
+                                            'ground_truth.ls'))
+    return _PROG[v]
 
+
+def _anchor_surface():
+    return lsgeom.cut_surface(program(ANCHOR), lsgeom.NOMINAL_STANDOFF)[0]
+
+
+def standoff(v):
+    """Standoff of a recorded program, fitted from shape agreement with the anchor."""
+    if v not in _STANDOFF:
+        _STANDOFF[v] = (lsgeom.NOMINAL_STANDOFF if v == ANCHOR
+                        else lsgeom.fit_standoff(program(v), _anchor_surface())[0])
+    return _STANDOFF[v]
+
+
+def contour(v):
+    """The CUT LINE, not the nozzle path.
+
+    Everything downstream - labels, cross-validation error, the do-nothing control -
+    works on where the beam lands. The standoff is stripped because it is slack that
+    does not move the cut (lsgeom, "standoff and the cut line"), and leaving it in
+    would make the labels for v14-v16 express a 3.5-6.3 mm offset as a bogus pose."""
+    if v not in _CUT:
+        _CUT[v] = lsgeom.cut_surface(program(v), standoff(v))[0]
+    return _CUT[v]
+
+
+icp = lsgeom.icp
 
 _T = {}
 
@@ -157,7 +171,10 @@ def main():
         "центроид контура": contour(names[0]).mean(0),
     }
     ref = names[0]
-    print("Подгонка ICP каждого варианта к эталону (11 прогонов на все 110 пар)...")
+    print(f"Подгонка ICP каждого варианта к эталону ({len(names)} прогонов "
+          f"на все {len(names) * (len(names) - 1)} пар)...")
+    print(f"Отступ, подобранный по каждому варианту (мм): "
+          + ", ".join(f"{v} {standoff(v):.2f}" for v in names))
     for v in names:
         transform_from_ref(v, ref)
     POSE = {}
@@ -183,7 +200,12 @@ def main():
     # model is the safer one to ship.
     best = min(r[0] for r in results)
     close = [r for r in results if r[0] <= best * 1.01]
-    m, w, kind, label, lam, piv = max(close, key=lambda r: r[4])
+    # The label is a deterministic final tie-break, nothing more. The two pivots score
+    # identically to the last digit, so without it max() would return whichever the loop
+    # happened to visit first and the shipped pivot would flip between runs for no
+    # reason. Ordering ascending keeps the long-standing choice; a pivot change is not
+    # free (it moves every exported point) and nothing here argues for one.
+    m, w, kind, label, lam, piv = max(close, key=lambda r: (r[4], [-ord(c) for c in r[3]]))
     print(f"\nЛучшее по LOO: признаки={kind}, точка поворота={label}, lambda={lam} "
           f"-> {m:.2f} мм в среднем, {w:.2f} мм в худшем случае")
 
@@ -230,6 +252,13 @@ def main():
                    knn_scale=[float(x) for x in knn_scale],
                    out_of_range_threshold=threshold,
                    anchor=anchor,
+                   # Poses live in CUT-LINE space now, so step05 must strip the
+                   # neighbour's standoff before applying them and re-apply the nominal
+                   # one afterwards. Recorded per variant so the export never has to
+                   # re-fit it, and so a drift in these numbers is visible in git.
+                   coordinates="cut_line",
+                   nominal_standoff=lsgeom.NOMINAL_STANDOFF,
+                   standoff={v: float(standoff(v)) for v in names},
                    library={v: dict(feat=[float(x) for x in V[v]],
                                     pose_vs_anchor=[float(x) for x in POSE[label][(anchor, v)]]
                                     if v != anchor else [0.0] * 6)
