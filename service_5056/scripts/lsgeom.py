@@ -245,3 +245,86 @@ def ypr_from_rot(rot):
         rot = _R.from_matrix(np.asarray(rot, dtype=float))
     yaw, pitch, roll = rot.as_euler('ZYX', degrees=True)
     return float(yaw), float(pitch), float(roll)
+
+
+# -- standoff and the cut line ---------------------------------------------
+#
+# A recorded pose is the CUT POINT plus a standoff along the tool axis. The two are
+# worth separating because they mean completely different things:
+#
+#   the cut point   is where the beam lands. This is the product.
+#   the standoff    is slack. The beam travels ALONG the tool axis, so sliding the
+#                   nozzle along it leaves the beam on the same line in space and
+#                   does not move the cut point at all - at any cutting angle.
+#
+# The customer confirmed this on 04.08: the 10 mm figure exists only to compensate for
+# not being able to register the CAD model against the physical helmet, and 10 / 8 / 5 mm
+# make no visible difference to the cut. So the standoff must not be measured as error
+# and must not be predicted - only assigned. See PLAN.md sections 2 and 4.
+
+NOMINAL_STANDOFF = 10.0
+
+
+def tool_axes(prog, ids):
+    """Unit tool +Z at each of the given points. Points AWAY from the part."""
+    return np.array([rot_from_ypr(r, p, w).apply([0.0, 0.0, 1.0])
+                     for w, p, r in (prog.points[i][3:] for i in ids)])
+
+
+def kabsch(A, B):
+    """Rigid transform (R, t) taking A onto B, paired by index."""
+    A = np.asarray(A, dtype=float)
+    B = np.asarray(B, dtype=float)
+    ca, cb = A.mean(0), B.mean(0)
+    H = (A - ca).T @ (B - cb)
+    U, _, Vt = np.linalg.svd(H)
+    D = np.diag([1.0, 1.0, np.sign(np.linalg.det(Vt.T @ U.T))])
+    Rm = Vt.T @ D @ U.T
+    return Rm, cb - Rm @ ca
+
+
+def icp(A, B, iters=40, n=900):
+    """Rigid transform taking contour A onto contour B, without point correspondences.
+
+    Needed because the two archive batches number their points differently, so an
+    index-wise fit compares points a full ~10 mm contour step apart."""
+    Bd = resample_closed(np.asarray(B, dtype=float), n)
+    A = np.asarray(A, dtype=float)
+    Rm, t, X = np.eye(3), np.zeros(3), A.copy()
+    for _ in range(iters):
+        j = np.linalg.norm(X[:, None, :] - Bd[None, :, :], axis=2).argmin(1)
+        Rm, t = kabsch(A, Bd[j])
+        X = A @ Rm.T + t
+    return Rm, t
+
+
+def cut_surface(prog, standoff):
+    """(cut line, ids): the nozzle ring pushed back along the tool axis by `standoff`."""
+    P, ids = cut_ring(prog)
+    return P - float(standoff) * tool_axes(prog, ids), ids
+
+
+def fit_standoff(prog, ref_surface, grid=None):
+    """Standoff at which this program's cut line best matches a reference cut line.
+
+    All archive variants are the same physical helmet, so their cut lines must coincide
+    up to a rigid pose. The standoff is the one parameter that breaks that: it offsets
+    the ring along axes that fan out around the dome, which is a shape change, not a
+    rigid motion, and is therefore identifiable. Returns (standoff, residual_mm)."""
+    if grid is None:
+        grid = np.arange(-6.0, 26.01, 0.5)
+
+    def resid(d):
+        S, _ = cut_surface(prog, d)
+        Rm, t = icp(S, ref_surface)
+        return float(curve_distance(S @ Rm.T + t, ref_surface).mean())
+
+    e = np.array([resid(d) for d in grid])
+    k = int(e.argmin())
+    off = 0.0
+    if 0 < k < len(grid) - 1:                      # parabolic refinement between samples
+        y0, y1, y2 = e[k - 1], e[k], e[k + 1]
+        den = y0 - 2 * y1 + y2
+        if abs(den) > 1e-12:
+            off = 0.5 * (y0 - y2) / den * (grid[1] - grid[0])
+    return float(grid[k] + off), float(e[k])
