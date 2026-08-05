@@ -44,7 +44,7 @@
 | Сырьё с производства | `archive/vN/` — raw-дампы + оригинальный `.LS` + `converted/` | нет, 759 МБ |
 | Рабочий вход пайплайна | `service_5056/input/archive/vN/` — `back/left/top.png` + `ground_truth.ls` | да |
 | CAD-программа (запасной шаблон) | `service_5056/input/ls_file/TORXL_NEW_PROG.LS` | да |
-| Результат работы | `service_5056/results/<сессия>/current_helmet.ls` | нет, генерируется |
+| Результат работы | `service_5056/results/<сессия>/DISTI_<дата>_<время>.LS` | нет, генерируется |
 | Снимки экспорта по этапам | `service_5056/tests/reference_exports/<этап>_<вариант>.ls` | да |
 | Шлемы с разных форм (03.08, без GT) | `forms/formN/<шлем>/{1,2,3}.raw` | нет, 250 МБ |
 

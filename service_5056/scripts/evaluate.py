@@ -65,8 +65,8 @@ def gt_contour(v):
 
 
 def export_contour(v):
-    p = os.path.join(BASE, 'results', f'audit_{v}', 'current_helmet.ls')
-    if not os.path.exists(p):
+    p = lsgeom.export_path(os.path.join(BASE, 'results', f'audit_{v}'))
+    if not p:
         return None, ["export missing"]
     prog = lsgeom.load(p)
     probs = prog.problems()

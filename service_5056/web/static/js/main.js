@@ -145,7 +145,7 @@ function renderStep5Scene(container, data) {
         const dlBtn = document.createElement('a');
         dlBtn.href = data.current_ls_path;
         dlBtn.download = data.current_ls_file || 'current_helmet.ls';
-        dlBtn.innerHTML = "⬇️ Завантажити фінальний файл для робота (current_helmet.ls)";
+        dlBtn.innerHTML = "⬇️ Завантажити фінальний файл для робота (" + (data.current_ls_file || "програма") + ")";
         dlBtn.style.display = "inline-block";
         dlBtn.style.padding = "12px 25px";
         dlBtn.style.background = "#10b981";

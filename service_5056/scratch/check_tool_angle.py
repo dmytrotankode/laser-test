@@ -41,7 +41,7 @@ print("(оси сопоставлены по положению на криво�
 print(f"{'вар':<6}{'сред°':>8}{'макс°':>8}{'=> мм при 10 мм отступа':>26}")
 for v in dataset.ALL:
     gt = lsgeom.load(os.path.join(BASE, 'input', 'archive', v, 'ground_truth.ls'))
-    exp = lsgeom.load(os.path.join(BASE, 'results', f'audit_{v}', 'current_helmet.ls'))
+    exp = lsgeom.load(lsgeom.export_path(os.path.join(BASE, 'results', f'audit_{v}')))
     gP, gids = lsgeom.cut_ring(gt)
     eP, eids = lsgeom.cut_ring(exp)
     A = axis_at_matched(eP, None, gP, lsgeom.tool_axes(gt, gids))

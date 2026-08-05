@@ -30,7 +30,7 @@ def main():
     with open(step04_file, 'r', encoding='utf-8') as f:
         s4 = json.load(f)
 
-    print("Generating 3D Visualization Data and exporting current_helmet.ls...")
+    print("Generating 3D Visualization Data and exporting the robot program...")
 
     center = np.array([s2['tx'], s2['ty'], s2['tz']])
 
@@ -152,9 +152,12 @@ def main():
     q_delta = lsgeom.rot_from_ypr(d['yaw_deg'], d['pitch_deg'], d['roll_deg'])
     trans = np.array([d['x_mm'], d['y_mm'], d['z_mm']])
 
-    out_ls_file = "current_helmet.ls"
+    # Name driven by the session, and the file is named after it. Both must agree or the
+    # controller rejects the load; both must be unique per run or each export overwrites
+    # the previous program on the pendant.
+    prog_name = lsgeom.program_name(args.session)             # DISTI_0805_115950
+    out_ls_file = f"{prog_name}.LS"
     out_ls_path = os.path.join(results_dir, out_ls_file)
-    prog_name = os.path.splitext(out_ls_file)[0].upper()      # CURRENT_HELMET
 
     with open(orig_ls_path, 'r', encoding='utf-8', errors='ignore') as f:
         ls_content = f.read()
@@ -292,7 +295,7 @@ def main():
         "etalon_neighbors": neighbors,
         "etalon_weights": neighbor_weights,
         "out_of_range": out_of_range,
-        "caption": f"3D-візуалізація готова! Еталонний шолом (червоний) та Поточний шолом (зелений) відображаються у 3D-сцені. Біла лінія показує розраховану нами траєкторію лазера (current_helmet.ls), побудовану обертанням реальної форми обраного еталона. {etalon_summary}{range_warning} {'Жовта лінія та Жовтий шолом показують фактичне положення з верстата (Ground Truth для порівняння).' if ground_truth_points else ''}"
+        "caption": f"3D-візуалізація готова! Еталонний шолом (червоний) та Поточний шолом (зелений) відображаються у 3D-сцені. Біла лінія показує розраховану нами траєкторію лазера ({out_ls_file}), побудовану обертанням реальної форми обраного еталона. {etalon_summary}{range_warning} {'Жовта лінія та Жовтий шолом показують фактичне положення з верстата (Ground Truth для порівняння).' if ground_truth_points else ''}"
     }
 
     out_path = os.path.join(results_dir, "step05_result.json")

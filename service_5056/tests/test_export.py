@@ -58,6 +58,12 @@ def gt_program(v):
     return lsgeom.load(os.path.join(BASE, 'input', 'archive', v, 'ground_truth.ls'))
 
 
+def export_of(session_dir):
+    """Exported program of a session. The file name carries the program name now,
+    so it is not fixed and must never be hardcoded."""
+    return lsgeom.export_path(session_dir)
+
+
 def standoff_of(v):
     """Recorded standoff: from the shipped model where known, measured otherwise.
 
@@ -76,8 +82,8 @@ def t1_structural():
     print("\nT1  structural validity of every export")
     for v in VARIANTS:
         d = sess_dir(v)
-        exp = os.path.join(d, 'current_helmet.ls')
-        if not os.path.exists(exp):
+        exp = export_of(d)
+        if not exp:
             check(f"T1 {v} export exists", False, "missing")
             continue
         prog = lsgeom.load(exp)
@@ -108,8 +114,8 @@ def t1b_program_name():
     operator's own recorded programs and overwrite it."""
     print("\nT1b  program name matches the file name")
     for v in VARIANTS:
-        p = os.path.join(sess_dir(v), 'current_helmet.ls')
-        if not os.path.exists(p):
+        p = export_of(sess_dir(v))
+        if not p:
             continue
         txt = open(p, encoding='utf-8', errors='ignore').read()
         want = os.path.splitext(os.path.basename(p))[0].upper()
@@ -146,7 +152,7 @@ def t2_identity():
         if len(nb) != 1:
             continue
         src = gt_program(nb[0])
-        exp = lsgeom.load(os.path.join(d, 'current_helmet.ls'))
+        exp = lsgeom.load(export_of(d))
         if not check(f"T2 {v} same point set as source",
                      set(src.points) == set(exp.points), "point sets differ"):
             continue
@@ -199,7 +205,7 @@ def t3_roundtrip():
             continue
 
         src = gt_program(etalon)
-        exp = lsgeom.load(os.path.join(d, 'current_helmet.ls'))
+        exp = lsgeom.load(export_of(d))
         _, cids, _ = src.split_path()
         B = np.array([exp.points[i][:3] for i in cids])
 
@@ -286,7 +292,7 @@ def _export_with_template(tag, tmpl_path, delta):
     ok, log = run_step05(s)
     if not ok:
         return None, log
-    return lsgeom.load(os.path.join(d, 'current_helmet.ls')).contour_xyz()[0], ""
+    return lsgeom.load(export_of(d)).contour_xyz()[0], ""
 
 
 def t4_order_invariance():
@@ -371,7 +377,7 @@ def t5_whiskers():
             continue                       # zero delta: nothing moves, test is vacuous
         nb = s4['selected_neighbors']
         src = min((gt_program(n) for n in nb), key=lambda p: len(p.points))
-        exp = lsgeom.load(os.path.join(d, 'current_helmet.ls'))
+        exp = lsgeom.load(export_of(d))
         if exp.problems():
             check(f"T5 {v} export parseable", False, "; ".join(exp.problems()))
             continue
@@ -396,7 +402,7 @@ def t6_regression():
     base_file = os.path.join(os.path.dirname(__file__), 'baseline_errors.json')
     cur = {}
     for v in VARIANTS:
-        exp = lsgeom.load(os.path.join(sess_dir(v), 'current_helmet.ls'))
+        exp = lsgeom.load(export_of(sess_dir(v)))
         if exp.problems():
             cur[v] = None
             continue

@@ -16,6 +16,9 @@ import filecmp
 import subprocess
 
 BASE = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(BASE, 'scripts'))
+import lsgeom   # noqa: E402
+
 SRC = "v13"
 TMP = "_blind13"
 SESS = "blind_check"
@@ -52,8 +55,8 @@ try:
             sys.exit(1)
 
     # 3. сравнение
-    a = os.path.join(sess_dir, 'current_helmet.ls')
-    b = os.path.join(BASE, 'results', f'audit_{SRC}', 'current_helmet.ls')
+    a = lsgeom.export_path(sess_dir)
+    b = lsgeom.export_path(os.path.join(BASE, 'results', f'audit_{SRC}'))
     same = filecmp.cmp(a, b, shallow=False)
     s4a = json.load(open(os.path.join(sess_dir, 'step04_result.json'), encoding='utf-8'))
     s4b = json.load(open(os.path.join(BASE, 'results', f'audit_{SRC}',
