@@ -32,12 +32,36 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 
+# Everything is measured on the CUT LINE - where the beam lands - not on the nozzle
+# path. The standoff between them is slack, not a setpoint: the beam runs along the tool
+# axis, so sliding the nozzle along it does not move the cut at all, and the customer
+# confirmed 10 / 8 / 5 mm are indistinguishable on the part. Scoring nozzle positions
+# charged us for a difference the helmet never sees - on v13 that alone was 2.2 mm of
+# "error". See PLAN.md section 2.
+with open(os.path.join(BASE, 'input', 'model_pose.json'), encoding='utf-8') as _f:
+    MODEL = json.load(_f)
+NOMINAL = float(MODEL.get("nominal_standoff", lsgeom.NOMINAL_STANDOFF))
+_STANDOFF = dict(MODEL.get("standoff", {}))
+
+
+def gt_program(v):
+    return lsgeom.load(os.path.join(BASE, 'input', 'archive', v, 'ground_truth.ls'))
+
+
+def standoff_of(v):
+    """Recorded standoff: from the model where known, measured otherwise (held-out)."""
+    if v not in _STANDOFF:
+        anchor = MODEL["anchor"]
+        ref, _ = lsgeom.cut_surface(gt_program(anchor), _STANDOFF[anchor])
+        _STANDOFF[v] = lsgeom.fit_standoff(gt_program(v), ref)[0]
+    return _STANDOFF[v]
+
+
 def gt_contour(v):
     # lead-in excluded: the operator places the pierce point for the burn-through, not
     # from the part geometry, and its scatter (7.3-24.1 mm off the ring, against 9.6-10.2
     # for every other step) would otherwise be the entire max-error figure.
-    return lsgeom.cut_ring(lsgeom.load(
-        os.path.join(BASE, 'input', 'archive', v, 'ground_truth.ls')))[0]
+    return lsgeom.cut_surface(gt_program(v), standoff_of(v))[0]
 
 
 def export_contour(v):
@@ -48,27 +72,28 @@ def export_contour(v):
     probs = prog.problems()
     if len(prog.order) < 90:
         probs.append(f"only {len(prog.order)} motion instructions")
-    return lsgeom.cut_ring(prog)[0], probs
+    return lsgeom.cut_surface(prog, NOMINAL)[0], probs
 
 
 def gt_contour_and_axis(v):
-    """GT contour points plus the nozzle axis at each of them.
+    """GT cut line plus the nozzle axis at each of its points.
 
     Fanuc W/P/R -> tool +Z, which points AWAY from the helmet (verified: 18.6 deg off
     the outward radial, 17 deg below horizontal, matching the programmed 15 deg cutting
-    angle). A positive shift along it means the nozzle sits further from the part."""
-    prog = lsgeom.load(os.path.join(BASE, 'input', 'archive', v, 'ground_truth.ls'))
-    P, cont = lsgeom.cut_ring(prog)
-    Z = np.array([lsgeom.rot_from_ypr(r, p, w).apply([0, 0, 1.0])
-                  for w, p, r in (prog.points[i][3:] for i in cont)])
+    angle). A positive shift along it means our cut line sits further from the part."""
+    prog = gt_program(v)
+    P, cont = lsgeom.cut_surface(prog, standoff_of(v))
+    Z = lsgeom.tool_axes(prog, cont)
     return P, Z
 
 
 def split_normal_tangential(pred, v):
-    """Decompose the error into standoff (along the nozzle axis) and the rest.
+    """Decompose the error into a component along the beam and the rest.
 
-    The two mean very different things on the shop floor: a standoff error changes the
-    cut depth, an in-surface error moves the cut line on the part.
+    Both curves are cut lines now, so the along-beam part is no longer the standoff -
+    that has been divided out on both sides. What is left is a depth disagreement:
+    our predicted cut line sitting inside or outside the operator's. Near zero is the
+    expected reading; a systematic value means the fitted standoffs disagree.
 
     The nozzle axis is taken at the MATCHED GT point, not at the same list index. The
     export is built from the nearest neighbour's template, which in general starts its
@@ -151,7 +176,7 @@ def report():
             print(f"  {note}")
         print(f"  {'вар':5s}{'соседи k-NN':>14s}{'дист':>7s}{'вне':>5s}"
               f"{'без корр.':>11s}{'пайплайн':>10s}{'p90':>8s}{'макс':>8s}"
-              f"{'зазор':>8s}")
+              f"{'глубина':>9s}")
         for r in (x for x in rows if x['v'] in names):
             if r['probs']:
                 print(f"  {r['v']:5s}  СЛОМАН: {'; '.join(r['probs'])}")
@@ -159,33 +184,37 @@ def report():
             print(f"  {r['v']:5s}{r.get('nb', '?'):>14s}{r.get('dist', 0):7.2f}"
                   f"{('да' if r.get('oor') else 'нет'):>5s}"
                   f"{r['base_mean']:11.2f}{r['mean']:10.2f}{r['p90']:8.2f}{r['max']:8.2f}"
-                  f"{r['standoff']:+8.2f}")
+                  f"{r['standoff']:+9.2f}")
 
     print("=" * 88)
-    print("ТОЧНОСТЬ ПАЙПЛАЙНА  (метрика: точка -> кривая записи оператора, мм)")
+    print("ТОЧНОСТЬ ПАЙПЛАЙНА  (метрика: линия реза -> линия реза оператора, мм)")
     print("=" * 88)
+    print("\nМеряем, КУДА ПОПАДАЕТ ЛУЧ, а не где стоит сопло. Отступ между ними —")
+    print("  слабина: луч идёт вдоль оси сопла, поэтому сдвиг сопла вдоль неё точку реза")
+    print("  не двигает (заказчик подтвердил: 10, 8 или 5 мм на резе неразличимы).")
+    print(f"  Экспорт пишет номинальные {NOMINAL:g} мм; у записей оператора отступ")
+    print("  подобран по каждому варианту и вычтен с обеих сторон.")
     print("\n«без корр.» = одна фиксированная программа на все шлемы, без коррекции вообще.")
     ho = [r for r in rows if r['v'] in dataset.HELDOUT]
     spread = {c: np.mean([r['base_alt'][c] for r in ho]) for c in dataset.TRAIN}
     print(f"  В колонке — САМЫЙ СИЛЬНЫЙ такой оппонент ({FIXED}: лучший по худшему случаю")
     print(f"  на обучающих). Выбор фиксированной программы сильно двигает ответ, поэтому")
     print(f"  ниже приведён весь диапазон, а не одна удобная цифра.")
-    print("«зазор» = систематическое смещение вдоль оси сопла: + значит наша траектория")
-    print("  дальше от шлема, чем поставил оператор. Ось берётся в сопоставленной точке")
-    print("  кривой оператора, а не по индексу списка.")
+    print("«глубина» = остаточное смещение вдоль луча: + значит наша линия реза дальше")
+    print("  от шлема, чем у оператора. Отступ уже вычтен с обеих сторон, поэтому здесь")
+    print("  ожидается около нуля; систематическая величина означала бы, что подобранные")
+    print("  отступы расходятся. Ось берётся в сопоставленной точке, а не по индексу.")
 
     block("ОБУЧАЮЩИЕ — это САМОСОВПАДЕНИЕ, а не точность",
           dataset.TRAIN,
-          "k-NN находит сам себя (дистанция ~0.005) и отдаёт его же файл. 0.00 здесь\n"
-          "  означает только что экспорт не портит данные, и в средние не идёт.")
+          "k-NN находит сам себя (дистанция ~0.005) и отдаёт его же линию реза. 0.00\n"
+          "  здесь означает только что экспорт не портит данные, и в средние не идёт.")
 
     block("HELD-OUT — единственные настоящие цифры точности",
           dataset.HELDOUT)
 
-    block("PENDING — исправные, но с константой зазора (ждут ответа на Q1)",
-          dataset.PENDING,
-          "их ошибка почти целиком объясняется одной константой смещения вдоль сопла,\n"
-          "  которую жёсткая модель выразить не может — см. PLAN.md раздел 4.")
+    if dataset.PENDING:
+        block("PENDING — отложенные варианты", dataset.PENDING)
 
     ok = [r for r in rows if r['v'] in dataset.HELDOUT and not r['probs']]
     if ok:

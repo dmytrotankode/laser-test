@@ -131,6 +131,23 @@ def predict(W, sx, F, kind, ref, cur):
     return (d / sx) @ W
 
 
+def nearest(v, pool, F, kind):
+    """The neighbour DEPLOYMENT would pick, by the same rule step04 uses.
+
+    step04 measures distance in the model's own feature space, divided by knn_scale
+    (the per-feature spread across the library). Cross-validation used to rank by raw,
+    unnormalised f8 distance instead - a different rule, so the "nearest" it scored was
+    not always the one that ships. On v13 the two disagree (v9 against v5), which is
+    enough to move the reported error. The scale is rebuilt from the fold's own training
+    variants; taking it from the full library would leak the held-out one."""
+    lib = np.array([features.vec(F[u], kind) for u in pool])
+    scale = lib.std(0)
+    scale[scale < 1e-9] = 1.0
+    cur = features.vec(F[v], kind)
+    d = {u: float(np.linalg.norm((cur - features.vec(F[u], kind)) / scale)) for u in pool}
+    return min(d, key=d.get)
+
+
 def loo_error(names, F, kind, lam, POSE, pivot):
     """Leave-one-VARIANT-out. Every pair mentioning the held-out variant is removed.
 
@@ -146,10 +163,8 @@ def loo_error(names, F, kind, lam, POSE, pivot):
             p = predict(W, sx, F, kind, ref, v)
             errs.append(lsgeom.curve_distance(apply_pose(contour(ref), p, pivot), Gv).mean())
         # deployment picks the nearest neighbour, so score the nearest, not the average
-        d = {ref: np.linalg.norm(features.vec(F[v], "f8") - features.vec(F[ref], "f8"))
-             for ref in tr}
-        nearest = min(d, key=d.get)
-        per[v] = dict(nearest=float(errs[tr.index(nearest)]),
+        nb = nearest(v, tr, F, kind)
+        per[v] = dict(nearest=float(errs[tr.index(nb)]),
                       mean_over_refs=float(np.mean(errs)),
                       best=float(np.min(errs)))
     return per
@@ -213,8 +228,7 @@ def main():
     zero = []
     for v in names:
         tr = [u for u in names if u != v]
-        d = {r: np.linalg.norm(features.vec(F[v], "f8") - features.vec(F[r], "f8")) for r in tr}
-        nb = min(d, key=d.get)
+        nb = nearest(v, tr, F, kind)
         zero.append(float(lsgeom.curve_distance(contour(nb), contour(v)).mean()))
     print(f"Контроль «ничего не делать» (траектория ближайшего соседа как есть): "
           f"{np.mean(zero):.2f} мм в среднем, {np.max(zero):.2f} мм в худшем — "

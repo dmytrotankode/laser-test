@@ -1376,9 +1376,9 @@
     "v15",
     "v16"
   ],
-  "loo_nearest_mean": 1.2245528513813646,
+  "loo_nearest_mean": 1.2264773068380166,
   "loo_nearest_worst": 2.6967816433205005,
-  "loo_do_nothing_mean": 2.2218889620441877,
+  "loo_do_nothing_mean": 1.9047130353647448,
   "knn_scale": [
     1.2006060034577586,
     9.89572671363159,
