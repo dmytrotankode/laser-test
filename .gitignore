@@ -14,3 +14,7 @@ v6 (27.07.26)/
 scratch_*.png
 forms/
 *.MOV
+
+# рабочая папка входа и её бэкап — меняются на каждой съёмке
+service_5056/input/_photos_current_backup/
+05082026_test1/
