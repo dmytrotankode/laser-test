@@ -10,6 +10,7 @@ Assumes results/audit_<v>/ sessions already exist (step03+step04 done); it only
 re-runs step05, which is fast. Rebuild them with tests/rebuild_sessions.py.
 """
 import os
+import re
 import sys
 import json
 import shutil
@@ -96,6 +97,29 @@ def t1_structural():
         check(f"T1 {v} point set matches template",
               set(prog.points) == set(tmpl.points),
               f"export {len(prog.points)} vs template {len(tmpl.points)} points")
+
+
+# ---------------------------------------------------------------- T1b
+def t1b_program_name():
+    """The name inside the file must match the file it is shipped as.
+
+    Fanuc rejects a load when they differ, and the template carries the NEIGHBOUR's
+    name - so without this the export would either fail to load or aim at one of the
+    operator's own recorded programs and overwrite it."""
+    print("\nT1b  program name matches the file name")
+    for v in VARIANTS:
+        p = os.path.join(sess_dir(v), 'current_helmet.ls')
+        if not os.path.exists(p):
+            continue
+        txt = open(p, encoding='utf-8', errors='ignore').read()
+        want = os.path.splitext(os.path.basename(p))[0].upper()
+        m = re.search(r'/PROG\s+(\S+)', txt)
+        check(f"T1b {v} /PROG is {want}", bool(m) and m.group(1) == want,
+              f"got {m.group(1) if m else 'no /PROG line'}")
+        f = re.search(r'FILE_NAME\s*=\s*([^;]*)', txt)
+        if f:
+            check(f"T1b {v} FILE_NAME is {want[:8]}", f.group(1).strip() == want[:8],
+                  f"got {f.group(1).strip()!r}")
 
 
 # ---------------------------------------------------------------- T2
@@ -442,6 +466,7 @@ if __name__ == '__main__':
         if not os.path.exists(os.path.join(sess_dir(v), 'step04_result.json')):
             sys.exit(f"missing results/audit_{v} - run tests/rebuild_sessions.py first")
     t1_structural()
+    t1b_program_name()
     t2_identity()
     t3_roundtrip()
     t4_order_invariance()

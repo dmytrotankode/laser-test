@@ -154,6 +154,7 @@ def main():
 
     out_ls_file = "current_helmet.ls"
     out_ls_path = os.path.join(results_dir, out_ls_file)
+    prog_name = os.path.splitext(out_ls_file)[0].upper()      # CURRENT_HELMET
 
     with open(orig_ls_path, 'r', encoding='utf-8', errors='ignore') as f:
         ls_content = f.read()
@@ -175,6 +176,18 @@ def main():
         return f"{match.group(1)}{pt[0]:.3f}{match.group(4)}{pt[1]:.3f}{match.group(6)}{pt[2]:.3f}"
 
     new_ls_content = pattern.sub(replace_point, ls_content)
+
+    # The template carries the NEIGHBOUR's program name (e.g. TORXL_NEW_PROG2_5), and the
+    # controller rejects a load when the name inside the file does not match the file it
+    # came in as. Worse, leaving it would aim the load at one of the operator's own
+    # recorded programs and overwrite it. Every original from production follows
+    # "<PROG name>.LS", so we follow the same rule against our own file name.
+    #
+    # FILE_NAME is the same name truncated to 8 characters, the way Fanuc writes it.
+    new_ls_content = re.sub(r'(/PROG\s+)\S+', lambda m: m.group(1) + prog_name,
+                            new_ls_content, count=1)
+    new_ls_content = re.sub(r'(FILE_NAME\s*=\s*)[^;]*', lambda m: m.group(1) + prog_name[:8],
+                            new_ls_content, count=1)
 
     with open(out_ls_path, 'w', encoding='utf-8') as f:
         f.write(new_ls_content)
