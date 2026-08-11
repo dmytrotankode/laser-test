@@ -44,8 +44,9 @@
 <body>
 <div id="side">
   <h2>Лінія межі пресування</h2>
-  <p class="hint">Колесо — масштаб, Shift+тягнути — зсув.
-     Клік по знімку — поставити точку своєї лінії, клік по точці — прибрати.</p>
+  <p class="hint">Колесо — масштаб, тягнути — зсув.
+     Щоб ставити точки своєї лінії, увімкніть <b>Малювання</b> (клавіша D):
+     тоді клік ставить точку, клік по точці прибирає, а зсув — Shift+тягнути.</p>
 
   <div class="row">
     <select id="variant" style="flex:1"></select>
@@ -55,6 +56,7 @@
     <button class="go" id="run" style="flex:1">Знайти лінії</button>
     <button id="fit">Вписати</button>
   </div>
+  <div class="row"><button id="draw" style="width:100%">✏️ Малювання: вимк</button></div>
 
   <fieldset>
     <legend>лінії</legend>
@@ -118,6 +120,6 @@
   <canvas id="prof" width="220" height="110"></canvas>
 </div>
 
-<script src="/static/js/app.js?v=3"></script>
+<script src="/static/js/app.js?v=4"></script>
 </body>
 </html>

@@ -105,8 +105,26 @@ cv.addEventListener('wheel', e => {
   draw();
 }, { passive: false });
 
+// Режим рисования выключен по умолчанию: обычно смотрят и крутят, а не размечают,
+// и каждый клик по снимку не должен ставить точку.
+//   выключен - левая кнопка тянет вид;
+//   включён  - левая кнопка ставит/убирает точку, вид тянется Shift или средней.
+S.drawing = false;
+
+function setDrawing(on) {
+  S.drawing = on;
+  $('draw').textContent = on ? '✏️ Малювання: УВІМК' : '✏️ Малювання: вимк';
+  $('draw').classList.toggle('go', on);
+  cv.style.cursor = on ? 'crosshair' : 'grab';
+}
+
 cv.addEventListener('mousedown', e => {
-  if (e.button === 1 || e.shiftKey) { S.drag = [e.offsetX - S.ox, e.offsetY - S.oy]; return; }
+  const panning = !S.drawing || e.button === 1 || e.shiftKey;
+  if (panning) {
+    S.drag = [e.offsetX - S.ox, e.offsetY - S.oy];
+    cv.style.cursor = 'grabbing';
+    return;
+  }
   const [ix, iy] = toImage(e.offsetX, e.offsetY);
   const near = S.manual.findIndex(([x, y]) =>
     Math.hypot(x - ix, y - iy) * S.scale < 8);
@@ -114,6 +132,14 @@ cv.addEventListener('mousedown', e => {
   else S.manual.push([Math.round(ix), Math.round(iy)]);
   refreshManual();
   draw();
+});
+
+$('draw').addEventListener('click', () => setDrawing(!S.drawing));
+window.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  if (e.key === 'd' || e.key === 'D' || e.key === 'в' || e.key === 'В') {
+    setDrawing(!S.drawing);
+  }
 });
 
 // Эталон - это линия, которую ставите ВЫ. Автоматика с ней сравнивается, и
@@ -141,7 +167,10 @@ cv.addEventListener('mousemove', e => {
   clearTimeout(S.pt);
   S.pt = setTimeout(() => profile(ix, iy), 120);
 });
-window.addEventListener('mouseup', () => S.drag = null);
+window.addEventListener('mouseup', () => {
+  S.drag = null;
+  cv.style.cursor = S.drawing ? 'crosshair' : 'grab';
+});
 
 // профиль яркости поперёк линии - видно, где на самом деле дно
 async function profile(x, y) {
@@ -255,5 +284,6 @@ $('showprof').addEventListener('change', () => {
   prof.style.display = $('showprof').checked ? '' : 'none';
 });
 
+setDrawing(false);
 resize(false);
 loadShots();

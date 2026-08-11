@@ -26,6 +26,23 @@ LINES = os.path.join(BASE, 'data', 'lines')
 os.makedirs(LINES, exist_ok=True)
 
 app = Flask(__name__, template_folder='web/templates', static_folder='web/static')
+
+# Шаблоны и статика перечитываются с диска на каждый запрос. Без этого Flask
+# кэширует их при debug=False, и правку в index.html или app.js не видно, пока
+# не перезапустишь сервер. Инструмент отладочный, цена перечитывания никакая,
+# зато перезапуск нужен только после правок в .py
+app.config['TEMPLATES_AUTO_RELOAD'] = True
+app.jinja_env.auto_reload = True
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
+
+
+@app.after_request
+def no_cache(resp):
+    if request.path.startswith('/static/'):
+        resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
 _cache = {}
 
 # Масштаб кадра. Мера в миллиметрах приблизительная и нужна только чтобы
