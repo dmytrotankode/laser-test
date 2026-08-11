@@ -31,3 +31,9 @@ laserdot_1/*
 service_5056/scratch/**/*_contact.png
 service_5056/scratch/**/t2_masks/
 service_5056/scratch/**/masks/
+
+# Дубликат отслеживаемого service_5056/input/model_3d/ (тот же файл побайтово)
+current_3d/
+
+# PNG, разворачиваемые из .raw скриптами рядом - не исходник
+service_5056/scratch/phys/shop_png/
