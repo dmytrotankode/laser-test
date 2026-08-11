@@ -16,8 +16,37 @@ const COLORS = { upper: '#38bdf8', center: '#f59e0b', lower: '#22c55e' };
 const NAMES = { upper: 'верхня межа', center: 'дно борозни', lower: 'нижня межа' };
 
 function status(t) { $('status').textContent = t || ''; }
-function resize() { cv.width = cv.clientWidth; cv.height = cv.clientHeight; draw(); }
-window.addEventListener('resize', resize);
+
+// Вписать снимок в окно. Отдельной функцией, потому что при первой загрузке
+// canvas ещё может не иметь размеров - тогда масштаб считался по нулю и картинка
+// выходила крошечной в углу.
+function fit() {
+  if (!S.img.width || !cv.width) return;
+  const k = Math.min(cv.width / S.img.width, cv.height / S.img.height) * 0.96;
+  S.scale = k;
+  S.ox = (cv.width - S.img.width * k) / 2;
+  S.oy = (cv.height - S.img.height * k) / 2;
+  draw();
+}
+
+function resize(refit) {
+  const r = cv.parentElement.getBoundingClientRect();
+  cv.width = Math.max(1, Math.round(r.width));
+  cv.height = Math.max(1, Math.round(r.height));
+  if (refit) fit(); else draw();
+}
+window.addEventListener('resize', () => resize(false));
+
+// Размеры блока появляются не сразу: при первой отрисовке страницы их может ещё
+// не быть, и тогда масштаб считался по нулю - снимок выходил крошечным в углу.
+// Наблюдатель ловит момент, когда размеры появились, и вписывает снимок сам.
+// S.touched означает, что вид уже двигал пользователь - тогда не мешаем ему.
+S.touched = false;
+new ResizeObserver(() => {
+  const had = cv.width > 2;
+  resize(!S.touched);
+  if (!had) fit();
+}).observe(cv.parentElement);
 
 // -------------------------------------------------------------- координаты
 const toScreen = (x, y) => [x * S.scale + S.ox, y * S.scale + S.oy];
@@ -69,9 +98,10 @@ cv.addEventListener('wheel', e => {
   e.preventDefault();
   const [ix, iy] = toImage(e.offsetX, e.offsetY);
   S.scale *= e.deltaY < 0 ? 1.2 : 1 / 1.2;
-  S.scale = Math.min(Math.max(S.scale, 0.05), 8);
+  S.scale = Math.min(Math.max(S.scale, 0.02), 12);
   S.ox = e.offsetX - ix * S.scale;
   S.oy = e.offsetY - iy * S.scale;
+  S.touched = true;
   draw();
 }, { passive: false });
 
@@ -82,10 +112,23 @@ cv.addEventListener('mousedown', e => {
     Math.hypot(x - ix, y - iy) * S.scale < 8);
   if (near >= 0) S.manual.splice(near, 1);      // клик по точке - удалить
   else S.manual.push([Math.round(ix), Math.round(iy)]);
+  refreshManual();
   draw();
 });
+
+// Эталон - это линия, которую ставите ВЫ. Автоматика с ней сравнивается, и
+// без неё сравнивать не с чем, поэтому состояние показывается явно.
+function refreshManual() {
+  const n = S.manual.length;
+  $('mcount').textContent = n;
+  $('cmp').disabled = n < 2;
+  $('save').disabled = n < 2;
+  status(`${S.variant} / ${S.view}` +
+    (n ? `, ваша лінія: ${n} точок` : ', вашої лінії ще немає'));
+}
 cv.addEventListener('mousemove', e => {
-  if (S.drag) { S.ox = e.offsetX - S.drag[0]; S.oy = e.offsetY - S.drag[1]; draw(); return; }
+  if (S.drag) { S.ox = e.offsetX - S.drag[0]; S.oy = e.offsetY - S.drag[1];
+                S.touched = true; draw(); return; }
   const [ix, iy] = toImage(e.offsetX, e.offsetY);
   let extra = '';
   if (S.lines) {
@@ -144,13 +187,12 @@ async function onView() {
   S.manual = saved.points || [];
   S.img = new Image();
   S.img.onload = () => {
-    const k = Math.min(cv.width / S.img.width, cv.height / S.img.height) * 0.95;
-    S.scale = k; S.ox = (cv.width - S.img.width * k) / 2;
-    S.oy = (cv.height - S.img.height * k) / 2;
-    draw();
+    // размеры canvas берём заново: при первой загрузке страницы их могло ещё не быть
+    resize(true);
+    requestAnimationFrame(() => resize(true));
   };
   S.img.src = `/img/${S.variant}/${S.view}.jpg?t=${Date.now()}`;
-  status(`${S.variant} / ${S.view}` + (S.manual.length ? `, еталон: ${S.manual.length} точок` : ''));
+  refreshManual();
 }
 
 const qs = () => PARAMS.map(p => `${p}=${$(p).value}`).join('&');
@@ -172,7 +214,8 @@ async function save() {
     body: JSON.stringify({ points: S.manual, params: Object.fromEntries(
       PARAMS.map(p => [p, $(p).value])) })
   });
-  status(`еталон збережено (${S.manual.length} точок)`);
+  status(`вашу лінію збережено (${S.manual.length} точок) — файл data/lines/` +
+         `${S.variant}_${S.view}.json`);
   loadShots();
 }
 
@@ -203,7 +246,14 @@ $('view').addEventListener('change', onView);
 $('run').addEventListener('click', run);
 $('save').addEventListener('click', save);
 $('cmp').addEventListener('click', compare);
-$('clear').addEventListener('click', () => { S.manual = []; draw(); status('еталон очищено (не збережено)'); });
+$('clear').addEventListener('click', () => {
+  S.manual = []; refreshManual(); draw();
+  status('вашу лінію очищено (на диску вона лишилась, доки не збережете)');
+});
+$('fit').addEventListener('click', () => { S.touched = false; resize(true); });
+$('showprof').addEventListener('change', () => {
+  prof.style.display = $('showprof').checked ? '' : 'none';
+});
 
-resize();
+resize(false);
 loadShots();

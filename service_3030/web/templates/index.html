@@ -22,6 +22,7 @@
   select, button { background:#0b1220; color:var(--txt); border:1px solid var(--line);
                    border-radius:6px; padding:7px 9px; font-size:13px; }
   button { cursor:pointer; }
+  button:disabled { opacity:.45; cursor:default; }
   button.go { background:#1d4ed8; border-color:#1d4ed8; font-weight:600; }
   button.save { background:#166534; border-color:#166534; font-weight:600; }
   button.warn { background:#7f1d1d; border-color:#7f1d1d; }
@@ -36,21 +37,24 @@
   #hud { position:absolute; left:10px; bottom:10px; background:rgba(15,23,42,.85);
          border:1px solid var(--line); border-radius:6px; padding:6px 9px;
          font:12px/1.4 monospace; pointer-events:none; }
-  #prof { position:absolute; right:10px; bottom:10px; background:rgba(15,23,42,.9);
-          border:1px solid var(--line); border-radius:6px; }
+  #prof { position:absolute; right:10px; bottom:10px; background:rgba(15,23,42,.92);
+          border:1px solid var(--line); border-radius:6px; opacity:.9; }
 </style>
 </head>
 <body>
 <div id="side">
   <h2>Лінія межі пресування</h2>
-  <p class="hint">Колесо — масштаб, тягнути — зсув. Клік — поставити точку еталона,
-     клік по точці — прибрати.</p>
+  <p class="hint">Колесо — масштаб, Shift+тягнути — зсув.
+     Клік по знімку — поставити точку своєї лінії, клік по точці — прибрати.</p>
 
   <div class="row">
     <select id="variant" style="flex:1"></select>
     <select id="view"></select>
   </div>
-  <button class="go" id="run" style="width:100%">Знайти лінії</button>
+  <div class="row">
+    <button class="go" id="run" style="flex:1">Знайти лінії</button>
+    <button id="fit">Вписати</button>
+  </div>
 
   <fieldset>
     <legend>лінії</legend>
@@ -61,7 +65,9 @@
     <div class="leg"><span class="sw" style="background:var(--lo)"></span>
       <input type="checkbox" id="c_lower" checked> нижня межа тіні</div>
     <div class="leg"><span class="sw" style="background:var(--man)"></span>
-      <input type="checkbox" id="c_manual" checked> ваш еталон</div>
+      <input type="checkbox" id="c_manual" checked> <b>ваша лінія</b> (еталон)</div>
+    <div class="leg"><input type="checkbox" id="showprof" checked>
+      графік яскравості поперек лінії</div>
   </fieldset>
 
   <fieldset>
@@ -87,12 +93,19 @@
   </fieldset>
 
   <fieldset>
-    <legend>еталон</legend>
+    <legend>ваша лінія — еталон для перевірки</legend>
+    <p class="hint" style="margin:2px 0 8px">
+      Еталон — це те, що поставите ви: клікайте по знімку там, де проходить
+      справжня лінія різу. Автоматичні лінії порівнюються саме з нею.
+      Достатньо 8–12 точок у місцях, де ви впевнені.</p>
+    <div class="row"><label>поставлено точок</label>
+      <span class="val" id="mcount">0</span></div>
     <div class="row">
-      <button class="save" id="save" style="flex:1">Зберегти</button>
+      <button class="save" id="save" style="flex:1" disabled>Зберегти</button>
       <button class="warn" id="clear">Очистити</button>
     </div>
-    <div class="row"><button id="cmp" style="width:100%">Порівняти з еталоном</button></div>
+    <div class="row"><button id="cmp" style="width:100%" disabled>
+      Порівняти автоматичні лінії з вашою</button></div>
     <table id="metrics"></table>
   </fieldset>
 
@@ -105,6 +118,6 @@
   <canvas id="prof" width="220" height="110"></canvas>
 </div>
 
-<script src="/static/js/app.js?v=1"></script>
+<script src="/static/js/app.js?v=3"></script>
 </body>
 </html>

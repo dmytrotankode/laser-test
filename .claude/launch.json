@@ -6,7 +6,8 @@
       "runtimeExecutable": "C:/Art/Ai projects/Laser2/service_5056/venv/Scripts/python.exe",
       "runtimeArgs": ["C:/Art/Ai projects/Laser2/service_3030/app.py"],
       "cwd": "C:/Art/Ai projects/Laser2/service_3030",
-      "port": 3030
+      "port": 3031,
+      "env": {"PORT": "3031"}
     }
   ]
 }
