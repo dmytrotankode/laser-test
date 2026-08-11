@@ -43,3 +43,6 @@ service_5056/scratch/phys/shop_png/
 service_5056/scratch/**/L1_out/
 service_5056/scratch/**/L2_out/
 service_5056/scratch/new0810/*.png
+
+# Разметка эталонных линий - данные сессии, а не код (сервис 3030 создаёт их сам)
+service_3030/data/lines/*.json
