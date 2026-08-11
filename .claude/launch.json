@@ -2,25 +2,12 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "laser2-service5050",
-      "runtimeExecutable": "service_5050/venv/Scripts/python.exe",
-      "runtimeArgs": ["service_5050/web/app.py"],
-      "port": 5050,
-      "autoPort": true
-    },
-    {
-      "name": "laser2-service5054",
-      "runtimeExecutable": "service_5054/venv/Scripts/python.exe",
-      "runtimeArgs": ["service_5054/app.py"],
-      "port": 5054,
-      "autoPort": true
-    },
-    {
-      "name": "laser2-service5056",
-      "runtimeExecutable": "service_5056/venv/Scripts/python.exe",
-      "runtimeArgs": ["service_5056/app.py"],
-      "port": 5056,
-      "autoPort": true
+      "name": "service5056",
+      "runtimeExecutable": "C:/Art/Ai projects/Laser2/service_5056/venv/Scripts/python.exe",
+      "runtimeArgs": ["C:/Art/Ai projects/Laser2/service_5056/app.py"],
+      "cwd": "C:/Art/Ai projects/Laser2/service_5056",
+      "port": 5057,
+      "env": {"PORT": "5057"}
     }
   ]
 }

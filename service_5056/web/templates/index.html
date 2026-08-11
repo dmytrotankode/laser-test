@@ -177,6 +177,16 @@
             <option value="v14">📂 Архів v14 (30.07): бібліотека</option>
             <option value="v15">📂 Архів v15 (30.07): бібліотека</option>
             <option value="v16">📂 Архів v16 (30.07): бібліотека</option>
+            <option value="v20">🆕 v20 (07.08, форма 1): НЕЗАЛЕЖНА перевірка — той самий шолом, що v1…v16</option>
+            <option value="v21">🆕 v21 (08.08, форма 1): НЕЗАЛЕЖНА перевірка — інший екземпляр</option>
+            <option value="v22">🆕 v22 (08.08, форма 4): НЕЗАЛЕЖНА перевірка — інший екземпляр</option>
+            <option value="v23">🆕 v23 (08.08, форма 4): НЕЗАЛЕЖНА перевірка — інший екземпляр</option>
+            <option value="v24">🆕 v24 (08.08, форма 1): НЕЗАЛЕЖНА перевірка — інший екземпляр</option>
+            <option value="v25">🆕 v25 (08.08, форма 1): НЕЗАЛЕЖНА перевірка — інший екземпляр</option>
+        </select>
+        <select id="model-select" onchange="onModelChange()" style="background:#1e293b; color:#fff; border:1px solid #a78bfa; padding:8px 12px; border-radius:6px; font-weight:600; cursor:pointer;" title="Яка бібліотека поз використовується для корекції">
+            <option value="model_pose.json">📚 Бібліотека 14 (архів v1…v16) — робоча</option>
+            <option value="model_pose_augmented.json">🧪 Бібліотека 17 (+ v20, v22, v24) — експеримент</option>
         </select>
         <span id="current-session-display" style="font-family: monospace; color: #f59e0b;">Сесія: немає</span>
         <button class="btn btn-green" onclick="startNewSession()">⚡ Нова сесія</button>
@@ -262,6 +272,6 @@
 
 </div>
 
-<script src="/static/js/main.js?v=5056_10"></script>
+<script src="/static/js/main.js?v=5056_11"></script>
 </body>
 </html>

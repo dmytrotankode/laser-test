@@ -55,7 +55,8 @@ def _backend_version():
         return "n/a"
 
 
-def segment_image(img_path, is_top_view=False, allow_fallback=False):
+def segment_image(img_path, is_top_view=False, allow_fallback=False, depth_px=None,
+                  abs_y=None):
     if not os.path.exists(img_path):
         raise FileNotFoundError(f"Missing {img_path}")
 
@@ -101,11 +102,41 @@ def segment_image(img_path, is_top_view=False, allow_fallback=False):
     top_clean = np.min(y_indices)
     true_h = bot_clean - top_clean
     
-    # 2. APPLY SAFE ZONE CUTOFF: Cut at 58% of true helmet height from top!
-    # This guarantees we cut ABOVE the mounting stand, ABOVE ear cutouts, and ABOVE uncut front/back skirts!
+    # 2. APPLY SAFE ZONE CUTOFF.
+    #
+    # Two rules, and which one is used matters a great deal:
+    #
+    #   fraction (0.58 of silhouette height) - the original. Its reference is the BOTTOM
+    #     of the silhouette, which is the edge of the uncut kevlar skirt, so a helmet
+    #     with a longer skirt moves the cut line up the dome and every feature with it.
+    #     Measured on the 07-08.08 sets: the skirt runs 27-153 px lower than the archive
+    #     while the dome top stays within 19 px, which drags the cutoff by up to 104 px
+    #     against a calibrated feature scatter of ~5-9 px. That is what puts those
+    #     captures 16-55 away from a library whose internal spacing is under 12.
+    #
+    #   depth_px (fixed distance below the dome top) - anchored to the one landmark that
+    #     does not depend on how much skirt was left on: the top of the dome. Immune to
+    #     the skirt, but it also rides UP AND DOWN WITH THE HELMET, so the mask always
+    #     shows the same piece of the part and the vertical position - which is exactly
+    #     what the pose model has to measure - stops reaching the features. Measured:
+    #     leave-one-out inside TRAIN degrades 1.23 -> 1.59 mm.
+    #
+    #   abs_y (fixed image row) - the cameras are bolted down and their focus is
+    #     calibrated, so a row of the frame is a fixed plane in space. The skirt cannot
+    #     move it and neither can the helmet, so it keeps the pose signal that depth_px
+    #     throws away.
+    #
+    # Both are opt-in because every downstream constant (library features, knn_scale, W,
+    # the out_of_range threshold) was fitted on masks made by the fraction rule.
     cutoff_y = bot_clean
     if not is_top_view and true_h > 0:
-        cutoff_y = top_clean + int(true_h * 0.58)
+        if abs_y:
+            cut = int(abs_y)
+        elif depth_px:
+            cut = top_clean + int(depth_px)
+        else:
+            cut = top_clean + int(true_h * 0.58)
+        cutoff_y = int(min(cut, bot_clean))
         clean_mask[cutoff_y:, :] = 0
         
     # Re-compute bounding box of safe zone

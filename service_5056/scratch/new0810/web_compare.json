@@ -1,0 +1,14 @@
+{
+ "model_pose.json": [
+  "run_20260810_160056",
+  "v8",
+  43.839,
+  true
+ ],
+ "model_pose_augmented.json": [
+  "run_20260810_160110",
+  "v20",
+  15.644,
+  false
+ ]
+}

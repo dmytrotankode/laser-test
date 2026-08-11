@@ -18,3 +18,16 @@ forms/
 # рабочая папка входа и её бэкап — меняются на каждой съёмке
 service_5056/input/_photos_current_backup/
 05082026_test1/
+
+# Сырьё съёмок — держим на диске, не в git
+Helmet (10.08)/
+
+# Сырьё пробы с лазерной точкой (180 МБ raw + фото пульта); извлечённые координаты
+# лежат в laserdot_1/positions.csv и версионируются отдельно
+laserdot_1/*
+!laserdot_1/positions.csv
+
+# Промежуточные картинки экспериментов - генерируются скриптами рядом
+service_5056/scratch/**/*_contact.png
+service_5056/scratch/**/t2_masks/
+service_5056/scratch/**/masks/

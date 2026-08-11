@@ -313,6 +313,30 @@ def ypr_from_rot(rot):
 NOMINAL_STANDOFF = 10.0
 
 
+def model_file(base_dir, results_dir):
+    """Which pose model this session runs on.
+
+    Normally input/model_pose.json - the shipped library of 14 archive placements. A
+    session may name a different one in its config.json ("model"), which is how the
+    augmented library (14 + v20/v22/v24) is offered in the web UI without replacing the
+    shipped model. Falls back to the default if the named file is missing, so a stale
+    session config can never leave the pipeline without constants.
+    """
+    name = 'model_pose.json'
+    cfg = os.path.join(results_dir, 'config.json')
+    if os.path.exists(cfg):
+        try:
+            import json as _j
+            with open(cfg, encoding='utf-8') as f:
+                name = _j.load(f).get('model') or name
+        except Exception:
+            pass
+    if os.path.basename(name) != name:          # no path traversal from a config file
+        name = 'model_pose.json'
+    p = os.path.join(base_dir, 'input', name)
+    return p if os.path.exists(p) else os.path.join(base_dir, 'input', 'model_pose.json')
+
+
 def tool_axes(prog, ids):
     """Unit tool +Z at each of the given points. Points AWAY from the part."""
     return np.array([rot_from_ypr(r, p, w).apply([0.0, 0.0, 1.0])

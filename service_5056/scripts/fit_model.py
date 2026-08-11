@@ -173,10 +173,22 @@ def loo_error(names, F, kind, lam, POSE, pivot):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--emit', action='store_true')
+    ap.add_argument('--augment', action='store_true',
+                    help="добавить в библиотеку dataset.AUGMENT (v20, v22, v24) - три "
+                         "набора 07-08.08 с позами, которых в архиве нет. Расходует их "
+                         "независимость, поэтому включается только явно и пишется в "
+                         "ОТДЕЛЬНЫЙ файл модели")
+    ap.add_argument('--out', default=None,
+                    help="куда писать модель (по умолчанию input/model_pose.json, "
+                         "с --augment - input/model_pose_augmented.json)")
     a = ap.parse_args()
 
-    names = dataset.guard_training(dataset.TRAIN)
+    extra = dataset.AUGMENT if a.augment else []
+    names = dataset.guard_training(list(dataset.TRAIN) + list(extra), allow=extra)
     print(f"Обучающая выборка: {len(names)} вариантов -> {len(names) * (len(names) - 1)} пар")
+    if extra:
+        print(f"ДОБОР: {', '.join(extra)} включены в библиотеку намеренно. "
+              f"Проверочными остаются v21, v23, v25.")
     print(f"Held-out ({', '.join(dataset.HELDOUT)}) здесь не читается вообще.\n")
 
     F = features.load(names)
@@ -277,7 +289,8 @@ def main():
                                     pose_vs_anchor=[float(x) for x in POSE[label][(anchor, v)]]
                                     if v != anchor else [0.0] * 6)
                             for v in names})
-        p = os.path.join(BASE, 'input', 'model_pose.json')
+        default = ('model_pose_augmented.json' if a.augment else 'model_pose.json')
+        p = a.out or os.path.join(BASE, 'input', default)
         with open(p, 'w', encoding='utf-8') as f:
             json.dump(out, f, indent=2)
         print(f"Записано в {p}")

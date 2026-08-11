@@ -5,6 +5,9 @@ import argparse
 import numpy as np
 import cv2
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import lsgeom  # noqa: E402
+
 # Variant 1 - dynamic etalon selection (k-NN) among the calibration library. Instead of
 # always rotating one fixed variant's ground_truth.ls, pick whichever archived variant(s)
 # are closest in pixel-feature space to the CURRENT photo, and blend their shape/pose data.
@@ -218,7 +221,7 @@ def main():
     #   * silhouette profile instead of the 8 scalars. Leave-one-variant-out inside TRAIN:
     #     8 scalars 2.11 mm, profile 1.41 mm, against a do-nothing control of 2.17 mm.
     #     The old feature set was, in other words, within 3% of not correcting at all.
-    model_path = os.path.join(base_dir, 'input', 'model_pose.json')
+    model_path = lsgeom.model_file(base_dir, results_dir)
     if not os.path.exists(model_path):
         print(f"Error: missing {model_path} - run scripts/fit_model.py --emit")
         sys.exit(1)

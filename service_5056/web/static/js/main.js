@@ -12,15 +12,38 @@ window.addEventListener('DOMContentLoaded', () => {
         .catch(e => console.error(e));
 });
 
+function currentModel() {
+    const m = document.getElementById('model-select');
+    return m ? m.value : 'model_pose.json';
+}
+
 function startNewSession() {
     const sel = document.getElementById('variant-select');
     const val = sel ? sel.value : 'default';
-    fetch(`/api/start_session?variant=${val}`)
+    const model = currentModel();
+    fetch(`/api/start_session?variant=${val}&model=${model}`)
         .then(r => r.json())
         .then(d => {
             setSession(d.session_id);
             alert("Створено нову сесію: " + d.session_id + " (Варіант: " + val + ")");
         });
+}
+
+function onModelChange() {
+    if (!currentSessionId) { startNewSession(); return; }
+    const sel = document.getElementById('variant-select');
+    fetch('/api/set_variant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: currentSessionId,
+                               variant: sel ? sel.value : 'default',
+                               model: currentModel() })
+    })
+    .then(r => r.json())
+    .then(d => {
+        alert("Бібліотеку поз змінено на: " + d.model +
+              "\nТепер натисніть 'Виконати' в Етапах 4 та 5!");
+    });
 }
 
 function setSession(sid) {
@@ -32,6 +55,8 @@ function setSession(sid) {
         .then(d => {
             const sel = document.getElementById('variant-select');
             if (sel && d.variant) sel.value = d.variant;
+            const m = document.getElementById('model-select');
+            if (m && d.model) m.value = d.model;
         })
         .catch(e => console.error(e));
     // Reset statuses
@@ -50,7 +75,8 @@ function onVariantChange() {
     fetch('/api/set_variant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: currentSessionId, variant: val })
+        body: JSON.stringify({ session_id: currentSessionId, variant: val,
+                               model: currentModel() })
     })
     .then(r => r.json())
     .then(d => {

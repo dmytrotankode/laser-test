@@ -1,0 +1,26 @@
+{
+ "v23|model_pose.json": [
+  "run_20260810_173102",
+  "v12",
+  35.46,
+  true
+ ],
+ "v23|model_pose_augmented.json": [
+  "run_20260810_173116",
+  "v24",
+  12.18,
+  false
+ ],
+ "v25|model_pose.json": [
+  "run_20260810_173130",
+  "v12",
+  16.29,
+  true
+ ],
+ "v25|model_pose_augmented.json": [
+  "run_20260810_173143",
+  "v8",
+  10.564,
+  false
+ ]
+}

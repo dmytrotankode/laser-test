@@ -89,7 +89,7 @@ def main():
         # nozzle paths would mix in that drift as if it were part of the helmet's shape.
         # The nominal standoff is put back at the end, so the exported program still
         # tells the robot to stand off 10 mm. See PLAN.md sections 2 and 4.
-        model_path = os.path.join(base_dir, 'input', 'model_pose.json')
+        model_path = lsgeom.model_file(base_dir, results_dir)
         with open(model_path, 'r', encoding='utf-8') as f:
             model = json.load(f)
         standoff_out = float(model.get("nominal_standoff", lsgeom.NOMINAL_STANDOFF))

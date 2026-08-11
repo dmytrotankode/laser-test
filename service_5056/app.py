@@ -43,9 +43,10 @@ def start_session():
     session_path = os.path.join(RESULTS_DIR, session_id)
     os.makedirs(session_path, exist_ok=True)
     variant = request.args.get('variant', 'default')
+    model = request.args.get('model', 'model_pose.json')
     with open(os.path.join(session_path, 'config.json'), 'w', encoding='utf-8') as f:
-        json.dump({"variant": variant}, f)
-    return jsonify({"session_id": session_id, "variant": variant})
+        json.dump({"variant": variant, "model": model}, f)
+    return jsonify({"session_id": session_id, "variant": variant, "model": model})
 
 @app.route('/api/latest_session')
 def latest_session():
@@ -63,13 +64,14 @@ def set_variant():
     data = request.json or {}
     session_id = data.get('session_id')
     variant = data.get('variant', 'default')
+    model = data.get('model', 'model_pose.json')
     if not session_id:
         return jsonify({"error": "No session_id"}), 400
     session_dir = os.path.join(RESULTS_DIR, session_id)
     os.makedirs(session_dir, exist_ok=True)
     with open(os.path.join(session_dir, 'config.json'), 'w', encoding='utf-8') as f:
-        json.dump({"variant": variant}, f)
-    return jsonify({"status": "success", "variant": variant})
+        json.dump({"variant": variant, "model": model}, f)
+    return jsonify({"status": "success", "variant": variant, "model": model})
 
 @app.route('/api/get_variant')
 def get_variant():
@@ -145,4 +147,6 @@ def api_step05():
 
 if __name__ == '__main__':
     print("Starting High-Precision Service 5056 (3D Safe Zone Pose Fit)...")
-    app.run(host='0.0.0.0', port=5056, debug=False)
+    # Порт можно переопределить через PORT, чтобы поднять второй экземпляр
+    # рядом с рабочим (сравнить две библиотеки поз, не трогая запущенный).
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5056)), debug=False)
