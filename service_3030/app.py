@@ -51,7 +51,18 @@ _cache = {}
 MM_PER_PX = {'back': 0.09, 'left': 0.082, 'top': 0.12}
 
 
+# Съёмки не из архива. Цеховая 05.08 - единственная, где есть и наша программа, и
+# правки оператора поверх неё, и видео самого реза: по ней можно свериться с тем,
+# как линия идёт на самом деле, а не только с тем, как её видно на снимке.
+EXTRA = {
+    'shop_05.08': os.path.abspath(os.path.join(
+        BASE, '..', 'service_5056', 'scratch', 'phys', 'shop_png')),
+}
+
+
 def img_path(variant, view):
+    if variant in EXTRA:
+        return os.path.join(EXTRA[variant], f'{view}.png')
     return os.path.join(ARCHIVE, variant, f'{view}.png')
 
 
@@ -74,10 +85,10 @@ def index():
 @app.route('/api/shots')
 def shots():
     out = []
-    for d in sorted(os.listdir(ARCHIVE),
-                    key=lambda s: (len(s), s)):
-        if not os.path.isdir(os.path.join(ARCHIVE, d)):
-            continue
+    names = [d for d in sorted(os.listdir(ARCHIVE), key=lambda s: (len(s), s))
+             if os.path.isdir(os.path.join(ARCHIVE, d))]
+    names += [k for k in EXTRA if os.path.isdir(EXTRA[k])]
+    for d in names:
         views = [v for v in ('back', 'left', 'top')
                  if os.path.exists(img_path(d, v))]
         if views:

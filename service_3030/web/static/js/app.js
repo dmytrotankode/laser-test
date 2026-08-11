@@ -11,7 +11,7 @@ const S = { img: new Image(), scale: 0.25, ox: 0, oy: 0, lines: null, manual: []
             drag: null, variant: null, view: null, mm: 0.09 };
 
 const $ = id => document.getElementById(id);
-const PARAMS = ['band_lo', 'win', 'jump', 'edge', 'smooth', 'step'];
+const PARAMS = ['band_lo', 'win', 'jump', 'edge', 'smooth', 'step', 'min_depth'];
 const COLORS = { upper: '#38bdf8', center: '#f59e0b', lower: '#22c55e' };
 const NAMES = { upper: 'верхня межа', center: 'дно борозни', lower: 'нижня межа' };
 
@@ -135,10 +135,26 @@ cv.addEventListener('mousedown', e => {
 });
 
 $('draw').addEventListener('click', () => setDrawing(!S.drawing));
+
+// Шаг назад: убирает последнюю поставленную точку. Порядок постановки хранится
+// как есть, поэтому "последняя" - это именно та, которую только что поставили,
+// а не самая правая на снимке.
+function undo() {
+  if (!S.manual.length) return;
+  S.manual.pop();
+  refreshManual();
+  draw();
+}
+$('undo').addEventListener('click', undo);
 window.addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
   if (e.key === 'd' || e.key === 'D' || e.key === 'в' || e.key === 'В') {
     setDrawing(!S.drawing);
+  }
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z' ||
+                                   e.key === 'я' || e.key === 'Я')) {
+    e.preventDefault();
+    undo();
   }
 });
 
