@@ -12,8 +12,10 @@ const S = { img: new Image(), scale: 0.25, ox: 0, oy: 0, lines: null, manual: []
 
 const $ = id => document.getElementById(id);
 const PARAMS = ['band_lo', 'win', 'jump', 'edge', 'smooth', 'step', 'min_depth'];
-const COLORS = { upper: '#38bdf8', center: '#f59e0b', lower: '#22c55e' };
-const NAMES = { upper: 'верхня межа', center: 'дно борозни', lower: 'нижня межа' };
+const COLORS = { upper: '#38bdf8', center: '#f59e0b', lower: '#22c55e',
+                 edge_lo: '#c084fc' };
+const NAMES = { upper: 'верхня межа', center: 'дно борозни', lower: 'нижня межа',
+                edge_lo: 'край напливу' };
 
 function status(t) { $('status').textContent = t || ''; }
 
@@ -60,7 +62,7 @@ function draw() {
   ctx.drawImage(S.img, S.ox, S.oy, S.img.width * S.scale, S.img.height * S.scale);
 
   if (S.lines) {
-    for (const key of ['upper', 'center', 'lower']) {
+    for (const key of ['upper', 'center', 'lower', 'edge_lo']) {
       if (!$('c_' + key).checked) continue;
       ctx.strokeStyle = COLORS[key];
       ctx.lineWidth = 1.6;
@@ -175,7 +177,7 @@ cv.addEventListener('mousemove', e => {
   let extra = '';
   if (S.lines) {
     const i = S.lines.x.findIndex(x => x >= ix);
-    if (i > 0) extra = ['upper', 'center', 'lower']
+    if (i > 0) extra = ['upper', 'center', 'lower', 'edge_lo']
       .map(k => `${k[0]}:${Math.round(S.lines[k][i])}`).join('  ');
   }
   $('hud').textContent = `x ${Math.round(ix)}  y ${Math.round(iy)}   ` +

@@ -19,10 +19,8 @@ import cv2
 from flask import Flask, jsonify, request, send_file, render_template
 
 import detect
+from shots import BASE, ARCHIVE, LINES, EXTRA, MM_PER_PX, img_path
 
-BASE = os.path.dirname(os.path.abspath(__file__))
-ARCHIVE = os.path.abspath(os.path.join(BASE, '..', 'service_5056', 'input', 'archive'))
-LINES = os.path.join(BASE, 'data', 'lines')
 os.makedirs(LINES, exist_ok=True)
 
 app = Flask(__name__, template_folder='web/templates', static_folder='web/static')
@@ -44,26 +42,6 @@ def no_cache(resp):
 
 
 _cache = {}
-
-# Масштаб кадра. Мера в миллиметрах приблизительная и нужна только чтобы
-# понимать порядок ошибки: реальный масштаб разный по камерам (~0.08 / 0.09 /
-# 0.12 мм на пиксель, PLAN B9) и зависит от расстояния до участка.
-MM_PER_PX = {'back': 0.09, 'left': 0.082, 'top': 0.12}
-
-
-# Съёмки не из архива. Цеховая 05.08 - единственная, где есть и наша программа, и
-# правки оператора поверх неё, и видео самого реза: по ней можно свериться с тем,
-# как линия идёт на самом деле, а не только с тем, как её видно на снимке.
-EXTRA = {
-    'shop_05.08': os.path.abspath(os.path.join(
-        BASE, '..', 'service_5056', 'scratch', 'phys', 'shop_png')),
-}
-
-
-def img_path(variant, view):
-    if variant in EXTRA:
-        return os.path.join(EXTRA[variant], f'{view}.png')
-    return os.path.join(ARCHIVE, variant, f'{view}.png')
 
 
 def load(variant, view):
@@ -180,7 +158,7 @@ def compare():
     inside = (xs >= px.min()) & (xs <= px.max()) & ok
     mm = MM_PER_PX.get(view, 0.09)
     out = {}
-    for name in ('upper', 'center', 'lower'):
+    for name in ('upper', 'center', 'lower', 'edge_lo'):
         y = np.array(res[name], float)
         d = y[inside] - np.interp(xs[inside], px, py)
         if len(d) == 0:

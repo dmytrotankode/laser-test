@@ -2,12 +2,18 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "service3030",
-      "runtimeExecutable": "C:/Art/Ai projects/Laser2/service_5056/venv/Scripts/python.exe",
-      "runtimeArgs": ["C:/Art/Ai projects/Laser2/service_3030/app.py"],
-      "cwd": "C:/Art/Ai projects/Laser2/service_3030",
-      "port": 3031,
-      "env": {"PORT": "3031"}
+      "name": "service_2020",
+      "runtimeExecutable": "../service_5056/venv/Scripts/python.exe",
+      "runtimeArgs": ["app.py"],
+      "cwd": "service_2020",
+      "port": 2020
+    },
+    {
+      "name": "laserdot_2_mark",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8091"],
+      "cwd": "laserdot_2",
+      "port": 8091
     }
   ]
 }

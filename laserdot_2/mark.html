@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Разметка маркерных точек</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #1b1b1b; color: #eee; font-family: system-ui, sans-serif; overflow: hidden; }
+  #wrap { display: flex; height: 100%; }
+  #stage { flex: 1; position: relative; overflow: hidden; cursor: crosshair; background: #111; }
+  #canvas { position: absolute; top: 0; left: 0; transform-origin: 0 0; image-rendering: pixelated; }
+  #side { width: 300px; background: #232323; padding: 10px; overflow-y: auto; box-sizing: border-box; }
+  #side h2 { font-size: 15px; margin: 4px 0 8px; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 10px; }
+  .tabs button { flex: 1; padding: 6px 0; background: #333; color: #eee; border: 1px solid #555; cursor: pointer; }
+  .tabs button.active { background: #4a7; color: #111; font-weight: bold; }
+  #list { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+  #list li { padding: 3px 4px; display: flex; justify-content: space-between; border-bottom: 1px solid #333; }
+  #list li:hover { background: #333; }
+  #list button { background: #833; color: #fff; border: none; cursor: pointer; padding: 1px 6px; }
+  #hint { font-size: 12px; color: #aaa; margin: 8px 0; line-height: 1.4; }
+  #exportBtn, #clearBtn { width: 100%; margin-top: 8px; padding: 8px; background: #4a7; border: none; cursor: pointer; font-weight: bold; }
+  #clearBtn { background: #a44; margin-top: 4px; }
+  #status { font-size: 12px; color: #9c9; margin-top: 6px; min-height: 16px; }
+  .marker-label { position: absolute; color: #0f0; font-size: 13px; font-weight: bold; pointer-events: none; text-shadow: 0 0 3px #000, 0 0 3px #000; }
+  #zoomInfo { position: absolute; bottom: 8px; left: 8px; font-size: 12px; color: #ccc; background: #0008; padding: 3px 8px; border-radius: 4px; }
+  #numInput { position: absolute; z-index: 10; width: 60px; font-size: 16px; padding: 2px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="stage">
+    <img id="canvas" draggable="false">
+    <div id="zoomInfo"></div>
+  </div>
+  <div id="side">
+    <h2>Ракурс</h2>
+    <div class="tabs">
+      <button data-view="top">top</button>
+      <button data-view="back">back</button>
+      <button data-view="left">left</button>
+    </div>
+    <div id="hint">
+      Колесо мыши — зум к курсору.<br>
+      Перетаскивание правой кнопкой — пан.<br>
+      Клик левой — новая точка, введите номер и Enter.<br>
+      Esc — отменить ввод номера.
+    </div>
+    <h2>Точки на этом ракурсе (<span id="count">0</span>)</h2>
+    <ul id="list"></ul>
+    <button id="exportBtn">Экспортировать всё (JSON)</button>
+    <button id="clearBtn">Очистить текущий ракурс</button>
+    <div id="status"></div>
+  </div>
+</div>
+<script>
+const FILES = {
+  top:  "Image_20260818180514347_w4096_h3000_pMono8.png",
+  back: "Image_20260818180629051_w4096_h3000_pMono8.png",
+  left: "Image_20260818180753043_w4096_h3000_pMono8.png",
+};
+
+const STORE_KEY = "marker_points_v1";
+let data = JSON.parse(localStorage.getItem(STORE_KEY) || '{"top":[],"back":[],"left":[]}');
+
+let view = "top";
+let scale = 1, offX = 0, offY = 0;
+let imgEl = document.getElementById("canvas");
+let stage = document.getElementById("stage");
+let panning = false, panStartX, panStartY, offStartX, offStartY;
+
+function save() { localStorage.setItem(STORE_KEY, JSON.stringify(data)); }
+
+function loadView(v) {
+  view = v;
+  document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("active", b.dataset.view === v));
+  imgEl.src = FILES[v];
+  imgEl.onload = () => { fitToStage(); renderMarkers(); renderList(); };
+}
+
+function fitToStage() {
+  const sw = stage.clientWidth, sh = stage.clientHeight;
+  const iw = imgEl.naturalWidth, ih = imgEl.naturalHeight;
+  scale = Math.min(sw / iw, sh / ih) * 0.95;
+  offX = (sw - iw * scale) / 2;
+  offY = (sh - ih * scale) / 2;
+  applyTransform();
+}
+
+function applyTransform() {
+  imgEl.style.transform = `translate(${offX}px, ${offY}px) scale(${scale})`;
+  document.getElementById("zoomInfo").textContent =
+    `${view} — ${(scale * 100).toFixed(0)}%  (${imgEl.naturalWidth}x${imgEl.naturalHeight})`;
+}
+
+function stageToImg(sx, sy) {
+  return { x: (sx - offX) / scale, y: (sy - offY) / scale };
+}
+function imgToStage(ix, iy) {
+  return { x: ix * scale + offX, y: iy * scale + offY };
+}
+
+stage.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const rect = stage.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const before = stageToImg(mx, my);
+  const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+  scale *= factor;
+  scale = Math.max(0.05, Math.min(scale, 20));
+  const afterX = before.x * scale + offX;
+  const afterY = before.y * scale + offY;
+  offX += mx - afterX;
+  offY += my - afterY;
+  applyTransform();
+  renderMarkers();
+}, { passive: false });
+
+stage.addEventListener("contextmenu", (e) => e.preventDefault());
+stage.addEventListener("mousedown", (e) => {
+  if (e.button === 2) {
+    panning = true;
+    panStartX = e.clientX; panStartY = e.clientY;
+    offStartX = offX; offStartY = offY;
+  }
+});
+window.addEventListener("mousemove", (e) => {
+  if (panning) {
+    offX = offStartX + (e.clientX - panStartX);
+    offY = offStartY + (e.clientY - panStartY);
+    applyTransform();
+    renderMarkers();
+  }
+});
+window.addEventListener("mouseup", (e) => { if (e.button === 2) panning = false; });
+
+stage.addEventListener("click", (e) => {
+  if (e.button !== 0) return;
+  const rect = stage.getBoundingClientRect();
+  const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+  const p = stageToImg(sx, sy);
+  askNumber(sx, sy, p.x, p.y);
+});
+
+function askNumber(sx, sy, ix, iy) {
+  const inp = document.createElement("input");
+  inp.id = "numInput";
+  inp.type = "text";
+  inp.style.left = sx + "px";
+  inp.style.top = sy + "px";
+  stage.appendChild(inp);
+  inp.focus();
+  let finished = false;
+  function done(commit) {
+    if (finished) return;
+    finished = true;
+    if (commit && inp.value.trim() !== "") {
+      const num = inp.value.trim();
+      data[view].push({ point: num, x: Math.round(ix * 100) / 100, y: Math.round(iy * 100) / 100 });
+      save();
+      renderMarkers();
+      renderList();
+      setStatus(`точка ${num} добавлена: x=${ix.toFixed(0)} y=${iy.toFixed(0)}`);
+    }
+    inp.remove();
+  }
+  inp.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") done(true);
+    if (ev.key === "Escape") done(false);
+  });
+  inp.addEventListener("blur", () => done(true));
+}
+
+function setStatus(msg) {
+  document.getElementById("status").textContent = msg;
+}
+
+function renderMarkers() {
+  document.querySelectorAll(".marker, .marker-label").forEach(el => el.remove());
+  (data[view] || []).forEach((pt, idx) => {
+    const s = imgToStage(pt.x, pt.y);
+    const dot = document.createElement("div");
+    dot.className = "marker";
+    dot.style.position = "absolute";
+    dot.style.left = (s.x - 6) + "px";
+    dot.style.top = (s.y - 6) + "px";
+    dot.style.width = "12px";
+    dot.style.height = "12px";
+    dot.style.border = "2px solid #f33";
+    dot.style.borderRadius = "50%";
+    dot.style.pointerEvents = "none";
+    stage.appendChild(dot);
+    const lbl = document.createElement("div");
+    lbl.className = "marker-label";
+    lbl.textContent = pt.point;
+    lbl.style.left = (s.x + 8) + "px";
+    lbl.style.top = (s.y - 10) + "px";
+    stage.appendChild(lbl);
+  });
+}
+
+function renderList() {
+  const ul = document.getElementById("list");
+  ul.innerHTML = "";
+  (data[view] || []).forEach((pt, idx) => {
+    const li = document.createElement("li");
+    li.innerHTML = `<span>#${pt.point}  x=${pt.x.toFixed(0)} y=${pt.y.toFixed(0)}</span>`;
+    const btn = document.createElement("button");
+    btn.textContent = "x";
+    btn.onclick = () => { data[view].splice(idx, 1); save(); renderMarkers(); renderList(); };
+    li.appendChild(btn);
+    ul.appendChild(li);
+  });
+  document.getElementById("count").textContent = (data[view] || []).length;
+}
+
+document.querySelectorAll(".tabs button").forEach(b => {
+  b.addEventListener("click", () => loadView(b.dataset.view));
+});
+
+document.getElementById("exportBtn").addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "marker_points_pixels.json";
+  a.click();
+});
+
+document.getElementById("clearBtn").addEventListener("click", () => {
+  if (confirm(`Удалить все точки на ракурсе "${view}"?`)) {
+    data[view] = [];
+    save();
+    renderMarkers();
+    renderList();
+  }
+});
+
+window.addEventListener("resize", () => { applyTransform(); renderMarkers(); });
+
+loadView("top");
+setInterval(renderList, 500);
+</script>
+</body>
+</html>
