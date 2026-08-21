@@ -44,7 +44,14 @@ OUT = os.path.join(BASE, 'out')
 
 
 def export(variant, rim, verts, marks, cams, R0, t0, F_all):
-    fit_model.standoff(variant)
+    # У НОВОГО шлема (первый физический рез, ещё не резался) записанной
+    # программы нет вообще - сравнивать не с чем, и это нормально, не ошибка.
+    # Генерация .LS от этого не зависит (она берёт форму из CAD + позу из фото),
+    # зависит только блок "против записанной" ниже.
+    has_ground_truth = os.path.exists(os.path.join(
+        S5056, 'input', 'archive', variant, 'ground_truth.ls'))
+    if has_ground_truth:
+        fit_model.standoff(variant)
 
     r = least_squares(TC.resid_of(variant, rim, verts, marks, cams, R0, t0, 'contour'),
                       np.r_[np.zeros(6), 12.0], method='lm', max_nfev=900)
@@ -82,13 +89,19 @@ def export(variant, rim, verts, marks, cams, R0, t0, F_all):
     with open(path, 'w', encoding='utf-8') as f:
         f.write(text)
 
+    print(f'{variant}: {path}')
+    print(f'   шаблон {nb} (только текст и углы W/P/R), запас юбки {skirt:.1f} мм')
+
+    if not has_ground_truth:
+        print('   записанной программы нет (новый шлем, ещё не резался) - '
+              'сравнить не с чем, это ожидаемо. Сверить после физического реза.')
+        return path
+
     back = lsgeom.load(path)
     got, _ = lsgeom.cut_surface(back, lsgeom.NOMINAL_STANDOFF)
     own = E.ring(variant, 0.0)
     d = lsgeom.curve_distance(got, own)
     dz = lsgeom.curve_distance(E.ring(nb, 0.0), own)
-    print(f'{variant}: {path}')
-    print(f'   шаблон {nb} (только текст и углы W/P/R), запас юбки {skirt:.1f} мм')
     print(f'   против записанной: среднее {d.mean():.2f}  макс {d.max():.2f}  '
           f'в допуске 2мм {100 * np.mean(d <= 2):.0f}%')
     print(f'   сосед как есть:    среднее {dz.mean():.2f}  макс {dz.max():.2f}  '
@@ -114,7 +127,9 @@ def main(variants):
     every = A.TRAIN + A.CLEAN
     for v in every:
         fit_model.standoff(v)
-    F_all = f5.load(every)
+    # Новый вариант тоже нужен в F_all - fit_model.nearest сравнивает его силуэт
+    # с пулом TRAIN, значит его собственный признак должен быть посчитан тоже.
+    F_all = f5.load(every + [v for v in variants if v not in every])
     for v in variants:
         export(v, rim, verts, marks, cams, R0, t0, F_all)
 
