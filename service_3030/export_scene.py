@@ -120,11 +120,21 @@ def build(variant):
     dst = S.asset_dir(variant)
     foc = json.load(open(E.LASER_CAMS, encoding='utf-8'))
 
+    # Камеры берутся из маркерной калибровки 18.08, если она есть: она считана по
+    # 26 точкам с проверкой исключением 0.2-0.6 мм и независимо подтверждена на
+    # лазерных пятнах 11.08. Старая калибровка по программам остаётся запасной.
     cams = []
-    for view in ('back', 'left'):
-        p = np.load(os.path.join(BASE, 'data', f'cam_{view}.npy'))
-        cams.append(S.camera(view, position=p[3:6], rotation=p[:3],
-                             focal_px=foc[view]['focus'],
+    for view in ('back', 'left', 'top'):
+        mk = os.path.join(BASE, 'data', f'cam_{view}_marker.npy')
+        old = os.path.join(BASE, 'data', f'cam_{view}.npy')
+        if os.path.exists(mk):
+            z = np.load(mk)
+            p, f = z[:6], float(z[6])
+        elif os.path.exists(old):
+            p, f = np.load(old)[:6], foc[view]['focus']
+        else:
+            continue
+        cams.append(S.camera(view, position=p[3:6], rotation=p[:3], focal_px=f,
                              image=photo(variant, view, dst)))
 
     cut = E.ring(variant, 0.0)
