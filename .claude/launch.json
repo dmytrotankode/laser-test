@@ -14,6 +14,13 @@
       "runtimeArgs": ["-m", "http.server", "8091"],
       "cwd": "laserdot_2",
       "port": 8091
+    },
+    {
+      "name": "production_app",
+      "runtimeExecutable": "../service_5056/venv/Scripts/python.exe",
+      "runtimeArgs": ["production_app.py"],
+      "cwd": "service_3030",
+      "port": 3031
     }
   ]
 }
