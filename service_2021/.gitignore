@@ -1,0 +1,5 @@
+data/scenes/*/back.jpg
+data/scenes/*/left.jpg
+data/scenes/*/top.jpg
+data/scenes/*/*.png
+__pycache__/

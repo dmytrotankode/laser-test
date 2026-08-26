@@ -21,6 +21,13 @@
       "runtimeArgs": ["production_app.py"],
       "cwd": "service_3030",
       "port": 3031
+    },
+    {
+      "name": "service_2021",
+      "runtimeExecutable": "../service_5056/venv/Scripts/python.exe",
+      "runtimeArgs": ["app.py"],
+      "cwd": "service_2021",
+      "port": 2021
     }
   ]
 }

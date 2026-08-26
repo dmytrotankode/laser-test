@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>2021 — доводка траектории реза</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:#0b0f16; color:#dbe3ef;
+         font:14px/1.45 -apple-system,Segoe UI,Roboto,sans-serif; overflow:hidden; }
+  #wrap { display:flex; height:100vh; }
+  #side { width:280px; flex:none; padding:12px; overflow:auto;
+          background:#111827; border-right:1px solid #1f2937; }
+  #view { flex:1; position:relative; }
+  canvas { display:block; width:100%; height:100%; }
+  h1 { font-size:15px; margin:0 0 10px; letter-spacing:.02em; }
+  h2 { font-size:12px; text-transform:uppercase; letter-spacing:.08em;
+       color:#7c8aa0; margin:16px 0 6px; font-weight:600; }
+  select, button { width:100%; padding:6px 8px; margin-bottom:6px; border-radius:6px;
+                   background:#1b2432; color:#dbe3ef; border:1px solid #2b3648; }
+  button:hover { background:#243043; cursor:pointer; }
+  button.on { background:#1d4ed8; border-color:#3b6cf6; }
+  label { display:flex; align-items:center; gap:7px; padding:2px 0; cursor:pointer; }
+  .sw { width:11px; height:11px; border-radius:2px; flex:none; }
+  #hint { position:absolute; left:12px; bottom:10px; color:#64748b; font-size:12px; }
+  #hud { position:absolute; right:12px; top:10px; text-align:right; color:#94a3b8;
+         font-size:12px; white-space:pre; }
+  .prow { display:flex; align-items:center; gap:4px; margin-bottom:4px; }
+  .prow b { width:46px; font-weight:600; color:#9fb0c7; font-size:12px; }
+  .prow input { flex:1; width:100%; min-width:0; padding:4px 6px; border-radius:5px;
+                background:#1b2432; color:#dbe3ef; border:1px solid #2b3648;
+                font:12px monospace; text-align:right; }
+  .prow button { width:26px; flex:none; padding:3px 0; margin:0; font-size:13px; }
+  #steps { display:flex; gap:4px; margin:6px 0; }
+  #steps button { margin:0; padding:3px 0; font-size:12px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="side">
+    <h1>Доводка траектории реза</h1>
+    <select id="scenes"></select>
+    <h2>Вид</h2>
+    <button id="reset">Общий вид</button>
+    <div id="cams"></div>
+    <h2>Объекты</h2>
+    <div id="layers"></div>
+    <div id="place" hidden>
+      <h2>Положение модели</h2>
+      <div id="pctl"></div>
+      <div style="display:flex;gap:6px">
+        <button id="psave">Сохранить</button>
+        <button id="preset" style="flex:0 0 40%">Сброс</button>
+      </div>
+      <div id="pmsg" style="color:#7c8aa0;font-size:12px;min-height:16px"></div>
+    </div>
+    <div id="point" hidden>
+      <h2>Точка <span id="ptitle"></span></h2>
+      <div id="pointctl"></div>
+      <div style="display:flex;gap:6px">
+        <button id="ptsave">Сохранить</button>
+        <button id="ptreset" style="flex:0 0 40%">К расчёту</button>
+      </div>
+      <div id="ptmsg" style="color:#7c8aa0;font-size:12px;min-height:16px"></div>
+    </div>
+    <h2>Опоры</h2>
+    <label><input type="checkbox" id="grid" checked> сетка 100 мм</label>
+    <label><input type="checkbox" id="axes" checked> оси станка</label>
+    <label><input type="checkbox" id="photo" checked> фото под камерой</label>
+    <label><input type="checkbox" id="solid"> модель без прозрачности</label>
+  </div>
+  <div id="view">
+    <canvas id="c"></canvas>
+    <div id="hud"></div>
+    <div id="hint">тянуть — вращать · колесо — приблизить · Shift+тянуть — сдвинуть · клик по точке — выбрать</div>
+  </div>
+</div>
+<script src="/static/js/viewer.js"></script>
+</body>
+</html>
