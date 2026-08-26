@@ -19,6 +19,7 @@ let camIndex = -1;          // -1 = свободный обзор, иначе и
 let sel_point = null;        // {cidx, pidx} выбранной точки редактируемой кривой (тонкая правка)
 let group_sel = [];           // [pidx, ...] группа для комплексного сдвига (Shift+клик)
 let camZoom = 1, camPanX = 0, camPanY = 0;   // зум/сдвиг ТОЛЬКО картинки в виде камерой, не самой камеры
+const NOMINAL_STANDOFF = 10.0;               // мм, тот же, что ls_points.NOMINAL_STANDOFF в 2021
 const shown = {};           // имя слоя -> показывать
 const photos = {};          // имя камеры -> Image
 const meshes = {};          // имя меша -> {tris:Float32Array}
@@ -263,6 +264,15 @@ function draw() {
     if (!shown[c.name]) continue;
     ctx.strokeStyle = c.color; ctx.lineWidth = (c.width || 2) * devicePixelRatio * 0.8;
     polyline(c.points, c.closed, pr);
+  }
+  // Путь сопла нашей (редактируемой) линии - НЕ хранится, считается на лету из
+  // текущих точек + их осей (сопло = рез + 10*ось), иначе после правки он бы
+  // молча врал. Формула - см. ls_points.py, NOMINAL_STANDOFF.
+  for (const c of scene.curves || []) {
+    if (!c.editable || !c.axes || !shown['nozzle:' + c.name]) continue;
+    const nozzle = c.points.map((p, i) => [0,1,2].map(k => p[k] + NOMINAL_STANDOFF * c.axes[i][k]));
+    ctx.strokeStyle = '#93c5fd'; ctx.lineWidth = 1 * devicePixelRatio * 0.8;
+    polyline(nozzle, c.closed, pr);
   }
   // Точки редактируемых кривых поверх линии - тронутые и выбранная отдельным
   // цветом, чтобы сразу было видно, где уже правили, а где ещё расчётное.
@@ -512,7 +522,10 @@ async function loadScene(name) {
   view.dist = Math.max(600, 2.2 * Math.max(...[0, 1, 2].map(i => mx[i] - mn[i])));
 
   const layers = document.getElementById('layers'); layers.innerHTML = '';
-  for (const c of scene.curves) layers.appendChild(layerRow(c.name, c.color, c.name));
+  for (const c of scene.curves) {
+    layers.appendChild(layerRow(c.name, c.color, c.name));
+    if (c.editable && c.axes) layers.appendChild(layerRow('путь сопла (живой)', '#93c5fd', 'nozzle:' + c.name));
+  }
   for (const s of scene.points) layers.appendChild(layerRow(s.name, s.color, s.name));
   for (const m of scene.meshes) {
     layers.appendChild(layerRow(m.name, m.color, m.name));
@@ -697,9 +710,16 @@ function buildGroupEditor() {
     draw();
   }
 
+  // Итог с начала этой правки (сбрасывается в 0 при Сохранить/Отменить/смене
+  // выбора) - показывает "на сколько всего сдвинуто/повёрнуто СЕЙЧАС", не
+  // абсолютную координату (для группы точек у неё и нет одного числа).
+  const totals = { rot: [0, 0, 0], t: [0, 0, 0] };
+
   const ctl = document.getElementById('groupctl');
   ctl.innerHTML = '<div style="color:#7c8aa0;font-size:11px;margin-bottom:2px">'
-                + 'шаг на нажатие: градусы / мм</div><div id="gsteps"></div>';
+                + 'шаг на нажатие: градусы / мм</div><div id="gsteps"></div>'
+                + '<div style="color:#7c8aa0;font-size:11px;margin:6px 0 2px">'
+                + 'итог с начала правки (можно вписать число):</div>';
   const stepsBox = ctl.querySelector('#gsteps');
   for (const v of [0.1, 1, 5, 10]) {
     const b = document.createElement('button');
@@ -709,23 +729,39 @@ function buildGroupEditor() {
     stepsBox.appendChild(b);
   }
   const rotRows = [['пов X', [1,0,0]], ['пов Y', [0,1,0]], ['пов Z', [0,0,1]]];
-  for (const [label, axis] of rotRows) {
+  for (const [label, axis, i] of rotRows.map((r, i) => [...r, i])) {
     const row = document.createElement('div');
     row.className = 'prow';
-    row.innerHTML = `<b>${label}</b><button>−</button><input readonly><button>+</button>`;
-    row.querySelector('input').value = '°';
-    row.children[1].onclick = () => rotate(axis.map(a => -a * step));
-    row.children[3].onclick = () => rotate(axis.map(a => a * step));
+    row.innerHTML = `<b>${label}</b><button>−</button><input><button>+</button>`;
+    const inp = row.querySelector('input');
+    const sync = () => { inp.value = totals.rot[i].toFixed(2); };
+    const step_ = (sign) => { rotate(axis.map(a => a * sign * step)); totals.rot[i] += sign * step; sync(); };
+    row.children[1].onclick = () => step_(-1);
+    row.children[3].onclick = () => step_(1);
+    inp.onchange = () => {
+      const target = parseFloat(inp.value) || 0;
+      rotate(axis.map(a => a * (target - totals.rot[i])));
+      totals.rot[i] = target; sync();
+    };
+    sync();
     ctl.appendChild(row);
   }
   const tRows = [['сдв X', [1,0,0]], ['сдв Y', [0,1,0]], ['сдв Z', [0,0,1]]];
-  for (const [label, axis] of tRows) {
+  for (const [label, axis, i] of tRows.map((r, i) => [...r, i])) {
     const row = document.createElement('div');
     row.className = 'prow';
-    row.innerHTML = `<b>${label}</b><button>−</button><input readonly><button>+</button>`;
-    row.querySelector('input').value = 'мм';
-    row.children[1].onclick = () => translate(axis.map(a => -a * step));
-    row.children[3].onclick = () => translate(axis.map(a => a * step));
+    row.innerHTML = `<b>${label}</b><button>−</button><input><button>+</button>`;
+    const inp = row.querySelector('input');
+    const sync = () => { inp.value = totals.t[i].toFixed(2); };
+    const step_ = (sign) => { translate(axis.map(a => a * sign * step)); totals.t[i] += sign * step; sync(); };
+    row.children[1].onclick = () => step_(-1);
+    row.children[3].onclick = () => step_(1);
+    inp.onchange = () => {
+      const target = parseFloat(inp.value) || 0;
+      translate(axis.map(a => a * (target - totals.t[i])));
+      totals.t[i] = target; sync();
+    };
+    sync();
     ctl.appendChild(row);
   }
 
@@ -742,7 +778,7 @@ function buildGroupEditor() {
   };
   document.getElementById('gundo').onclick = () => {
     for (const g of pts) c.points[g.pidx] = (c._saved ? c._saved[g.pidx] : c.points_original[g.pidx]).slice();
-    draw();
+    buildGroupEditor(); draw();
   };
 
   document.getElementById('gsave').onclick = async () => {

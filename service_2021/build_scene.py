@@ -85,11 +85,14 @@ def build(variant, ls_path, cams, photos, reference_path=None):
             cam_objs.append(S.camera(view, position=pos, rotation=rvec,
                                      focal_px=focal, image=img_name))
 
-    nozzle_xyz = [list(p[1]) for p in pts]
+    # Путь сопла НАШЕГО расчёта не хранится отдельной кривой - если бы хранился,
+    # он бы не двигался при правке линии реза во вьювере и стал бы враньём после
+    # первой же правки. Вместо этого viewer.js считает его на лету из ТЕКУЩИХ
+    # точек редактируемой кривой + axes (та же формула: сопло = рез + 10*ось),
+    # он всегда синхронен с тем, что реально видно/правится.
     curve = S.curve(f'линия реза (расчёт, {variant})', cut_xyz, '#3b82f6',
                     closed=True, width=2, editable=True, ids=ids, axes=axes)
-    curves = [curve,
-             S.curve(f'путь сопла (расчёт, {variant})', nozzle_xyz, '#93c5fd', closed=True, width=1)]
+    curves = [curve]
 
     if reference_path:
         curves += reference_curves(reference_path)
