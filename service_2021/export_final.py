@@ -38,14 +38,15 @@ def export(variant):
         raise SystemExit('в сцене нет редактируемой кривой')
     c = editable[0]
 
-    xyz_by_id = {i: tuple(p) for i, p in zip(c['ids'], c['points'])}
+    cut_by_id = {i: tuple(p) for i, p in zip(c['ids'], c['points'])}
+    axis_by_id = {i: tuple(a) for i, a in zip(c['ids'], c['axes'])}
     n_touched = sum(1 for t in c.get('touched', []) if t)
 
     out_path = os.path.join(d, f'{variant}_final.LS')
-    ls_points.write_points(tmpl_path, out_path, xyz_by_id,
+    ls_points.write_points(tmpl_path, out_path, cut_by_id, axis_by_id,
                            new_prog_name=f'CORR_{variant.upper()}')
     print(f'{variant}: {out_path}')
-    print(f'  точек всего {len(xyz_by_id)}, тронуто оператором {n_touched}')
+    print(f'  точек всего {len(cut_by_id)}, тронуто оператором {n_touched}')
 
 
 if __name__ == '__main__':

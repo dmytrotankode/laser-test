@@ -43,12 +43,14 @@ def load_cam(path):
 
 
 def build(variant, ls_path, cams, photos):
-    pts = ls_points.read_points(ls_path)
+    pts = ls_points.read_ring(ls_path)
     if not pts:
         raise SystemExit(f'в {ls_path} не нашлось ни одной точки P[..]{{X=...}}')
     ids = [p[0] for p in pts]
-    xyz = [[p[1], p[2], p[3]] for p in pts]
-    print(f'{variant}: {len(pts)} точек из {os.path.basename(ls_path)}')
+    cut_xyz = [list(p[2]) for p in pts]      # линия РЕЗА, не путь сопла
+    axes = [list(p[3]) for p in pts]
+    print(f'{variant}: {len(pts)} точек из {os.path.basename(ls_path)} '
+          f'(показывается линия реза, отступ {ls_points.NOMINAL_STANDOFF} мм уже вычтен)')
 
     dst = S.asset_dir(variant)
     # исходный .LS - шаблон для финальной сборки, копия рядом со сценой,
@@ -66,8 +68,8 @@ def build(variant, ls_path, cams, photos):
             cam_objs.append(S.camera(view, position=pos, rotation=rvec,
                                      focal_px=focal, image=img_name))
 
-    curve = S.curve(f'линия реза (расчёт, {variant})', xyz, '#3b82f6',
-                    closed=True, width=2, editable=True, ids=ids)
+    curve = S.curve(f'линия реза (расчёт, {variant})', cut_xyz, '#3b82f6',
+                    closed=True, width=2, editable=True, ids=ids, axes=axes)
 
     path = S.write(variant, cameras=cam_objs, curves=[curve],
                    note=f'{variant}: из {os.path.basename(ls_path)}, довести руками')

@@ -31,11 +31,14 @@ def camera(name, position, rotation, focal_px, size=(4096, 3000), image=None):
 
 
 def curve(name, points, color='#2563eb', closed=False, width=2,
-          editable=False, ids=None):
+          editable=False, ids=None, axes=None):
     """`editable` - можно ли править точки по одной в 2021.
 
     `ids` - номер точки в шаблоне .LS (для сборки файла обратно после правки),
     по порядку, тот же индекс, что и в `points`. Обязателен, если editable.
+    `axes` - ось инструмента в каждой точке (тоже по порядку) - нужна, чтобы
+    поправленную точку РЕЗА перевести обратно в точку СОПЛА при сборке файла
+    (points здесь - это уже линия реза, не путь сопла, см. ls_points.py).
     `points_original`/`touched` заполняются автоматически при editable=True:
     именно они хранят "что мы посчитали" отдельно от "что поправил оператор" -
     учиться потом можно только на touched, остальное не значит "верно".
@@ -45,8 +48,11 @@ def curve(name, points, color='#2563eb', closed=False, width=2,
     if editable:
         if ids is None or len(ids) != len(points):
             raise ValueError('editable-кривой нужны ids той же длины, что points')
+        if axes is None or len(axes) != len(points):
+            raise ValueError('editable-кривой нужны axes той же длины, что points')
         out['editable'] = True
         out['ids'] = list(ids)
+        out['axes'] = [[float(x) for x in a] for a in axes]
         out['points_original'] = [[float(x) for x in p] for p in points]
         out['touched'] = [False] * len(points)
     return out

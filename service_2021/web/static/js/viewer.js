@@ -17,6 +17,7 @@ let sceneName = null;
 let view = { yaw: 0.9, pitch: 0.5, dist: 3000, target: [0, 0, 0], fov: 30 };
 let camIndex = -1;          // -1 = свободный обзор, иначе индекс камеры сцены
 let sel_point = null;        // {cidx, pidx} выбранной точки редактируемой кривой
+let camZoom = 1, camPanX = 0, camPanY = 0;   // зум/сдвиг ТОЛЬКО картинки в виде камерой, не самой камеры
 const shown = {};           // имя слоя -> показывать
 const photos = {};          // имя камеры -> Image
 const meshes = {};          // имя меша -> {tris:Float32Array}
@@ -64,8 +65,8 @@ function projector() {
     const cam = scene.cameras[camIndex];
     const R = rodrigues(cam.rotation), C = cam.position;
     const [iw, ih] = cam.size;
-    const k = Math.min(W / iw, H / ih);              // кадр целиком в холст
-    const ox = (W - iw * k) / 2, oy = (H - ih * k) / 2;
+    const k = Math.min(W / iw, H / ih) * camZoom;     // кадр в холст + ручной зум
+    const ox = (W - iw * k) / 2 + camPanX, oy = (H - ih * k) / 2 + camPanY;
     return { fit: { k, ox, oy, iw, ih },
       p: (X) => { const v = mulv(R, sub(X, C));
         return [ox + k * (cam.focal_px * v[0] / v[2] + iw / 2),
@@ -90,6 +91,17 @@ function clipSeg(a, b, pr) {
   const m = [in_[0] + (out[0] - in_[0]) * t, in_[1] + (out[1] - in_[1]) * t,
              in_[2] + (out[2] - in_[2]) * t];
   return A[2] > NEAR ? [A, pr.p(m)] : [pr.p(m), B];
+}
+
+// Ближняя к камере половина кольца - те точки, которые реально видно на фото,
+// не закрыты куполом. В свободном обзоре (camIndex<0) считаем всё видимым.
+// Та же идея, что в python (exp_camera_fit.near_arc): глубина ниже медианной.
+function nearSideMask(c, pr) {
+  if (camIndex < 0) return c.points.map(() => true);
+  const zs = c.points.map(q => pr.p(q)[2]);
+  const sorted = zs.slice().sort((a, b) => a - b);
+  const med = sorted[Math.floor(sorted.length / 2)];
+  return zs.map(z => z < med);
 }
 
 function polyline(pts, closed, pr) {
@@ -253,13 +265,23 @@ function draw() {
   }
   // Точки редактируемых кривых поверх линии - тронутые и выбранная отдельным
   // цветом, чтобы сразу было видно, где уже правили, а где ещё расчётное.
+  // На дальней (самозакрытой куполом) стороне от текущей камеры точки гасим -
+  // их не видно на этом фото, править вслепую по ним нельзя.
   scene.curves.forEach((c, ci) => {
     if (!c.editable || !shown[c.name]) return;
+    const near = nearSideMask(c, pr);
     c.points.forEach((q, pi) => {
       const p = pr.p(q);
       if (p[2] <= 1) return;
       const sel = sel_point && sel_point.cidx === ci && sel_point.pidx === pi;
       const touched = c.touched && c.touched[pi];
+      const far = camIndex >= 0 && !near[pi];
+      if (far && !sel) {
+        ctx.fillStyle = '#3a4252';
+        const r = 2.5 * devicePixelRatio * 0.8;
+        ctx.beginPath(); ctx.arc(p[0], p[1], r, 0, 7); ctx.fill();
+        return;
+      }
       ctx.fillStyle = sel ? '#facc15' : (touched ? '#ef4444' : '#94a3b8');
       const r = (sel ? 6 : (touched ? 4.5 : 3.5)) * devicePixelRatio * 0.8;
       ctx.beginPath(); ctx.arc(p[0], p[1], r, 0, 7); ctx.fill();
@@ -305,7 +327,9 @@ function trySelectPoint(e) {
   let best = null, bestD = 16 * devicePixelRatio;
   scene.curves.forEach((c, ci) => {
     if (!c.editable || !shown[c.name]) return;
+    const near = nearSideMask(c, pr);
     c.points.forEach((q, pi) => {
+      if (!near[pi]) return;               // не видно на этом фото - не выбираем
       const p = pr.p(q);
       if (p[2] <= 1) return;
       const d = Math.hypot(p[0] - mx, p[1] - my);
@@ -362,7 +386,10 @@ addEventListener('mousemove', e => {
   if (!drag) return;
   const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
   drag.x = e.clientX; drag.y = e.clientY;
-  if (camIndex >= 0) return;                          // в режиме камеры вид фиксирован
+  if (camIndex >= 0) {
+    camPanX += dx; camPanY += dy; draw();
+    return;
+  }
   if (drag.sh || e.shiftKey) {
     const { R } = orbitPose(), s = view.dist * 0.0015;
     const right = trmulv(R, [1, 0, 0]), up = trmulv(R, [0, 1, 0]);
@@ -375,7 +402,28 @@ addEventListener('mousemove', e => {
 });
 cv.addEventListener('wheel', e => {
   e.preventDefault();
-  if (camIndex >= 0) return;
+  if (camIndex >= 0) {
+    const rect = cv.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) * devicePixelRatio;
+    const my = (e.clientY - rect.top) * devicePixelRatio;
+    const cam = scene.cameras[camIndex];
+    const [iw, ih] = cam.size;
+    const W = cv.width, H = cv.height;
+    const kBase = Math.min(W / iw, H / ih);
+    const kBefore = kBase * camZoom;
+    const oxBefore = (W - iw * kBefore) / 2 + camPanX;
+    const oyBefore = (H - ih * kBefore) / 2 + camPanY;
+    // точка кадра (в исходных, неотмасштабированных пикселях фото) под курсором
+    const ux = (mx - oxBefore) / kBefore, uy = (my - oyBefore) / kBefore;
+    camZoom *= Math.exp(-e.deltaY * 0.0012);
+    camZoom = Math.max(0.2, Math.min(camZoom, 20));
+    const kAfter = kBase * camZoom;
+    // сдвигаем pan так, чтобы та же точка кадра снова оказалась под курсором
+    camPanX = mx - kAfter * ux - (W - iw * kAfter) / 2;
+    camPanY = my - kAfter * uy - (H - ih * kAfter) / 2;
+    draw();
+    return;
+  }
   view.dist *= Math.exp(e.deltaY * 0.0012);
   draw();
 }, { passive: false });
@@ -424,6 +472,7 @@ async function loadScene(name) {
     b.textContent = 'Взгляд камерой ' + cam.name;
     b.onclick = () => {
       camIndex = camIndex === i ? -1 : i;
+      camZoom = 1; camPanX = 0; camPanY = 0;
       [...cams.children].forEach((x, j) => x.classList.toggle('on', j === camIndex));
       draw();
     };
@@ -539,6 +588,7 @@ function buildPlacement() {
 
 document.getElementById('reset').onclick = () => {
   camIndex = -1;
+  camZoom = 1; camPanX = 0; camPanY = 0;
   [...document.getElementById('cams').children].forEach(x => x.classList.remove('on'));
   if (scene) { view.target = scene._center.slice(); view.yaw = 0.9; view.pitch = 0.5; }
   draw();
