@@ -25,6 +25,7 @@ from flask import Flask, jsonify, render_template, send_from_directory, abort, r
 
 import scene
 import discover
+import export_final
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__, template_folder='web/templates', static_folder='web/static')
@@ -169,6 +170,25 @@ def reset_point(name, cidx, pidx):
     with open(p, 'w', encoding='utf-8') as f:
         json.dump(doc, f, ensure_ascii=False)
     return jsonify(status='reset', point=orig)
+
+
+@app.route('/api/scene/<name>/export', methods=['POST'])
+def export_ls(name):
+    """Собрать финальный .LS из текущих точек и отдать путь + сколько тронуто."""
+    try:
+        out_path, n_total, n_touched = export_final.export(name)
+    except SystemExit as e:
+        return jsonify(error=str(e)), 400
+    return jsonify(status='ok', file=os.path.basename(out_path),
+                   total=n_total, touched=n_touched)
+
+
+@app.route('/download/<name>/<path:filename>')
+def download(name, filename):
+    d = os.path.join(scene.SCENES, name)
+    if not os.path.isdir(d):
+        abort(404)
+    return send_from_directory(d, filename, as_attachment=True)
 
 
 @app.route('/asset/<name>/<path:filename>')

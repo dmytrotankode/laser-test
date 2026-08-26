@@ -47,6 +47,7 @@ def export(variant):
                            new_prog_name=f'CORR_{variant.upper()}')
     print(f'{variant}: {out_path}')
     print(f'  точек всего {len(cut_by_id)}, тронуто оператором {n_touched}')
+    return out_path, len(cut_by_id), n_touched
 
 
 if __name__ == '__main__':

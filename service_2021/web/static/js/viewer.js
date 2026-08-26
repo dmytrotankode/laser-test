@@ -421,13 +421,17 @@ function buildPointEditor() {
         body: JSON.stringify({ xyz: c.points[pi] }) });
     c.touched = c.touched || [];
     c.touched[pi] = true;
+    if (c._saved) c._saved[pi] = c.points[pi].slice();
     document.getElementById('ptmsg').textContent = r.ok ? 'сохранено в scene.json' : 'не сохранилось';
     buildPointEditor(); draw();
   };
   document.getElementById('ptreset').onclick = async () => {
     const r = await fetch(`/api/scene/${sceneName}/curve/${sel_point.cidx}/point/${pi}/reset`,
       { method: 'POST' });
-    if (r.ok) { c.points[pi] = c.points_original[pi].slice(); c.touched[pi] = false; }
+    if (r.ok) {
+      c.points[pi] = c.points_original[pi].slice(); c.touched[pi] = false;
+      if (c._saved) c._saved[pi] = c.points[pi].slice();
+    }
     document.getElementById('ptmsg').textContent = r.ok ? 'возвращено к расчёту' : 'не сохранилось';
     buildPointEditor(); draw();
   };
@@ -541,6 +545,10 @@ async function loadScene(name) {
   }
   buildPlacement();
   group_sel = []; sel_point = null;
+  // Снимок "последнее сохранённое на диске" - для "Отменить" в групповой
+  // правке. НЕ points_original (расчётное) - иначе отмена стёрла бы уже
+  // сохранённые ранее правки, а не только текущий несохранённый сдвиг.
+  for (const c of scene.curves) if (c.editable) c._saved = c.points.map(p => p.slice());
   buildGroupEditor();
   draw();
 }
@@ -664,9 +672,30 @@ function buildGroupEditor() {
     whole ? `вся линия (${pts.length})` : `выбрано ${pts.length} из ${scene.curves[ci].points.length}`;
 
   const c = scene.curves[ci];
-  const centroid = pts.reduce((a, g) => [0,1,2].map(i => a[i] + c.points[g.pidx][i]),
-                             [0,0,0]).map(v => v / pts.length);
-  const delta = { rot: [0, 0, 0], t: [0, 0, 0] };
+
+  // Применяется НЕМЕДЛЕННО к точкам и перерисовывает - как и одиночная точка,
+  // а не копится в отдельной переменной до "Сохранить" (та версия визуально
+  // не двигалась по кнопке, только по нажатию "Сохранить" - баг, отсюда жалоба
+  // "смещение не работает с виду"). "Сохранить" лишь отправляет уже применённое
+  // на сервер, "Отменить всё" возвращает точки группы к исходным.
+  function currentCentroid() {
+    return pts.reduce((a, g) => [0,1,2].map(i => a[i] + c.points[g.pidx][i]),
+                      [0, 0, 0]).map(v => v / pts.length);
+  }
+  function translate(delta) {
+    for (const g of pts) c.points[g.pidx] = [0,1,2].map(i => c.points[g.pidx][i] + delta[i]);
+    draw();
+  }
+  function rotate(rotDeg) {
+    const R = rotFromDeg(rotDeg), cen = currentCentroid();
+    for (const g of pts) {
+      const p = c.points[g.pidx];
+      const rel = [0,1,2].map(i => p[i] - cen[i]);
+      const rot = [0,1,2].map(i => R[i][0]*rel[0] + R[i][1]*rel[1] + R[i][2]*rel[2]);
+      c.points[g.pidx] = [0,1,2].map(i => cen[i] + rot[i]);
+    }
+    draw();
+  }
 
   const ctl = document.getElementById('groupctl');
   ctl.innerHTML = '<div style="color:#7c8aa0;font-size:11px;margin-bottom:2px">'
@@ -679,18 +708,24 @@ function buildGroupEditor() {
     b.onclick = () => { step = v; [...stepsBox.children].forEach(x => x.classList.toggle('on', +x.textContent === step)); };
     stepsBox.appendChild(b);
   }
-  const rows = [['пов X', 'rot', 0, '°'], ['пов Y', 'rot', 1, '°'], ['пов Z', 'rot', 2, '°'],
-                ['сдв X', 't', 0, 'мм'], ['сдв Y', 't', 1, 'мм'], ['сдв Z', 't', 2, 'мм']];
-  for (const [label, field, i] of rows) {
+  const rotRows = [['пов X', [1,0,0]], ['пов Y', [0,1,0]], ['пов Z', [0,0,1]]];
+  for (const [label, axis] of rotRows) {
     const row = document.createElement('div');
     row.className = 'prow';
-    row.innerHTML = `<b>${label}</b><button>−</button><input><button>+</button>`;
-    const inp = row.querySelector('input');
-    const sync = () => { inp.value = delta[field][i].toFixed(2); };
-    row.children[1].onclick = () => { delta[field][i] -= step; sync(); };
-    row.children[3].onclick = () => { delta[field][i] += step; sync(); };
-    inp.onchange = () => { delta[field][i] = parseFloat(inp.value) || 0; sync(); };
-    inp.value = '0.00';
+    row.innerHTML = `<b>${label}</b><button>−</button><input readonly><button>+</button>`;
+    row.querySelector('input').value = '°';
+    row.children[1].onclick = () => rotate(axis.map(a => -a * step));
+    row.children[3].onclick = () => rotate(axis.map(a => a * step));
+    ctl.appendChild(row);
+  }
+  const tRows = [['сдв X', [1,0,0]], ['сдв Y', [0,1,0]], ['сдв Z', [0,0,1]]];
+  for (const [label, axis] of tRows) {
+    const row = document.createElement('div');
+    row.className = 'prow';
+    row.innerHTML = `<b>${label}</b><button>−</button><input readonly><button>+</button>`;
+    row.querySelector('input').value = 'мм';
+    row.children[1].onclick = () => translate(axis.map(a => -a * step));
+    row.children[3].onclick = () => translate(axis.map(a => a * step));
     ctl.appendChild(row);
   }
 
@@ -705,22 +740,18 @@ function buildGroupEditor() {
     document.getElementById('point').hidden = true;
     buildGroupEditor(); draw();
   };
+  document.getElementById('gundo').onclick = () => {
+    for (const g of pts) c.points[g.pidx] = (c._saved ? c._saved[g.pidx] : c.points_original[g.pidx]).slice();
+    draw();
+  };
 
   document.getElementById('gsave').onclick = async () => {
-    const R = rotFromDeg(delta.rot);
-    const payload = pts.map(g => {
-      const p = c.points[g.pidx];
-      const rel = [0,1,2].map(i => p[i] - centroid[i]);
-      const rot = [0,1,2].map(i => R[i][0]*rel[0] + R[i][1]*rel[1] + R[i][2]*rel[2]);
-      const xyz = [0,1,2].map(i => centroid[i] + rot[i] + delta.t[i]);
-      c.points[g.pidx] = xyz;
-      return { pidx: g.pidx, xyz };
-    });
+    const payload = pts.map(g => ({ pidx: g.pidx, xyz: c.points[g.pidx] }));
     const r = await fetch(`/api/scene/${sceneName}/curve/${ci}/points`,
       { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ points: payload }) });
     c.touched = c.touched || [];
-    payload.forEach(p => { c.touched[p.pidx] = true; });
+    payload.forEach(p => { c.touched[p.pidx] = true; c._saved[p.pidx] = p.xyz.slice(); });
     document.getElementById('gmsg').textContent =
       r.ok ? `сохранено, сдвинуто ${payload.length}` : 'не сохранилось';
     buildGroupEditor(); draw();
@@ -740,6 +771,17 @@ function rotFromDeg(rotDeg) {
           [sz*cy, sz*sy*sx + cz*cx, sz*sy*cx - cz*sx],
           [-sy,   cy*sx,            cy*cx]];
 }
+
+document.getElementById('exportls').onclick = async () => {
+  if (!sceneName) return;
+  const msg = document.getElementById('exportmsg');
+  msg.textContent = 'собираю...';
+  const r = await fetch(`/api/scene/${sceneName}/export`, { method: 'POST' });
+  const j = await r.json();
+  if (!r.ok) { msg.textContent = 'ошибка: ' + (j.error || r.status); return; }
+  msg.innerHTML = `готово: <a href="/download/${sceneName}/${j.file}" target="_blank">${j.file}</a>` +
+    ` (точек ${j.total}, тронуто ${j.touched})`;
+};
 
 document.getElementById('reset').onclick = () => {
   camIndex = -1;
