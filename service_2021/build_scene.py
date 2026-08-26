@@ -42,7 +42,7 @@ def load_cam(path):
     return a[:3], a[3:6], float(a[6])
 
 
-def build(variant, ls_path, cams, photos):
+def build(variant, ls_path, cams, photos, reference_path=None):
     pts = ls_points.read_ring(ls_path)
     if not pts:
         raise SystemExit(f'в {ls_path} не нашлось ни одной точки P[..]{{X=...}}')
@@ -70,8 +70,19 @@ def build(variant, ls_path, cams, photos):
 
     curve = S.curve(f'линия реза (расчёт, {variant})', cut_xyz, '#3b82f6',
                     closed=True, width=2, editable=True, ids=ids, axes=axes)
+    curves = [curve]
 
-    path = S.write(variant, cameras=cam_objs, curves=[curve],
+    if reference_path:
+        ref_pts = ls_points.read_ring(reference_path)
+        if ref_pts:
+            ref_xyz = [list(p[2]) for p in ref_pts]
+            curves.append(S.curve(f'эталон ({os.path.basename(reference_path)})',
+                                  ref_xyz, '#22c55e', closed=True, width=2))
+            print(f'  эталон: {os.path.basename(reference_path)}, {len(ref_pts)} точек')
+        else:
+            print(f'  эталон {reference_path}: не нашлось точек, пропускаю')
+
+    path = S.write(variant, cameras=cam_objs, curves=curves,
                    note=f'{variant}: из {os.path.basename(ls_path)}, довести руками')
     print(f'сцена готова: {path}')
     print('открыть: http://localhost:2021')
@@ -87,7 +98,9 @@ if __name__ == '__main__':
     ap.add_argument('--photo-back')
     ap.add_argument('--photo-left')
     ap.add_argument('--photo-top')
+    ap.add_argument('--reference', help='эталонный .LS для этих же фото, если есть')
     a = ap.parse_args()
     build(a.variant, a.ls,
          {'back': a.cam_back, 'left': a.cam_left, 'top': a.cam_top},
-         {'back': a.photo_back, 'left': a.photo_left, 'top': a.photo_top})
+         {'back': a.photo_back, 'left': a.photo_left, 'top': a.photo_top},
+         reference_path=a.reference)

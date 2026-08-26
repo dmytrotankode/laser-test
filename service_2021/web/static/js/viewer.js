@@ -16,7 +16,8 @@ let sceneName = null;
 // растягивается, и это принимают за ошибку геометрии.
 let view = { yaw: 0.9, pitch: 0.5, dist: 3000, target: [0, 0, 0], fov: 30 };
 let camIndex = -1;          // -1 = свободный обзор, иначе индекс камеры сцены
-let sel_point = null;        // {cidx, pidx} выбранной точки редактируемой кривой
+let sel_point = null;        // {cidx, pidx} выбранной точки редактируемой кривой (тонкая правка)
+let group_sel = [];           // [pidx, ...] группа для комплексного сдвига (Shift+клик)
 let camZoom = 1, camPanX = 0, camPanY = 0;   // зум/сдвиг ТОЛЬКО картинки в виде камерой, не самой камеры
 const shown = {};           // имя слоя -> показывать
 const photos = {};          // имя камеры -> Image
@@ -274,8 +275,15 @@ function draw() {
       const p = pr.p(q);
       if (p[2] <= 1) return;
       const sel = sel_point && sel_point.cidx === ci && sel_point.pidx === pi;
+      const inGroup = group_sel.some(g => g.cidx === ci && g.pidx === pi);
       const touched = c.touched && c.touched[pi];
       const far = camIndex >= 0 && !near[pi];
+      if (inGroup) {
+        ctx.fillStyle = '#22d3ee';
+        ctx.beginPath(); ctx.arc(p[0], p[1], 5.5 * devicePixelRatio * 0.8, 0, 7); ctx.fill();
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.2; ctx.stroke();
+        return;
+      }
       if (far && !sel) {
         ctx.fillStyle = '#3a4252';
         const r = 2.5 * devicePixelRatio * 0.8;
@@ -300,9 +308,33 @@ function draw() {
   }
   scene.cameras.forEach((cam, i) => { if (shown['cam:' + cam.name]) drawCamera(cam, i, pr); });
 
-  HUD.textContent = camIndex >= 0
+  let hud = camIndex >= 0
     ? `взгляд камерой ${scene.cameras[camIndex].name}\nфокус ${scene.cameras[camIndex].focal_px.toFixed(0)} px`
     : `свободный обзор\n${scene.frame}, мм`;
+  const rs = refStats();
+  if (rs) hud += `\n\nпротив эталона:\nсреднее ${rs.mean.toFixed(2)} мм, макс ${rs.max.toFixed(2)} мм\nв допуске 2мм: ${rs.pct.toFixed(0)}%`;
+  HUD.textContent = hud;
+}
+
+// Расхождение редактируемой линии с эталонной кривой (если есть) - ближайшая
+// точка эталона к каждой точке нашей линии, не по id (шаблоны разные).
+function refStats() {
+  if (!scene) return null;
+  const edit = scene.curves.find(c => c.editable);
+  const ref = scene.curves.find(c => !c.editable && c.name.startsWith('эталон'));
+  if (!edit || !ref || !ref.points.length) return null;
+  const ds = edit.points.map(q => {
+    let best = Infinity;
+    for (const r of ref.points) {
+      const dd = Math.hypot(q[0]-r[0], q[1]-r[1], q[2]-r[2]);
+      if (dd < best) best = dd;
+    }
+    return best;
+  });
+  const mean = ds.reduce((a,b) => a+b, 0) / ds.length;
+  const max = Math.max(...ds);
+  const pct = 100 * ds.filter(d => d <= 2).length / ds.length;
+  return { mean, max, pct };
 }
 
 // ---------------------------------------------------------------- управление
@@ -313,13 +345,12 @@ cv.addEventListener('mousedown', e => {
 addEventListener('mouseup', e => {
   // Клик почти без движения мыши - выбор точки, а не вращение обзора.
   if (drag && Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 4) {
-    trySelectPoint(e);
+    trySelectPoint(e, e.shiftKey);
   }
   drag = null;
 });
 
-function trySelectPoint(e) {
-  if (!scene) return;
+function findPointAt(e) {
   const rect = cv.getBoundingClientRect();
   const mx = (e.clientX - rect.left) * devicePixelRatio;
   const my = (e.clientY - rect.top) * devicePixelRatio;
@@ -336,8 +367,27 @@ function trySelectPoint(e) {
       if (d < bestD) { bestD = d; best = { cidx: ci, pidx: pi }; }
     });
   });
-  sel_point = best;
-  buildPointEditor();
+  return best;
+}
+
+// Обычный клик - тонкая правка одной точки (сбрасывает групповой выбор).
+// Shift+клик - копится в группу для комплексного сдвига (buildGroupEditor).
+function trySelectPoint(e, shift) {
+  if (!scene) return;
+  const hit = findPointAt(e);
+  if (shift) {
+    if (!hit) return;
+    const i = group_sel.findIndex(g => g.cidx === hit.cidx && g.pidx === hit.pidx);
+    if (i >= 0) group_sel.splice(i, 1); else group_sel.push(hit);
+    sel_point = null;
+    document.getElementById('point').hidden = true;
+    buildGroupEditor();
+  } else {
+    sel_point = hit;
+    group_sel = [];
+    document.getElementById('group').hidden = true;
+    buildPointEditor();
+  }
   draw();
 }
 
@@ -585,6 +635,65 @@ function buildPlacement() {
     buildPlacement(); draw();
   };
 }
+
+function buildGroupEditor() {
+  const box = document.getElementById('group');
+  if (!group_sel.length) { box.hidden = true; return; }
+  box.hidden = false;
+  document.getElementById('gtitle').textContent = `(${group_sel.length})`;
+  const delta = [0, 0, 0];
+  const ctl = document.getElementById('groupctl');
+  ctl.innerHTML = '';
+  const labels = ['X', 'Y', 'Z'];
+  for (let i = 0; i < 3; i++) {
+    const row = document.createElement('div');
+    row.className = 'prow';
+    row.innerHTML = `<b>${labels[i]}</b><button>−</button><input><button>+</button>`;
+    const inp = row.querySelector('input');
+    const sync = () => { inp.value = delta[i].toFixed(2); };
+    row.children[1].onclick = () => { delta[i] -= step; sync(); };
+    row.children[3].onclick = () => { delta[i] += step; sync(); };
+    inp.onchange = () => { delta[i] = parseFloat(inp.value) || 0; sync(); };
+    inp.value = '0.00';
+    ctl.appendChild(row);
+  }
+  document.getElementById('gtotal').textContent =
+    `сдвиг применяется поверх текущих координат каждой точки группы`;
+  document.getElementById('gsave').onclick = async () => {
+    const c = scene.curves[group_sel[0].cidx];
+    const payload = group_sel.map(g => {
+      const xyz = c.points[g.pidx].map((v, i) => v + delta[i]);
+      c.points[g.pidx] = xyz;
+      return { pidx: g.pidx, xyz };
+    });
+    const r = await fetch(`/api/scene/${sceneName}/curve/${group_sel[0].cidx}/points`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ points: payload }) });
+    c.touched = c.touched || [];
+    payload.forEach(p => { c.touched[p.pidx] = true; });
+    document.getElementById('gmsg').textContent =
+      r.ok ? `сохранено, сдвинуто ${payload.length}` : 'не сохранилось';
+    delta[0] = delta[1] = delta[2] = 0;
+    buildGroupEditor(); draw();
+  };
+  document.getElementById('gclear').onclick = () => {
+    group_sel = []; box.hidden = true; draw();
+  };
+}
+
+document.getElementById('gselvis').onclick = () => {
+  if (!scene || !scene.curves.length) return;
+  const c = scene.curves.find(c => c.editable);
+  const ci = scene.curves.indexOf(c);
+  const pr = projector();
+  const near = nearSideMask(c, pr);
+  group_sel = c.points.map((_, pi) => pi)
+    .filter(pi => camIndex < 0 || near[pi])
+    .map(pi => ({ cidx: ci, pidx: pi }));
+  sel_point = null;
+  document.getElementById('point').hidden = true;
+  buildGroupEditor(); draw();
+};
 
 document.getElementById('reset').onclick = () => {
   camIndex = -1;

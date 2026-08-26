@@ -1,6 +1,6 @@
 @echo off
 title Dovodka LS - service_2021
-cd /d "%~dp0service_2021"
+cd /d "%~dp0"
 
 echo Starting server...
 start "Dovodka LS - do not close" "..\service_5056\venv\Scripts\python.exe" app.py

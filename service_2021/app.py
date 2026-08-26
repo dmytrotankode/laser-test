@@ -24,6 +24,7 @@ import json
 from flask import Flask, jsonify, render_template, send_from_directory, abort, request
 
 import scene
+import discover
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__, template_folder='web/templates', static_folder='web/static')
@@ -47,6 +48,10 @@ def index():
 
 @app.route('/api/scenes')
 def scenes():
+    try:
+        discover.scan_and_build()
+    except Exception as e:
+        print(f'discover: пропущено из-за ошибки - {type(e).__name__}: {e}')
     if not os.path.isdir(scene.SCENES):
         return jsonify([])
     out = []
@@ -115,6 +120,38 @@ def set_point(name, cidx, pidx):
     with open(p, 'w', encoding='utf-8') as f:
         json.dump(doc, f, ensure_ascii=False)
     return jsonify(status='saved', point=xyz)
+
+
+@app.route('/api/scene/<name>/curve/<int:cidx>/points', methods=['POST'])
+def set_points_bulk(name, cidx):
+    """Сдвинуть НЕСКОЛЬКО точек разом - групповой сдвиг, не по одной.
+
+    body: {"points": [{"pidx": int, "xyz": [x,y,z]}, ...]}
+    Каждая перечисленная точка помечается тронутой, остальные не трогаются.
+    """
+    p = os.path.join(scene.SCENES, name, 'scene.json')
+    if not os.path.exists(p):
+        abort(404)
+    with open(p, encoding='utf-8') as f:
+        doc = json.load(f)
+    curves = doc.get('curves', [])
+    if cidx >= len(curves) or not curves[cidx].get('editable'):
+        abort(404)
+    c = curves[cidx]
+    c.setdefault('touched', [False] * len(c['points']))
+    d = request.get_json(force=True) or {}
+    saved = []
+    for item in d.get('points', []):
+        pidx = int(item['pidx'])
+        if pidx >= len(c['points']):
+            continue
+        xyz = [float(x) for x in item['xyz']]
+        c['points'][pidx] = xyz
+        c['touched'][pidx] = True
+        saved.append(pidx)
+    with open(p, 'w', encoding='utf-8') as f:
+        json.dump(doc, f, ensure_ascii=False)
+    return jsonify(status='saved', count=len(saved))
 
 
 @app.route('/api/scene/<name>/curve/<int:cidx>/point/<int:pidx>/reset', methods=['POST'])

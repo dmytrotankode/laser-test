@@ -3,3 +3,7 @@ data/scenes/*/left.jpg
 data/scenes/*/top.jpg
 data/scenes/*/*.png
 __pycache__/
+
+# входные файлы для discover.py - тяжёлые, не наши, держим на диске
+incoming/*
+!incoming/.gitkeep
