@@ -42,6 +42,23 @@ def load_cam(path):
     return a[:3], a[3:6], float(a[6])
 
 
+def reference_curves(reference_path):
+    """Эталон - и как линия реза (эталон - сопло минус его же отступ), и как
+    путь сопла (то, что реально записано в файле). Обе нередактируемые."""
+    ref_pts = ls_points.read_ring(reference_path)
+    if not ref_pts:
+        print(f'  эталон {reference_path}: не нашлось точек, пропускаю')
+        return []
+    name = os.path.basename(reference_path)
+    print(f'  эталон: {name}, {len(ref_pts)} точек')
+    return [
+        S.curve(f'эталон, линия реза ({name})', [list(p[2]) for p in ref_pts],
+               '#22c55e', closed=True, width=2),
+        S.curve(f'эталон, путь сопла ({name})', [list(p[1]) for p in ref_pts],
+               '#86efac', closed=True, width=1),
+    ]
+
+
 def build(variant, ls_path, cams, photos, reference_path=None):
     pts = ls_points.read_ring(ls_path)
     if not pts:
@@ -68,19 +85,14 @@ def build(variant, ls_path, cams, photos, reference_path=None):
             cam_objs.append(S.camera(view, position=pos, rotation=rvec,
                                      focal_px=focal, image=img_name))
 
+    nozzle_xyz = [list(p[1]) for p in pts]
     curve = S.curve(f'линия реза (расчёт, {variant})', cut_xyz, '#3b82f6',
                     closed=True, width=2, editable=True, ids=ids, axes=axes)
-    curves = [curve]
+    curves = [curve,
+             S.curve(f'путь сопла (расчёт, {variant})', nozzle_xyz, '#93c5fd', closed=True, width=1)]
 
     if reference_path:
-        ref_pts = ls_points.read_ring(reference_path)
-        if ref_pts:
-            ref_xyz = [list(p[2]) for p in ref_pts]
-            curves.append(S.curve(f'эталон ({os.path.basename(reference_path)})',
-                                  ref_xyz, '#22c55e', closed=True, width=2))
-            print(f'  эталон: {os.path.basename(reference_path)}, {len(ref_pts)} точек')
-        else:
-            print(f'  эталон {reference_path}: не нашлось точек, пропускаю')
+        curves += reference_curves(reference_path)
 
     path = S.write(variant, cameras=cam_objs, curves=curves,
                    note=f'{variant}: из {os.path.basename(ls_path)}, довести руками')

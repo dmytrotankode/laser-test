@@ -54,16 +54,17 @@
       </div>
       <div id="pmsg" style="color:#7c8aa0;font-size:12px;min-height:16px"></div>
     </div>
-    <h2>Групповой сдвиг</h2>
-    <button id="gselvis">Выбрать все видимые здесь</button>
-    <div style="color:#7c8aa0;font-size:11px;margin:2px 0 8px">или Shift+клик по точкам</div>
     <div id="group" hidden>
-      <h2>Группа <span id="gtitle"></span></h2>
+      <h2>Комплексный сдвиг: <span id="gtitle"></span></h2>
+      <div style="display:flex;gap:6px;margin-bottom:6px">
+        <button id="gselall">Вся линия</button>
+        <button id="gselvis">Видимые здесь</button>
+      </div>
+      <div style="color:#7c8aa0;font-size:11px;margin:0 0 6px">или Shift+клик по точкам, чтобы сузить</div>
       <div id="groupctl"></div>
-      <div id="gtotal" style="color:#7c8aa0;font-size:11px;margin-bottom:6px"></div>
       <div style="display:flex;gap:6px">
         <button id="gsave">Сохранить сдвиг</button>
-        <button id="gclear" style="flex:0 0 40%">Очистить выбор</button>
+        <button id="gclear" style="flex:0 0 40%">Сброс выбора</button>
       </div>
       <div id="gmsg" style="color:#7c8aa0;font-size:12px;min-height:16px"></div>
     </div>

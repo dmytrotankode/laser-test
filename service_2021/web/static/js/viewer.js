@@ -384,9 +384,9 @@ function trySelectPoint(e, shift) {
     buildGroupEditor();
   } else {
     sel_point = hit;
-    group_sel = [];
-    document.getElementById('group').hidden = true;
+    group_sel = [];              // группа возвращается к "вся линия", не прячется
     buildPointEditor();
+    buildGroupEditor();
   }
   draw();
 }
@@ -540,6 +540,8 @@ async function loadScene(name) {
     loadMesh(name, m);
   }
   buildPlacement();
+  group_sel = []; sel_point = null;
+  buildGroupEditor();
   draw();
 }
 
@@ -636,64 +638,108 @@ function buildPlacement() {
   };
 }
 
+// По умолчанию (group_sel пуст) область действия - ВСЯ редактируемая линия,
+// не какое-то подмножество. Выбор (Shift+клик, "видимые здесь") сужает область,
+// "Сбросить выбор" возвращает обратно к "вся линия" - это НЕ то же самое, что
+// "ничего не выбрано".
+function activeCurveIndex() {
+  if (!scene) return -1;
+  return scene.curves.findIndex(c => c.editable);
+}
+function activePoints() {
+  const ci = activeCurveIndex();
+  if (ci < 0) return [];
+  if (group_sel.length) return group_sel.filter(g => g.cidx === ci);
+  return scene.curves[ci].points.map((_, pi) => ({ cidx: ci, pidx: pi }));
+}
+
 function buildGroupEditor() {
   const box = document.getElementById('group');
-  if (!group_sel.length) { box.hidden = true; return; }
+  const ci = activeCurveIndex();
+  if (ci < 0) { box.hidden = true; return; }
   box.hidden = false;
-  document.getElementById('gtitle').textContent = `(${group_sel.length})`;
-  const delta = [0, 0, 0];
+  const pts = activePoints();
+  const whole = group_sel.length === 0;
+  document.getElementById('gtitle').textContent =
+    whole ? `вся линия (${pts.length})` : `выбрано ${pts.length} из ${scene.curves[ci].points.length}`;
+
+  const c = scene.curves[ci];
+  const centroid = pts.reduce((a, g) => [0,1,2].map(i => a[i] + c.points[g.pidx][i]),
+                             [0,0,0]).map(v => v / pts.length);
+  const delta = { rot: [0, 0, 0], t: [0, 0, 0] };
+
   const ctl = document.getElementById('groupctl');
-  ctl.innerHTML = '';
-  const labels = ['X', 'Y', 'Z'];
-  for (let i = 0; i < 3; i++) {
+  ctl.innerHTML = '<div style="color:#7c8aa0;font-size:11px;margin-bottom:2px">'
+                + 'шаг на нажатие: градусы / мм</div><div id="gsteps"></div>';
+  const stepsBox = ctl.querySelector('#gsteps');
+  for (const v of [0.1, 1, 5, 10]) {
+    const b = document.createElement('button');
+    b.textContent = v; b.style.flex = '1';
+    b.classList.toggle('on', v === step);
+    b.onclick = () => { step = v; [...stepsBox.children].forEach(x => x.classList.toggle('on', +x.textContent === step)); };
+    stepsBox.appendChild(b);
+  }
+  const rows = [['пов X', 'rot', 0, '°'], ['пов Y', 'rot', 1, '°'], ['пов Z', 'rot', 2, '°'],
+                ['сдв X', 't', 0, 'мм'], ['сдв Y', 't', 1, 'мм'], ['сдв Z', 't', 2, 'мм']];
+  for (const [label, field, i] of rows) {
     const row = document.createElement('div');
     row.className = 'prow';
-    row.innerHTML = `<b>${labels[i]}</b><button>−</button><input><button>+</button>`;
+    row.innerHTML = `<b>${label}</b><button>−</button><input><button>+</button>`;
     const inp = row.querySelector('input');
-    const sync = () => { inp.value = delta[i].toFixed(2); };
-    row.children[1].onclick = () => { delta[i] -= step; sync(); };
-    row.children[3].onclick = () => { delta[i] += step; sync(); };
-    inp.onchange = () => { delta[i] = parseFloat(inp.value) || 0; sync(); };
+    const sync = () => { inp.value = delta[field][i].toFixed(2); };
+    row.children[1].onclick = () => { delta[field][i] -= step; sync(); };
+    row.children[3].onclick = () => { delta[field][i] += step; sync(); };
+    inp.onchange = () => { delta[field][i] = parseFloat(inp.value) || 0; sync(); };
     inp.value = '0.00';
     ctl.appendChild(row);
   }
-  document.getElementById('gtotal').textContent =
-    `сдвиг применяется поверх текущих координат каждой точки группы`;
+
+  document.getElementById('gselall').onclick = () => { group_sel = []; buildGroupEditor(); draw(); };
+  document.getElementById('gselvis').onclick = () => {
+    const pr = projector();
+    const near = nearSideMask(c, pr);
+    group_sel = c.points.map((_, pi) => pi)
+      .filter(pi => camIndex < 0 || near[pi])
+      .map(pi => ({ cidx: ci, pidx: pi }));
+    sel_point = null;
+    document.getElementById('point').hidden = true;
+    buildGroupEditor(); draw();
+  };
+
   document.getElementById('gsave').onclick = async () => {
-    const c = scene.curves[group_sel[0].cidx];
-    const payload = group_sel.map(g => {
-      const xyz = c.points[g.pidx].map((v, i) => v + delta[i]);
+    const R = rotFromDeg(delta.rot);
+    const payload = pts.map(g => {
+      const p = c.points[g.pidx];
+      const rel = [0,1,2].map(i => p[i] - centroid[i]);
+      const rot = [0,1,2].map(i => R[i][0]*rel[0] + R[i][1]*rel[1] + R[i][2]*rel[2]);
+      const xyz = [0,1,2].map(i => centroid[i] + rot[i] + delta.t[i]);
       c.points[g.pidx] = xyz;
       return { pidx: g.pidx, xyz };
     });
-    const r = await fetch(`/api/scene/${sceneName}/curve/${group_sel[0].cidx}/points`,
+    const r = await fetch(`/api/scene/${sceneName}/curve/${ci}/points`,
       { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ points: payload }) });
     c.touched = c.touched || [];
     payload.forEach(p => { c.touched[p.pidx] = true; });
     document.getElementById('gmsg').textContent =
       r.ok ? `сохранено, сдвинуто ${payload.length}` : 'не сохранилось';
-    delta[0] = delta[1] = delta[2] = 0;
     buildGroupEditor(); draw();
   };
   document.getElementById('gclear').onclick = () => {
-    group_sel = []; box.hidden = true; draw();
+    group_sel = []; buildGroupEditor(); draw();
   };
 }
 
-document.getElementById('gselvis').onclick = () => {
-  if (!scene || !scene.curves.length) return;
-  const c = scene.curves.find(c => c.editable);
-  const ci = scene.curves.indexOf(c);
-  const pr = projector();
-  const near = nearSideMask(c, pr);
-  group_sel = c.points.map((_, pi) => pi)
-    .filter(pi => camIndex < 0 || near[pi])
-    .map(pi => ({ cidx: ci, pidx: pi }));
-  sel_point = null;
-  document.getElementById('point').hidden = true;
-  buildGroupEditor(); draw();
-};
+// Матрица поворота Rz*Ry*Rx из градусов - та же формула, что placementMatrix,
+// но без масштаба и переноса (те считаются отдельно, вокруг центроида группы).
+function rotFromDeg(rotDeg) {
+  const [rx, ry, rz] = rotDeg.map(a => a * Math.PI / 180);
+  const cx = Math.cos(rx), sx = Math.sin(rx), cy = Math.cos(ry), sy = Math.sin(ry);
+  const cz = Math.cos(rz), sz = Math.sin(rz);
+  return [[cz*cy, cz*sy*sx - sz*cx, cz*sy*cx + sz*sx],
+          [sz*cy, sz*sy*sx + cz*cx, sz*sy*cx - cz*sx],
+          [-sy,   cy*sx,            cy*cx]];
+}
 
 document.getElementById('reset').onclick = () => {
   camIndex = -1;
