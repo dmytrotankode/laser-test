@@ -1,0 +1,139 @@
+{
+  "threshold_mm": 0.01,
+  "results": {
+    "v1": {
+      "ok": true,
+      "n": 97,
+      "mean_mm": 0.0,
+      "max_mm": 0.0
+    },
+    "v2": {
+      "ok": false,
+      "skipped": true,
+      "reason": "RuntimeError: old pipeline failed for v2:\n\nTraceback (most recent call last):\n  File \"C:\\Art\\Ai projects\\Laser2\\service_3030\\export_cad_ls_contour.py\", line 140, in <module>\n    main(ap.parse_args().variants)\n  File \"C:\\Art\\Ai projects\\Laser2\\service_3030\\export_cad_ls_contour.py\", line 134, in main\n    export(v, rim, verts, marks, cams, R0, t0, F_all)\n  File \"C:\\Art\\Ai projects\\Laser2\\service_3030\\export_cad_ls_contour.py\", line 56, in export\n    r = least_squares(TC.resid_of(variant, rim, verts, marks, cams, R0, t0, 'contour'),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Art\\Ai projects\\Laser2\\service_5056\\venv\\Lib\\site-packages\\scipy\\_lib\\_util.py\", line 660, in inner\n    return func(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Art\\Ai projects\\Laser2\\service_5056\\venv\\Lib\\site-packages\\scipy\\optimize\\_lsq\\least_squares.py\", line 926, in least_squares\n    vector_fun = VectorFunction(\n                 ^^^^^^^^^^^^^^^\n  File \"C:\\Art\\Ai projects\\Laser2\\service_5056\\venv\\Lib\\site-packages\\scipy\\optimize\\_differentiable_functions.py\", line 614, in __init__\n    self._update_fun()\n  File \"C:\\Art\\Ai projects\\Laser2\\service_5056\\venv\\Lib\\site-packages\\scipy\\optimize\\_differentiable_functions.py\", line 707, in _update_fun\n    self.f = self.fun_wrapped(xp_copy(self.x))\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Art\\Ai projects\\Laser2\\service_5056\\venv\\Lib\\site-packages\\scipy\\optimize\\_differentiable_functions.py\", line 424, in __call__\n    return np.atleast_1d(self.fun(x))\n                         ^^^^^^^^^^^\n  File \"C:\\Art\\Ai projects\\Laser2\\service_5056\\venv\\Lib\\site-packages\\scipy\\optimize\\_lsq\\least_squares.py\", line 263, in __call__\n    return self.f(x, *self.args, **self.kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Art\\Ai projects\\Laser2\\service_3030\\exp_top_contour.py\", line 69, in resid\n    d = np.abs(dist_to_polyline(X.resample(marks[variant][w]), E.near_arc(uv, z)))\n                                           ~~~~~^^^^^^^^^\nKeyError: 'v2'\n"
+    },
+    "v3": {
+      "ok": true,
+      "n": 97,
+      "mean_mm": 0.0,
+      "max_mm": 0.0
+    },
+    "v4": {
+      "ok": true,
+      "n": 97,
+      "mean_mm": 0.0,
+      "max_mm": 0.0
+    },
+    "v5": {
+      "ok": true,
+      "n": 97,
+      "mean_mm": 0.0,
+      "max_mm": 0.0
+    },
+    "v6": {
+      "ok": true,
+      "n": 97,
+      "mean_mm": 0.0,
+      "max_mm": 0.0
+    },
+    "v7": {
+      "ok": true,
+      "n": 97,
+      "mean_mm": 0.0,
+      "max_mm": 0.0
+    },
+    "v8": {
+      "ok": true,
+      "n": 97,
+      "mean_mm": 0.0,
+      "max_mm": 0.0
+    },
+    "v9": {
+      "ok": true,
+      "n": 97,
+      "mean_mm": 0.0,
+      "max_mm": 0.0
+    },
+    "v10": {
+      "ok": true,
+      "n": 97,
+      "mean_mm": 0.0,
+      "max_mm": 0.0
+    },
+    "v11": {
+      "ok": true,
+      "n": 97,
+      "mean_mm": 0.0,
+      "max_mm": 0.0
+    },
+    "v12": {
+      "ok": true,
+      "n": 97,
+      "mean_mm": 0.0,
+      "max_mm": 0.0
+    },
+    "v13": {
+      "ok": true,
+      "n": 97,
+      "mean_mm": 0.0,
+      "max_mm": 0.0
+    },
+    "v14": {
+      "ok": true,
+      "n": 97,
+      "mean_mm": 0.0,
+      "max_mm": 0.0
+    },
+    "v15": {
+      "ok": true,
+      "n": 97,
+      "mean_mm": 0.0,
+      "max_mm": 0.0
+    },
+    "v16": {
+      "ok": true,
+      "n": 97,
+      "mean_mm": 0.0,
+      "max_mm": 0.0
+    },
+    "v20": {
+      "ok": true,
+      "n": 97,
+      "mean_mm": 0.0,
+      "max_mm": 0.0
+    },
+    "v21": {
+      "ok": true,
+      "n": 97,
+      "mean_mm": 0.0,
+      "max_mm": 0.0
+    },
+    "v22": {
+      "ok": true,
+      "n": 97,
+      "mean_mm": 0.0,
+      "max_mm": 0.0
+    },
+    "v23": {
+      "ok": true,
+      "n": 97,
+      "mean_mm": 0.0,
+      "max_mm": 0.0
+    },
+    "v24": {
+      "ok": true,
+      "n": 97,
+      "mean_mm": 0.0,
+      "max_mm": 0.0
+    },
+    "v25": {
+      "ok": true,
+      "n": 97,
+      "mean_mm": 0.0,
+      "max_mm": 0.0
+    }
+  },
+  "tested_ok": true,
+  "n_tested": 21,
+  "n_skipped": 1
+}

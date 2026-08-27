@@ -32,6 +32,130 @@ Any file this service reads from another service (a `.LS`, a `.npy`, a photo)
 is copied into `data/scenes/<variant>/` at build time — after that, this
 service never touches the original again.
 
+**As of 2026-08-27 this rule also covers the computation itself.** The
+generation pipeline that used to live in `service_3030`/`service_5056`
+(camera-fit optimizer, k-NN neighbor selection, segmentation) has been
+vendored into `pipeline/`, with its own copies of the input data in
+`calib/`/`archive/`/`lines/`. `service_3030`, `service_5056`, `service_2020`,
+and `laserdot_2` are **frozen, not deleted** — their code and history stay on
+disk/in git for reference, but nothing here imports or runs them anymore, and
+they should not be developed further. See "The computation pipeline" below.
+
+## The computation pipeline (`pipeline/`, `calib/`, `archive/`, `lines/`)
+
+This is a vendored, verified port of `service_3030/export_cad_ls_contour.py`
+(the best-known method as of the port date) — same algorithm, same numbers,
+just no longer importing another service's code. **Numerically verified**:
+`calib/parity_report_2026-08-27.json` compares this pipeline's output against
+the untouched old one for every archive variant that has a recorded program —
+21 of 22 matched to exactly 0.0mm (the 22nd, `v2`, has no manual line marks in
+either pipeline and was never a valid target — not a bug). Re-run the check
+with `python -m pipeline.parity_check <variants...>` from `service_2021/` if
+you ever touch a file in `pipeline/`.
+
+```
+pipeline/
+├── geometry.py        ICP, cut_surface, fit_standoff, tool_axes — the
+│                       optimizer/training math (from lsgeom.py). Deliberately
+│                       SEPARATE from ../ls_points.py: that one is the
+│                       viewer's naive/robust parser for ANY .LS (including
+│                       operator-corrected ones this pipeline never produced);
+│                       this one does ICP shape-alignment and traversal-order
+│                       parsing that the viewer has no reason to need. Both
+│                       independently implement the same W/R-swapped tool-axis
+│                       convention — that duplication is intentional, not an
+│                       oversight (see ls_points.py's own docstring).
+├── ls_template.py     Regex substitution of X/Y/Z into a neighbor's .LS text;
+│                       computes the Fanuc-safe program name ONCE and uses it
+│                       for both the file name and the in-file /PROG field
+│                       (they must match or the controller refuses to load it).
+├── mesh_rim.py         Loads the reference STL, extracts its bottom rim (a
+│                       real geometric edge-angle feature) and its full unique
+│                       vertex set (used for a silhouette bounding-box check).
+├── camera_model.py     Pinhole projection, near-side arc selection, and the
+│                       signed point-to-polyline distance for line-mark
+│                       residuals. Pure math, no I/O.
+├── segmentation.py     rembg-based silhouette segmentation. Isolated on
+│                       purpose — it's the most fragile external dependency
+│                       (model download, onnxruntime), so "did segmentation
+│                       change" is always a one-file diff against this module.
+├── features.py         Pixel features (centroid + radial silhouette profile)
+│                       per variant, cached to calib/_features_cache.json.
+├── line_marks.py        Reads manual fold-line marks from ../lines/*.json.
+├── contour_fit.py       THE ALGORITHM: builds the residual function for
+│                       scipy.optimize.least_squares (line-mark distance +
+│                       silhouette bounding-box + top-view contour distance).
+│                       FOLD_RADIAL/FOLD_UP are passed in from the recipe, not
+│                       hardcoded, so a recipe can pin a different measured
+│                       offset for comparison without editing this file.
+├── neighbor.py          k-NN neighbor selection + per-variant standoff
+│                       fitting. Does NOT include the ridge-regression model
+│                       (fit_model.py's W_calib) — verified by reading
+│                       export_cad_ls_contour.py that the production method
+│                       never uses it at all; only `standoff`/`nearest` are
+│                       on the hot path.
+├── cad_placement.py     Loads a frozen CAD-to-machine registration from
+│                       calib/cad_placement/<name>/ (replaces a live read of
+│                       service_2020's scene.json), via the existing
+│                       scene.placement_matrix() already in ../scene.py.
+├── generate.py           THE ENTRY POINT: generate(variant, recipe_name) ->
+│                       (path, report). Everything else in pipeline/ is a
+│                       building block this one assembles.
+└── parity_check.py      Runs both pipelines on the same inputs and diffs the
+                        result via ../ls_points.read_ring() — see above.
+```
+
+### Versioned calibrations/models + the recipe file
+
+`calib/` holds versioned artifacts, never overwritten in place — a new
+calibration run, a new neighbor-library selection, or a new CAD registration
+each gets its own dated/named subfolder next to the old one, with a
+`meta.json` recording what it is and where it came from:
+
+```
+calib/
+├── cameras/<name>/{cam_back,cam_left,cam_top}.npy + meta.json
+├── cad_placement/<name>/placement.json + meta.json
+├── libraries/<name>/variants.json + meta.json   (k-NN neighbor pool)
+├── ridge_models/                                 (optional, not on the hot path)
+└── recipes/<name>.json
+```
+
+A **recipe** ties one of each together for a single generation run, plus the
+physical constants, so the whole configuration that produced a given `.LS` is
+one small, readable file:
+
+```json
+{
+  "name": "production_2026-08-27",
+  "camera_calibration": "marker_2026-08-21",
+  "cad_placement": "v1_2026-08-27",
+  "neighbor_library": "all_variants_2026-08",
+  "constants": {"fold_radial_mm": -2.17, "fold_up_mm": 0.68, "nominal_standoff_mm": 10.0},
+  "feature_kind": "prof"
+}
+```
+
+**To test a new camera calibration or a restricted training library against
+the current one**: drop the new calibration `.npy`s (or a new
+`libraries/<name>/variants.json`) in their own named folder, copy
+`recipes/production_2026-08-27.json` to a new name pointing at it, and run
+`generate()` once per recipe for the same variant. Attach one result as a
+reference on the other via the *existing* `attach_reference.py` — the
+viewer's `эталон` comparison in `viewer.js::refStats()` doesn't care what
+produced either curve, so the HUD's mean/max/%-in-tolerance numbers just work
+as an A/B comparison with no new UI code.
+
+### Known gap: brand-new, never-photographed helmets
+
+`generate()` reads photos from `archive/<variant>/` and line marks from
+`lines/<variant>_{back,left}.json` — both must already exist. There is
+currently no vendored way to mark a NEW helmet's fold line (that tool,
+`service_3030/app.py`, has not been ported — see "Future ideas"), so a
+genuinely new variant still needs that old tool, and its photos still need to
+be placed into `archive/<variant>/` by hand. This is a known, deliberate gap,
+not an oversight.
+
 ## Key domain facts (don't relearn these)
 
 - **`.LS` stores the NOZZLE path, not the cut line.** Cut line =
@@ -129,7 +253,7 @@ Two ways:
    fixed `incoming/` naming.
 
 Camera calibration currently used for production variants (v21–v26) is the
-marker-based one: `service_3030/data/cam_{back,left,top}_marker.npy`.
+marker-based one, now at `calib/cameras/marker_2026-08-21/`.
 
 ## Group (bulk) edit math, if touching `buildGroupEditor()` in viewer.js
 

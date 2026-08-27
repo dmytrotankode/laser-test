@@ -1,0 +1,16 @@
+{
+  "name": "production_2026-08-27",
+  "created": "2026-08-27",
+  "description": "Consolidation baseline: port of service_3030/export_cad_ls_contour.py as of 2026-08-27. Verified against the old pipeline in calib/parity_report_2026-08-27.json - 21/21 testable variants matched to exactly 0.0mm (v2 skipped in both pipelines, no manual line marks ever existed for it).",
+  "camera_calibration": "marker_2026-08-21",
+  "cad_placement": "v1_2026-08-27",
+  "neighbor_library": "all_variants_2026-08",
+  "ridge_model": null,
+  "constants": {
+    "fold_radial_mm": -2.17,
+    "fold_up_mm": 0.68,
+    "nominal_standoff_mm": 10.0
+  },
+  "segmentation_backend": "rembg",
+  "feature_kind": "prof"
+}

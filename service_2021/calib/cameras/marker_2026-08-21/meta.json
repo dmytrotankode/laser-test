@@ -1,0 +1,7 @@
+{
+  "created": "2026-08-27",
+  "method": "marker-based ray-intersection calibration (exp_marker_calib.py), fixed focal lengths per camera, fit from laser-dot marker survey",
+  "source": "vendored from service_3030/data/cam_{back,left,top}_marker.npy on 2026-08-27, unchanged bytes",
+  "format": "[rvec(3), position(3), focal_px] as float64, numpy.save",
+  "notes": "production calibration in use since before the service_2021 consolidation. Re-run exp_marker_calib.py (service_3030) and add a new dated folder here if the physical camera rig ever moves."
+}

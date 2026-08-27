@@ -1,0 +1,6 @@
+{
+  "created": "2026-08-27",
+  "method": "mirrors service_5056/scripts/dataset.py TRAIN (minus v2, per service_3030/exp_all_methods.py's exclusion) for the neighbor pool, plus dataset.CLEAN (v6/v13/v20/v21/v24/v25) for the feature-normalization pool",
+  "source": "frozen at consolidation time (2026-08-27) from service_3030/exp_all_methods.py's TRAIN/CLEAN and service_5056/scripts/dataset.py's TRAIN/HELDOUT/BLIND",
+  "notes": "v2 is excluded from the neighbor pool deliberately (see exp_all_methods.py) though it is in dataset.TRAIN. This is the production baseline library referenced by calib/recipes/production_2026-08-27.json - do not edit in place; create a new named library folder for any different variant selection (e.g. a single-mould subset)."
+}

@@ -1,0 +1,6 @@
+{
+  "created": "2026-08-27",
+  "method": "manual CAD-to-machine placement, set by hand in service_2020's viewer against variant v1 (the master helmet)",
+  "source": "vendored from service_2020/data/scenes/v1/scene.json's meshes[0].placement on 2026-08-27",
+  "notes": "Fixed, one-time registration of the CAD model to UFRAME2 machine coordinates. Used by pipeline/contour_fit.py as the optimizer's starting pose (R0, t0) for every variant, not recomputed per run. Only needs a new dated folder here if the CAD model or its machine-frame registration is redone from scratch."
+}

@@ -1,8 +1,9 @@
-"""Сервис 2021: доводка траектории реза руками, поверх расчёта 3030.
+"""Сервис 2021: доводка траектории реза руками + сам расчёт (pipeline/).
 
-Тот же принцип, что у 2020: сервис самостоятельный, не импортирует ни 5056,
-ни 3030 - только читает и правит файл сцены. Кто его туда положил и что с ним
-будет дальше - сервису безразлично.
+Раньше сервис только читал и правил файл сцены, а расчёт .LS жил в 3030/5056.
+С 27.08 расчёт перенесён внутрь (pipeline/, calib/, archive/, lines/) - см.
+pipeline/generate.py и README.md, раздел про численную проверку (parity_report).
+Старые сервисы не удалены и не тронуты, просто больше не используются здесь.
 
 Отличие от 2020: там правится ПОЛОЖЕНИЕ МОДЕЛИ целиком (6 чисел на весь меш).
 Здесь - ОТДЕЛЬНЫЕ ТОЧКИ кривой, по одной, так же как оператор в цеху правит
@@ -26,6 +27,7 @@ from flask import Flask, jsonify, render_template, send_from_directory, abort, r
 import scene
 import discover
 import export_final
+import build_scene
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__, template_folder='web/templates', static_folder='web/static')
@@ -181,6 +183,30 @@ def export_ls(name):
         return jsonify(error=str(e)), 400
     return jsonify(status='ok', file=os.path.basename(out_path),
                    total=n_total, touched=n_touched)
+
+
+@app.route('/api/generate/<name>', methods=['POST'])
+def generate_ls(name):
+    """Посчитать линию реза с нуля через свой пайплайн (pipeline/generate.py) и
+    (пере)собрать сцену из результата - как build_scene.py, полностью
+    перезаписывает scene.json. Использовать только для варианта без сохранённых
+    правок (или когда затирание правок - осознанное решение)."""
+    d = request.get_json(silent=True) or {}
+    recipe_name = d.get('recipe', 'production_2026-08-27')
+    from pipeline import generate as gen
+    try:
+        ls_path, report = gen.generate(name, recipe_name)
+    except Exception as e:
+        return jsonify(error=f'{type(e).__name__}: {e}'), 400
+
+    recipe = gen.load_recipe(recipe_name)
+    calib_dir = os.path.join(gen.CALIB, 'cameras', recipe['camera_calibration'])
+    cams = {v: os.path.join(calib_dir, f'cam_{v}.npy') for v in ('back', 'left', 'top')}
+    photo_dir = os.path.join(gen.ARCHIVE, name)
+    photos = {v: os.path.join(photo_dir, f'{v}.png') for v in ('back', 'left', 'top')}
+    build_scene.build(name, ls_path, cams, photos)
+
+    return jsonify(status='ok', file=os.path.basename(ls_path), report=report)
 
 
 @app.route('/download/<name>/<path:filename>')
