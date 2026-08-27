@@ -709,15 +709,25 @@ function buildGroupEditor() {
     }
     draw();
   }
+  // factor относительно ТЕКУЩЕГО состояния точек (не исходного) - см. вызов
+  // ниже, где итоговый % пересчитывается в относительный множитель за шаг.
+  function scaleBy(factor) {
+    const cen = currentCentroid();
+    for (const g of pts) {
+      const p = c.points[g.pidx];
+      c.points[g.pidx] = [0,1,2].map(i => cen[i] + (p[i] - cen[i]) * factor);
+    }
+    draw();
+  }
 
   // Итог с начала этой правки (сбрасывается в 0 при Сохранить/Отменить/смене
   // выбора) - показывает "на сколько всего сдвинуто/повёрнуто СЕЙЧАС", не
   // абсолютную координату (для группы точек у неё и нет одного числа).
-  const totals = { rot: [0, 0, 0], t: [0, 0, 0] };
+  const totals = { rot: [0, 0, 0], t: [0, 0, 0], scale: 100 };
 
   const ctl = document.getElementById('groupctl');
   ctl.innerHTML = '<div style="color:#7c8aa0;font-size:11px;margin-bottom:2px">'
-                + 'шаг на нажатие: градусы / мм</div><div id="gsteps"></div>'
+                + 'шаг на нажатие: градусы / мм / %</div><div id="gsteps"></div>'
                 + '<div style="color:#7c8aa0;font-size:11px;margin:6px 0 2px">'
                 + 'итог с начала правки (можно вписать число):</div>';
   const stepsBox = ctl.querySelector('#gsteps');
@@ -761,6 +771,27 @@ function buildGroupEditor() {
       translate(axis.map(a => a * (target - totals.t[i])));
       totals.t[i] = target; sync();
     };
+    sync();
+    ctl.appendChild(row);
+  }
+  {
+    // Масштаб - относительно центроида активных точек, в % (100% = как сейчас
+    // на момент открытия панели). Множитель мультипликативный, поэтому и
+    // кнопка +, и ручной ввод пересчитывают ЦЕЛЕВОЙ % в относительный фактор
+    // от totals.scale (а не аддитивно, как повороты/сдвиги).
+    const row = document.createElement('div');
+    row.className = 'prow';
+    row.innerHTML = `<b>масштаб</b><button>−</button><input><button>+</button>`;
+    const inp = row.querySelector('input');
+    const sync = () => { inp.value = totals.scale.toFixed(2); };
+    const scaleTo = (target) => {
+      if (target <= 0) return;
+      scaleBy(target / totals.scale);
+      totals.scale = target; sync();
+    };
+    row.children[1].onclick = () => scaleTo(totals.scale - step);
+    row.children[3].onclick = () => scaleTo(totals.scale + step);
+    inp.onchange = () => scaleTo(parseFloat(inp.value) || totals.scale);
     sync();
     ctl.appendChild(row);
   }
