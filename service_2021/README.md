@@ -146,7 +146,7 @@ viewer's `эталон` comparison in `viewer.js::refStats()` doesn't care what
 produced either curve, so the HUD's mean/max/%-in-tolerance numbers just work
 as an A/B comparison with no new UI code.
 
-### Marking the fold line (`pipeline/detect.py`, `mark.js`, step 3 of the wizard)
+### Marking the fold line (`pipeline/detect.py`, `mark.js`, step 2 of the wizard)
 
 `generate()` reads photos from `archive/<variant>/` and line marks from
 `lines/<variant>_{back,left}.json` — both must exist before it can run. The
@@ -155,7 +155,7 @@ vendored: `pipeline/detect.py` is an unchanged copy of the auto-detect
 algorithm (dynamic-programming trace of the dark fold-line band, plus a
 gradient-refined edge estimate — see its own docstring for why), and
 `web/static/js/mark.js` is the 2D pan/zoom/click marking canvas, opened as a
-full-screen overlay from wizard step 3 (`#markOverlay` in `index.html`). It
+full-screen overlay from wizard step 2 (`#markOverlay` in `index.html`). It
 writes the exact same `lines/<variant>_<view>.json` format `line_marks.py`
 already reads, so nothing downstream needed to change.
 
@@ -166,6 +166,11 @@ photo as JPEG for the canvas), `GET /api/mark/detect`, `GET /api/mark/profile`
 marks vs. the auto-detector, median/p90/bias in px and mm). These are
 deliberately separate from the older `/api/scene/...` routes — marking has
 nothing to do with a built scene, only with `archive/`+`lines/`.
+**As of 2026-08-28, `mark.js` no longer calls `/api/mark/detect` or
+`/api/mark/compare`** — the operator only wants their own hand-drawn line,
+not the auto-detected candidates or a comparison against them (see "Marking
+tool — auto-detected candidate lines removed" below). The routes and
+`pipeline/detect.py` are still there, just unused by this UI now.
 
 ### Uploading photos (`POST /api/upload/<name>/<kind>`, done 2026-08-28)
 
@@ -327,8 +332,12 @@ this was a real bug once.
 The sidebar is a collapsible step wizard (`.wiz`/`.wstep`/`.whead`/`.wbody` in
 `index.html`, `wizExpand()`/`refreshWizard()` in `viewer.js`) — only one step
 open at a time:
-1. **Набір** — pick a built scene, or type a not-yet-built variant name into
-   `#rawname` to check its status. A separate "+ Новий набір" button opens
+1. **Набір** — pick a built scene from the dropdown. `#rawname` used to also
+   be a free-text field for checking a not-yet-built name's status; that
+   visible input was removed (2026-08-28, operator didn't need it) but the
+   element is kept as `type="hidden"` since `currentTargetName()` and the
+   pending-name buttons below still read/write its `.value` as the wizard's
+   current target. A separate "+ Новий набір" button opens
    the upload modal (`#newsetOverlay`, its own `#ns_name` field, back/left/top
    required + eталон optional shown at once) — see "Uploading photos" below
    for why this is a modal and not fields inline in step 1. A "запам'ятати
@@ -353,8 +362,13 @@ open at a time:
    JS reference (`#dogenerate`, `#markstatus`, `#inputcheck`, ...) is
    untouched, so don't "fix" the ids to match without re-checking every call
    site that assumes the old mapping.
-4. **Доведення та вивантаження** — the original point/group correction UI,
-   unchanged, just moved under this step. Auto-expanded once a scene loads.
+4. **Доведення та вивантаження** — the point/group correction UI, moved
+   under this step; also holds "Ракурс" (camera/free-view selection),
+   "Об'єкти" (layers) and "Опори". Auto-expanded once a scene loads. The
+   correction UI itself was substantially reworked later the same day — see
+   "UI simplification pass + floating axis pad" below for what changed
+   (screen-relative direction buttons, the floating pad, removal of the
+   selection-subset editor).
 
 The whole UI (`index.html`, `viewer.js`'s dynamic strings, and the curve
 names/scene notes `build_scene.py` generates) is in Ukrainian. Existing
@@ -363,7 +377,7 @@ scenes built before this date had their stored curve names migrated in place
 `points`/`touched` data was altered). Code comments were deliberately left as
 they were (Russian/English) — this only covers what a user actually sees.
 
-Also translated: `mark.js`'s overlay (step 3's marking canvas) — it was
+Also translated: `mark.js`'s overlay (the marking canvas) — it was
 already Ukrainian in `service_3030`'s original, ported as-is. `pipeline/`'s
 own Python docstrings/comments and the print statements in `app.py`/
 `build_scene.py`/etc. stay in Russian, same reasoning as above.
@@ -549,3 +563,178 @@ All three fixes verified through the real `POST /api/scene/<name>/export`
 route (not just the standalone function), and the two variants already
 exported before these fixes (`nabir-0828-001`, `nabir-0828-nieo`) were
 re-exported with the corrected names.
+
+## UI simplification pass + floating axis pad (2026-08-28)
+
+A larger round of interface cleanup, driven by real operator feedback after
+the first helmet test on the robot ("довольно неплохо прошёлся лазер" — good
+enough that the UI is now worth polishing, not just making functional).
+
+**Light theme, scoped to the control sidebars only.** `#side` and `#markSide`
+now use a light palette (`#f5f7fa` background, dark text) — every rule is
+written as `#side .foo, #markSide .foo { ... }`, never a bare global
+override, because `#side`/`#markSide` share base CSS classes (`h2`, `button`,
+`label`, `.prow`, `.wmark`, ...) with `#newsetOverlay`/`#markOverlay`'s other
+parts, which are **deliberately still dark** (photos/lines need dark
+contrast). A blind `replace_all` on a shared color value here is genuinely
+dangerous — it happened once mid-session (fixed before commit) and is why
+every light-theme rule is scoped by ID prefix, never bare.
+`#view`/`#markMain` (the actual 3D canvas / photo canvas) stay dark
+unconditionally.
+
+**Removed the always-visible hint text and the "Опори" checklist clutter.**
+The bottom-of-canvas control hint (`#hint`) is gone — operators get trained
+in person instead. "Опори" (grid/axes/photo toggles) collapsed behind a
+`⚙ Опори` button (`#oporyToggle`/`#oporyPanel`, closed by default); the grid
+checkbox now defaults **off** (was on); the "модель без прозорості" (`solid`)
+checkbox was removed entirely as dead weight — nobody used it and it added a
+`m.solid` branch to `drawMesh()` for no benefit. Axes were explicitly left
+alone (still on by default) per direct instruction — don't touch that
+default without being asked again.
+
+**"Вигляд"/"Об'єкти"/"Опори" moved inside wizard step 4's `.wbody`**, so
+`.wstep.open .wbody { display:block }` (already existing CSS) hides them on
+steps 1–3 automatically — no new JS needed, just relocating the HTML block.
+They used to sit below the wizard, always visible regardless of which step
+was open, which was confusing before any scene was even calculated. Later
+renamed the `<h2>Вигляд</h2>` section to **"Ракурс"** (more specific — it's
+camera/angle selection, not "view" in the app-wide sense) and compacted
+"Загальний вигляд" + the per-camera buttons into a single flex row (button
+text shortened to just the camera name, full name kept as a `title`
+tooltip). The "Загальний" button now also gets `.on` when free-view is
+active — it used to only highlight the camera buttons, so returning to free
+view showed *no* active button at all, which read as "nothing is selected."
+
+**Removed the manual "type an uncalculated name" field in step 1**
+(`#rawname`'s visible input + its label). `#rawname` itself is kept as a
+`type="hidden"` input, because a lot of other logic (`currentTargetName()`,
+the "у процесі" pending-name buttons, the new-set upload flow) reads/writes
+its `.value` as the wizard's current-target state — deleting the element
+outright would have broken those. Only the free-typing UI and its now-dead
+debounced `oninput` handler were removed.
+
+### Floating "axis pad" over the 3D view (`#axisPad` in index.html, `viewer.js`)
+
+The core complaint this solves: the group-edit buttons (`пов X/Y/Z`,
+`зсв X/Y/Z`) move points along **machine axes**, which don't line up with
+what the operator sees on screen from a given camera view — "не можу
+второпати, куди що рухати" (verbatim). Two changes together fix this:
+
+1. **Screen-relative direction glyphs.** `camDir(vec)` projects a machine
+   axis into the current camera's frame (`mulv(rodrigues(cam.rotation),
+   vec)`); `shiftGlyphs(axis)` picks one of 8 arrow glyphs (`arrow8()`,
+   `atan2(dy,dx)` in screen space) when the axis has enough on-screen extent
+   (`hypot(dx,dy) >= 0.35`), else falls back to plain `−`/`+` (a
+   depth-axis shift is genuinely almost invisible on screen — an arrow there
+   would be actively misleading, not just useless). `rotGlyphs(u,v)` decides
+   `↻`/`↺` for a rotation button the same way, using the same two-axis
+   ordering `rotFromDeg()` actually rotates through (verified: "пов X" moves
+   Y→Z, "пов Y" moves Z→X, "пов Z" moves X→Y — a screen-space cross product
+   of those two projected axes gives the true visual spin direction,
+   accounting for the canvas's Y-down convention). **Only active with a
+   camera selected** (`camIndex >= 0`) — in free orbit the camera itself
+   rotates under the mouse, so no machine axis has a fixed screen direction
+   to show.
+2. **A floating panel (`#axisPad`) over the canvas**, one row, sections
+   separated by `.padDivider`: shift arrows → rotation icons → step size
+   (0.1/1/5/10) → Зберегти/Скинути. It is a **pure proxy**, not a second
+   implementation: every button in it calls `.click()` (or, for the async
+   save, invokes the handler function directly via `document.getElementById
+   ('gsave').onclick()` so it can `await` the network response) on the real,
+   now-hidden sidebar buttons inside `#groupctl`/`#group`. **Never add logic
+   directly to `buildAxisPad()`'s button handlers** — if a behavior needs to
+   change, change the underlying sidebar handler in `buildGroupEditor()`,
+   and the pad picks it up automatically next time it's rebuilt (called at
+   the end of `buildGroupEditor()`, and also on every camera switch/reset so
+   the glyphs stay in sync with the current view).
+   - **Axes whose on-screen shift is near-invisible from the current camera
+     are dropped from the pad entirely** (`screenPlanar(axis) < 0.35`), not
+     just shown with plain `−`/`+` (that fallback is what the sidebar still
+     does, since it always shows all three regardless of view) — typically
+     leaves 2 of 3 shift groups + all 3 rotation groups + step + save ≈ 10
+     buttons, small enough for one row.
+   - **Rotation icons are a real projected ring, not a static glyph**
+     (`rotIconSVG(u, v, sign)`): samples 28 points around the unit circle in
+     the `(u,v)` plane, projects each through the camera, and draws the near
+     half of the ring solid + the far half as a faint dashed arc (depth sign
+     of each sample point) plus an arrowhead at the nearest-to-viewer point.
+     This is what makes an axis that's edge-on to the camera visibly
+     collapse into a thin ellipse (a "tilt", not a clean on-screen spin) —
+     the geometry does that correctly on its own, it isn't special-cased.
+3. **"Комплексний зсув" (the whole selection-subset system) was removed, not
+   just hidden.** `group_sel`/"Уся лінія"/"Видимі тут"/Shift-click-to-narrow
+   are gone from `trySelectPoint()` and the UI entirely — the group editor
+   now always acts on the whole editable curve
+   (`activePoints()`'s `group_sel.length` branch is permanently dead, kept
+   only because ripping it out cleanly touches more call sites than leaving
+   it as unreachable code costs). This was a deliberate choice, not
+   laziness: with the selection UI gone, a stray Shift-click would have
+   silently narrowed the scope of every future pad click with **zero visible
+   feedback**, since the panel showing "vibrano N of M" was also removed —
+   a footgun worse than the UI clutter it would have saved.
+4. **"Зберегти"/"Скинути" now live only in the pad**, and "Зберегти" turns
+   green (`.dirty` class) whenever the active curve's points differ from
+   `c._saved` (`isDirty()`, compared every `draw()` call — cheap, just a
+   per-point tolerance check, no allocations) — added because operators were
+   forgetting to save after nudging points. "Скинути" gets a plain white
+   highlight in the same state (not the same green — resetting is discarding
+   work, it shouldn't look as inviting as saving). Both go dim when there's
+   nothing to save. The HUD text in the corner of the 3D view no longer
+   prints `погляд камерою X\nфокус N px` — the active camera is already
+   shown via the highlighted button, and focal length is pure diagnostic
+   noise nobody asked to see.
+
+### Marking tool (`mark.js`) — auto-detected candidate lines removed
+
+The auto-detector (`/api/mark/detect`: upper shadow edge / trench floor /
+lower shadow edge / overflow edge) and the compare-to-auto feature
+(`/api/mark/compare`) are **no longer called from the UI at all** — the
+operator only wants their own hand-drawn line, doesn't want the other four
+computed or shown, and doesn't want a comparison against them. Removed:
+the "Знайти лінії" button, all four candidate-line checkboxes, "Порівняти з
+автоматичними лініями" and its metrics table, and the color/name lookup
+tables (`M_COLORS`/`M_NAMES`) that only existed to render them.
+**`/api/mark/detect` and `/api/mark/compare` still exist in `app.py`** —
+left in place deliberately (low-risk, might still be useful for a future
+QA/calibration pass, and touching shared detection code wasn't in scope) —
+but nothing in this service's UI reaches them anymore. `#markSide` also
+picked up the same light-theme treatment as `#side` (see above);
+`#markMain`/the photo canvas stays dark.
+
+### Real incident: live UI testing corrupted `nabir-0828-001`'s saved points
+
+While verifying the axis pad's "Зберегти" button (needed a real async
+round-trip to check the ✓/✗ feedback and the dirty-state highlight), it was
+clicked for real, more than once across several verification passes,
+against the actual running dev server — not a sandbox. Each test shift +
+real save left a genuine ~5mm offset in `scene.json` on disk, and it
+compounded: by the time the operator noticed, all 97 points of
+`nabir-0828-001`'s editable curve were marked `touched=true` with up to
+17.4mm of drift, which the operator correctly noticed as "the cut line
+slides further left/down every time I reopen it" (a world-space Y offset
+projects as horizontal on the `back` camera and vertical on `top` — exactly
+what was reported, which is what made it traceable at all instead of
+looking like a random rendering glitch).
+
+**First fix attempt was wrong**: resetting every point to `points_original`
+(the pristine, uncorrected calculation) — this also erased the operator's
+own *real* correction from an actual helmet test around 13:30 that day,
+which is needed later for analysis. `data/scenes/*/scene.json` turns out to
+be **git-tracked in this repo** (unusual for generated data, but true here),
+which is what made the real fix possible: `git log --follow` on the file
+showed a commit at 13:24:54 — the closest snapshot to "13:30, not later" and
+the last one before this session's UI testing began — and the file was
+restored from that commit instead of from `points_original`.
+
+**Lesson for anyone testing point-editing UI here**: `touched=true` /
+nonzero diff from `points_original` is not proof of test contamination —
+it's just as likely to be real, wanted operator work (this repo has at
+least one case, `v26`, of a scene with real accepted corrections from a
+prior physical test). Before "fixing" apparent data drift, check whether the
+scene file is git-tracked and cross-reference commit/mtime timestamps
+against what the operator actually says they did and when — don't assume
+the clean baseline is the correct one to restore. And more basically: don't
+click a real save/persist button against the live dev server while
+verifying UI behavior unless the save itself is under test, and if it is,
+revert immediately afterward rather than leaving test data sitting in a
+scene that's actually in use.
