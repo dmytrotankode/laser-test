@@ -504,10 +504,7 @@ by `pipeline/geometry.py::program_name` — longest name ever run in
 production is `TORXL_NEW_PROG2_5`, 17 chars). `export_final.py` now calls
 `ls_points.fanuc_safe_name(f'CORR_{variant}')` instead of building the name
 inline. Verified: `v21`/`v26` produce byte-identical names to before
-(`CORR_V21`/`CORR_V26`, no regression); `nabir-0828-001` now produces
-`CORR_NABIR_0828_0` (valid, no hyphens, ≤17 chars). Two already-exported
-files on disk from before this fix (`nabir-0828-001_final.LS`,
-`nabir-0828-nieo_final.LS`) had the bad `/PROG` line and were regenerated.
+(`CORR_V21`/`CORR_V26`, no regression).
 
 **Anyone adding another `new_prog_name=...`/`/PROG` writer to this service in
 the future must route the name through `fanuc_safe_name()` first** — this bug
@@ -515,3 +512,40 @@ class doesn't announce itself in testing with old-style names, only fails
 once someone types (or the code generates) a name with a character outside
 `[A-Za-z0-9]`, and the failure shows up on the physical controller, not in
 this codebase.
+
+### Two more layers of the same incident, found by continuing to test live
+
+The first fix alone was not enough — loading still failed, twice more, each
+time on the *next* thing this bug class touches:
+
+1. **File name didn't match `/PROG` name.** `export_final.py` wrote the
+   output to `<variant>_final.LS` (e.g. `nabir-0828-001_final.LS`) while the
+   sanitized `/PROG` name inside was something else entirely
+   (`CORR_NABIR_0828_0`). This service's own `pipeline/ls_template.py`
+   already documents the rule this violated: *"the file name and the
+   in-file /PROG name MUST match (the controller refuses to load a program
+   otherwise)."* Fixed by deriving the output path from the same sanitized
+   `prog_name` (`f'{prog_name}.LS'`) instead of `f'{variant}_final.LS'` —
+   now whatever `fanuc_safe_name()` returns is used for *both* the file name
+   and the `/PROG` line, guaranteeing they match by construction.
+2. **Right-truncation silently collided different variants into the same
+   name.** The first version of `fanuc_safe_name` cut from the end
+   (`s[:max_len]`). For `CORR_NABIR_0828_001` (19 chars, over the 17 limit)
+   that produced `CORR_NABIR_0828_0` — and `nabir-0828-002` through
+   `nabir-0828-099` all produce the *exact same* sanitized prefix up to that
+   point, so they'd *all* truncate to that identical name. Confirmed by
+   testing several side by side before shipping the fix. This is worse than
+   the first bug: not a load failure, but a silent one where a completely
+   different helmet's corrected program could overwrite or be confused with
+   another's on the controller. Fixed by truncating from the **middle**
+   instead — keep a head half and a tail half, drop only what's in between
+   (`s[:head] + s[-tail:]`) — so `nabir-0828-001` → `CORR_NABI0828_001` and
+   `nabir-0828-002` → `CORR_NABI0828_002`, distinguishable again. Verified
+   across `001`/`002`/`010`/`099`/a different day/`v21`/`v26`/the
+   already-used `nabir-0828-nieo` — no two produce the same output, and the
+   short old-style names are still untouched.
+
+All three fixes verified through the real `POST /api/scene/<name>/export`
+route (not just the standalone function), and the two variants already
+exported before these fixes (`nabir-0828-001`, `nabir-0828-nieo`) were
+re-exported with the corrected names.

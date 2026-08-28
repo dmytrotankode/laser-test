@@ -42,8 +42,13 @@ def export(variant):
     axis_by_id = {i: tuple(a) for i, a in zip(c['ids'], c['axes'])}
     n_touched = sum(1 for t in c.get('touched', []) if t)
 
-    out_path = os.path.join(d, f'{variant}_final.LS')
+    # Ім'я файлу МАЄ співпадати з /PROG всередині - контролер відмовляється
+    # завантажувати інакше (та сама вимога, що вже задокументована в
+    # pipeline/ls_template.py). Раніше файл звався "<variant>_final.LS", а
+    # /PROG - "CORR_...", тобто вони й не могли співпасти; це і був "другий
+    # рядком нижче" збій, що йшов одразу після виправлення самого /PROG.
     prog_name = ls_points.fanuc_safe_name(f'CORR_{variant}')
+    out_path = os.path.join(d, f'{prog_name}.LS')
     ls_points.write_points(tmpl_path, out_path, cut_by_id, axis_by_id,
                            new_prog_name=prog_name)
     print(f'{variant}: {out_path}')

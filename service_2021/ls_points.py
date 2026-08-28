@@ -34,9 +34,21 @@ def fanuc_safe_name(raw, max_len=17):
     літер і цифр. 17 символів - те саме емпіричне обмеження, що вже
     задокументоване в pipeline/geometry.py.program_name (найдовше ім'я в
     продакшені - TORXL_NEW_PROG2_5).
+
+    Обрізка - з СЕРЕДИНИ (голова + хвіст), не з кінця. Показово провалилось
+    на власному прикладі: "CORR_NABIR_0828_001" (19) різних наборів того
+    самого дня відрізняються лише останніми цифрами - обрізка з кінця
+    ("CORR_NABIR_0828_0"[:17]) заводила ВСІ набори за 28.08 (001, 002, ...,
+    099) в ОДНЕ й те саме ім'я. Голова+хвіст лишає і дату, і лічильник.
     """
     s = re.sub(r'[^A-Za-z0-9]+', '_', raw).upper().strip('_')
-    return (s[:max_len] or 'PROG')
+    if not s:
+        return 'PROG'
+    if len(s) <= max_len:
+        return s
+    head = (max_len + 1) // 2
+    tail = max_len - head
+    return s[:head] + s[-tail:]
 
 POINT_RE = re.compile(
     r'P\[(\d+)\]\{.*?'
