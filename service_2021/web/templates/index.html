@@ -51,6 +51,17 @@
   .wstep.open .wbody { display:block; }
   #inputcheck div, #markstatus div { padding:2px 0; }
 
+  /* оверлей "рахую..." над 3D-виглядом під час POST /api/generate */
+  #calcOverlay { position:absolute; inset:0; z-index:40; display:flex; flex-direction:column;
+                 align-items:center; justify-content:center; gap:14px;
+                 background:rgba(11,15,22,.88); }
+  #calcOverlay[hidden] { display:none; }
+  .spinner { width:38px; height:38px; border:4px solid #2b3648; border-top-color:#3b6cf6;
+             border-radius:50%; animation:spin .9s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  #calcText { color:#dbe3ef; font-size:14px; text-align:center; max-width:340px;
+              white-space:pre-line; line-height:1.5; }
+
   /* модалка "новий набір" - навмисно окрема від того, що зараз завантажено */
   #newsetOverlay { position:fixed; inset:0; z-index:60; display:flex;
                    align-items:center; justify-content:center; background:rgba(5,8,14,.72); }
@@ -71,7 +82,12 @@
   #markhud { position:absolute; left:10px; bottom:10px; background:rgba(15,23,42,.85);
              border:1px solid #2b3648; border-radius:6px; padding:6px 9px;
              font:12px/1.4 monospace; pointer-events:none; color:#dbe3ef; }
-  #markprof { position:absolute; right:10px; bottom:10px; background:rgba(15,23,42,.92);
+  /* без явних width/height тут канва наслідує загальне правило "canvas { width:100%;
+     height:100% }" вище і роздувається на весь #markMain - саме це, а не щось інше,
+     і було причиною "фото ніби перекрите синім" та "малювання не працює" (цей
+     розтягнутий прозорий шар лежав НАД markcv і перехоплював усі кліки). */
+  #markprof { position:absolute; right:10px; bottom:10px; width:220px; height:110px;
+              background:rgba(15,23,42,.92);
               border:1px solid #2b3648; border-radius:6px; opacity:.9; }
   #markSide table th, #markSide table td { text-align:right; padding:3px 4px;
               border-bottom:1px solid #2b3648; }
@@ -177,6 +193,10 @@
     <div id="hint">вільний огляд: тягнути — обертати · коліщатко — наблизити · Shift+тягнути — зсунути<br>
     вигляд камерою: тягнути — зсунути фото · коліщатко — зум до курсора · клік по точці — вибрати<br>
     тьмяні точки — не видно на цьому фото (дальня сторона купола), їх не поправити по ньому</div>
+    <div id="calcOverlay" hidden>
+      <div class="spinner"></div>
+      <div id="calcText"></div>
+    </div>
   </div>
 </div>
 

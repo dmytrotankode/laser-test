@@ -601,7 +601,7 @@ function placementMatrix(pl) {
 
 function buildPlacement() {
   const box = document.getElementById('place');
-  if (!scene.meshes.length) { box.hidden = true; return; }
+  if (!scene || !scene.meshes.length) { box.hidden = true; return; }
   box.hidden = false;
   placeIdx = 0;
   const m = scene.meshes[0];
@@ -877,6 +877,27 @@ function currentTargetName() {
   return raw || sceneName || '';
 }
 
+// Скидає все, що показувалося для ПОПЕРЕДНЬОГО набору (лінії, камери, шар-
+// список), коли поточна ціль майстра-панелі ще не порахована - інакше
+// у в'ювері лишалась стара лінія з іншого набору, ніби вона стосується
+// нового (реальна плутанина, не лише естетика).
+function clearViewer(placeholderName) {
+  scene = null; sceneName = null;
+  camIndex = -1; camZoom = 1; camPanX = 0; camPanY = 0;
+  group_sel = []; sel_point = null;
+  Object.keys(photos).forEach(k => delete photos[k]);
+  Object.keys(meshes).forEach(k => delete meshes[k]);
+  document.getElementById('cams').innerHTML = '';
+  document.getElementById('layers').innerHTML = '';
+  document.getElementById('place').hidden = true;
+  document.getElementById('group').hidden = true;
+  document.getElementById('point').hidden = true;
+  HUD.textContent = placeholderName
+    ? `«${placeholderName}» ще не порахований\nперейдіть до кроку 2 і натисніть «Розрахувати»`
+    : '';
+  draw();
+}
+
 async function refreshWizard() {
   const name = currentTargetName();
   document.getElementById('w1mark').textContent = name || '';
@@ -913,9 +934,22 @@ async function refreshWizard() {
   genBtn.title = genBtn.disabled ? 'бракує фото або розмітки лінії згину' : '';
 
   w4.textContent = st.calculated ? '' : 'ще не порахована';
+
+  if (st.calculated) {
+    if (sceneName !== name) await loadScene(name);
+  } else if (sceneName !== name) {
+    clearViewer(name);
+  }
   refreshPending();
 }
-document.getElementById('rawname').oninput = refreshWizard;
+// Дебаунс: без нього кожна набрана літера тягла б за собою loadScene()/
+// clearViewer() (реальний мережевий запит + перебудова панелей), а не
+// тільки лічильник статусу.
+let _wizTimer = null;
+document.getElementById('rawname').oninput = () => {
+  clearTimeout(_wizTimer);
+  _wizTimer = setTimeout(refreshWizard, 250);
+};
 
 // ------------------------------------------------------- завантаження фото/еталона
 // Ім'я генерується тут же, коротке й унікальне достатньою мірою для ручного
@@ -988,22 +1022,50 @@ document.getElementById('ns_upload').onclick = async () => {
   wizExpand(2);
 };
 
+// Немає реального потоку прогресу з бекенду (один блокуючий POST), тому
+// підписи нижче - орієнтовна послідовність того, що generate() зазвичай
+// робить в цьому порядку (див. pipeline/generate.py), а не підтверджені
+// живі кроки. Чесність тут - "приблизно що відбувається", а не "рівно на
+// цьому моменті зараз".
+const CALC_STAGES = [
+  'Обчислюю відступи бібліотеки сусідів…',
+  'Підганяю позу під фото (back/left/top)…',
+  'Шукаю найближчого сусіда…',
+  'Записую .LS…',
+];
+
 document.getElementById('dogenerate').onclick = async () => {
   const name = currentTargetName();
   if (!name) return;
   const msg = document.getElementById('genmsg');
+  const overlay = document.getElementById('calcOverlay');
+  const calcText = document.getElementById('calcText');
+
+  let si = 0;
+  const setStage = () => { calcText.textContent = `Рахую «${name}»…\n${CALC_STAGES[si]}`; };
+  setStage();
+  overlay.hidden = false;
+  const timer = setInterval(() => { si = (si + 1) % CALC_STAGES.length; setStage(); }, 4000);
+
   msg.textContent = 'рахую...';
-  const r = await fetch(`/api/generate/${name}`, { method: 'POST',
-    headers: { 'Content-Type': 'application/json' }, body: '{}' });
-  const j = await r.json();
-  if (!r.ok) { msg.textContent = 'помилка: ' + (j.error || r.status); return; }
-  msg.textContent = `готово: ${j.file}`;
-  await reloadSceneList();
-  document.getElementById('scenes').value = name;
-  document.getElementById('rawname').value = '';
-  await loadScene(name);
-  await refreshWizard();
-  wizExpand(4);
+  try {
+    const r = await fetch(`/api/generate/${name}`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const j = await r.json();
+    if (!r.ok) { msg.textContent = 'помилка: ' + (j.error || r.status); return; }
+    msg.textContent = `готово: ${j.file}`;
+    await reloadSceneList();
+    document.getElementById('scenes').value = name;
+    document.getElementById('rawname').value = '';
+    await loadScene(name);
+    await refreshWizard();
+    wizExpand(4);
+  } catch (e) {
+    msg.textContent = 'помилка: ' + e;
+  } finally {
+    clearInterval(timer);
+    overlay.hidden = true;
+  }
 };
 
 function rebuildSceneSelect(list) {
@@ -1024,7 +1086,19 @@ async function reloadSceneList() {
 (async () => {
   const list = await reloadSceneList();
   const sel = document.getElementById('scenes');
-  sel.onchange = () => { loadScene(sel.value); refreshWizard(); };
+  sel.onchange = async () => {
+    // Порожнить #rawname - інакше лишений там текст переважає в
+    // currentTargetName() і refreshWizard() одразу ж скидає щойно обраний
+    // сценарій назад (реальний баг, спіймано на v21 під час перевірки).
+    // ПОСЛІДОВНО, не паралельно: якщо refreshWizard() стартує до того, як
+    // loadScene() встиг записати sceneName, вона бачить СТАРЕ значення,
+    // вирішує що "ціль змінилась" і сама викликає loadScene() ще раз - для
+    // ІНШОГО (попереднього) імені, переписуючи щойно завантажене (теж
+    // спіймано на живих кліках, не гіпотетично).
+    document.getElementById('rawname').value = '';
+    await loadScene(sel.value);
+    await refreshWizard();
+  };
   if (list.length) { await loadScene(list[0].name); wizExpand(4); }
   else { HUD.textContent = 'немає жодної сцени в data/scenes'; wizExpand(1); }
   await refreshWizard();

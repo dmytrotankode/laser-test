@@ -358,3 +358,60 @@ Also translated: `mark.js`'s overlay (step 3's marking canvas) — it was
 already Ukrainian in `service_3030`'s original, ported as-is. `pipeline/`'s
 own Python docstrings/comments and the print statements in `app.py`/
 `build_scene.py`/etc. stay in Russian, same reasoning as above.
+
+## Four bugs found and fixed in one review pass (2026-08-28)
+
+Found by actually clicking through the app, not by inspection — three of the
+four only show up when two pieces of state (the loaded scene vs. the wizard's
+current target; two async handlers racing) interact, which is exactly the
+kind of thing that looks fine in isolation.
+
+1. **Stale scene data when the wizard target isn't calculated yet.** Creating
+   a new set (or typing an unbuilt name) left the *previous* scene's curves,
+   camera buttons, and layer list on screen — easy to mistake for "the new
+   set's computed line" when it was really just leftovers. Fixed with
+   `clearViewer(name)` in `viewer.js`: nulls `scene`/`sceneName`, empties
+   `#cams`/`#layers`, hides the point/group/placement panels, and puts an
+   explicit "«name» ще не порахований" message in the HUD instead of leaving
+   old text or old geometry on screen. `refreshWizard()` now calls this (or
+   `loadScene()`, if the target *is* calculated and just wasn't the one
+   loaded — e.g. typed by hand instead of picked from the dropdown) whenever
+   `sceneName !== currentTargetName()`.
+2. **A "рахую…" loading overlay was missing entirely** — clicking
+   "Розрахувати" gave no feedback beyond a small text line for what can be a
+   multi-minute wait (cold standoff-fit cache across the whole neighbor
+   library, see the parity section above for why). Added `#calcOverlay`
+   (centered over the 3D view, spinner + cycling stage text). The stages are
+   honest about being approximate — there is no real progress channel from
+   `pipeline/generate.py`, just one blocking POST — so the code comment and
+   this note both say so; don't let the UI imply more precision than exists.
+3. **Two real race conditions, both caught by actually clicking fast, not by
+   reading the code:**
+   - Selecting an existing scene from the dropdown while `#rawname` still
+     held leftover text from a moment ago: `currentTargetName()` prefers
+     `#rawname` over `sceneName`, so `refreshWizard()` (fired by the same
+     `onchange`) would target the *stale typed name*, decide the target
+     didn't match, and undo the very selection that was just made. Fixed by
+     clearing `#rawname` in the `onchange` handler before doing anything else.
+   - Even after that fix, `sel.onchange` ran `loadScene()` and
+     `refreshWizard()` **concurrently** (fire-and-forget, not awaited in
+     sequence). If `refreshWizard()` read `sceneName` before `loadScene()`
+     had gotten far enough to update it, it would see the *old* name, think
+     the target had drifted, and call `loadScene()` a second time for the
+     *previous* selection — reverting the switch after the fact. Reproduced
+     by scripting two quick dropdown changes back-to-back; fixed by awaiting
+     `loadScene()` before calling `refreshWizard()`, so the latter never runs
+     against a `sceneName` that's mid-update.
+4. **The marking overlay (`#markOverlay`) was fully broken**: the photo
+   looked tinted/covered, and clicking never placed a point. Root cause was a
+   single missing CSS rule — the page-wide `canvas { width:100%; height:100%
+   }` (written for the main 3D canvas, `#c`) also applied to `#markprof` (the
+   small 220×110 brightness-profile canvas in the corner), since its own CSS
+   block never overrode width/height. It rendered at full `#markMain` size
+   (measured: 960×720, laid directly on top of `#markcv`) with its
+   `rgba(15,23,42,.92)` background — that's the "photo looks blue" symptom —
+   and, being later in the DOM, silently absorbed every click meant for the
+   drawing canvas underneath, which is why drawing "didn't work" at all. Fixed
+   by giving `#markprof` explicit `width:220px; height:110px` in its own CSS
+   rule. Verified both the fixed layout (`getBoundingClientRect()` before/after)
+   and that a synthetic click now actually appends to `M.manual`.
