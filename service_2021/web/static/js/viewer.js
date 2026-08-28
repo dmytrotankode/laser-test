@@ -945,28 +945,47 @@ async function refreshPending() {
   });
 }
 
-document.getElementById('upbtn').onclick = async () => {
-  const msg = document.getElementById('upmsg');
-  const file = document.getElementById('upfile').files[0];
-  if (!file) { msg.textContent = 'спершу оберіть файл'; return; }
-  let name = currentTargetName();
-  if (!name) {
-    name = genName();
-    document.getElementById('rawname').value = name;
+// ------------------------------------------------------- модалка "новий набір"
+// Навмисно НЕ використовує currentTargetName()/sceneName - своє окреме поле
+// ns_name, щоб завантаження в жодному разі не могло потрапити у вже
+// порахований набір, який зараз відкрито у в'ювері (був реальний ризик
+// тихо переписати archive/v21/back.png, поки v21 обрано в дропдауні).
+function openNewSet() {
+  document.getElementById('ns_name').value = genName();
+  for (const id of ['ns_back', 'ns_left', 'ns_top', 'ns_ref']) document.getElementById(id).value = '';
+  document.getElementById('ns_msg').textContent = '';
+  document.getElementById('newsetOverlay').hidden = false;
+}
+document.getElementById('newsetopen').onclick = openNewSet;
+document.getElementById('ns_cancel').onclick = () => { document.getElementById('newsetOverlay').hidden = true; };
+
+document.getElementById('ns_upload').onclick = async () => {
+  const msg = document.getElementById('ns_msg');
+  const name = document.getElementById('ns_name').value.trim();
+  if (!name) { msg.textContent = "вкажіть назву набору"; return; }
+  const jobs = [['ns_back', 'back'], ['ns_left', 'left'], ['ns_top', 'top'], ['ns_ref', 'reference']]
+    .map(([id, kind]) => ({ file: document.getElementById(id).files[0], kind }))
+    .filter(j => j.file);
+  if (!jobs.length) { msg.textContent = 'оберіть хоча б один файл'; return; }
+
+  const done = [];
+  for (const { file, kind } of jobs) {
+    msg.textContent = `завантажую ${kind}...`;
+    const fd = new FormData();
+    fd.append('file', file);
+    const r = await fetch(`/api/upload/${name}/${kind}`, { method: 'POST', body: fd });
+    const j = await r.json();
+    if (!r.ok) { msg.textContent = `помилка (${kind}): ` + (j.error || r.status); return; }
+    done.push(j.saved);
   }
-  const kind = document.getElementById('upkind').value;
-  const fd = new FormData();
-  fd.append('file', file);
-  msg.textContent = 'завантажую...';
-  const r = await fetch(`/api/upload/${name}/${kind}`, { method: 'POST', body: fd });
-  const j = await r.json();
-  if (!r.ok) { msg.textContent = 'помилка: ' + (j.error || r.status); return; }
-  msg.textContent = `завантажено: ${j.saved}`;
-  document.getElementById('upfile').value = '';
-  if (document.getElementById('uppending').checked) {
+  if (document.getElementById('ns_pending').checked) {
     await fetch(`/api/pending/${name}`, { method: 'POST' });
   }
-  refreshWizard();
+  msg.textContent = `завантажено: ${done.join(', ')}`;
+  document.getElementById('newsetOverlay').hidden = true;
+  document.getElementById('rawname').value = name;
+  await refreshWizard();
+  wizExpand(2);
 };
 
 document.getElementById('dogenerate').onclick = async () => {

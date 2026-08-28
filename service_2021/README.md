@@ -192,6 +192,25 @@ Two input shapes are accepted for photos, both ending up as a plain PNG:
 reaches a file path — needed once user-chosen names started driving file
 writes, not just reads.
 
+**Frontend: a dedicated "Новий набір" modal (`#newsetOverlay`), not inline
+fields in step 1.** The first version put a single kind-picker + file-input
+directly in step 1's body, defaulting to `currentTargetName()` (which falls
+back to whatever scene is currently loaded, `sceneName`, when the free-text
+name field is empty). That is a real bug, not just confusing UI — with an
+existing scene selected and the name field empty, an upload silently landed
+in *that* scene's `archive/<name>/`, overwriting its real photo (this
+happened for real during testing: `archive/v21/back.png` got re-saved from a
+test upload; harmless in that instance only because PNG re-encoding is
+lossless and the uploaded file happened to be the same photo, dimensions and
+all — a different file would have destroyed it with no backup, since
+`archive/` is gitignored). The modal has its own `#ns_name` field, entirely
+independent of `sceneName`/`#rawname`, and shows all of back/left/top/eталон
+at once (back/left/top marked required with `*`) so there is no shared state
+between "what's open in the viewer" and "what I'm uploading" for a mistake to
+use. `web/static/js/mark.js`'s `#markOverlay` was already this shape (a
+full-screen modal decoupled from the main sidebar) — `#newsetOverlay` follows
+the same pattern rather than inventing a second one.
+
 ## Key domain facts (don't relearn these)
 
 - **`.LS` stores the NOZZLE path, not the cut line.** Cut line =
@@ -309,12 +328,13 @@ The sidebar is a collapsible step wizard (`.wiz`/`.wstep`/`.whead`/`.wbody` in
 `index.html`, `wizExpand()`/`refreshWizard()` in `viewer.js`) — only one step
 open at a time:
 1. **Набір** — pick a built scene, or type a not-yet-built variant name into
-   `#rawname` to check/generate it (reads `/api/pipeline/status/<name>`). Also
-   has a one-photo-at-a-time uploader (`POST /api/upload/<name>/<kind>`,
-   `kind` ∈ back/left/top/reference) — see "Uploading photos" below — and a
-   "запам'ятати цей набір у списку" checkbox that adds the name to
+   `#rawname` to check its status. A separate "+ Новий набір" button opens
+   the upload modal (`#newsetOverlay`, its own `#ns_name` field, back/left/top
+   required + eталон optional shown at once) — see "Uploading photos" below
+   for why this is a modal and not fields inline in step 1. A "запам'ятати
+   цей набір у списку" checkbox in that modal adds the name to
    `data/pending.json` (`GET/POST /api/pending`), shown as a row of buttons
-   under the name field so an in-progress variant (photos uploaded, not yet
+   under `#rawname` so an in-progress variant (photos uploaded, not yet
    calculated) doesn't have to be retyped from memory. A name drops out of
    that list automatically once it has a `scene.json` (i.e. it graduated to
    the real scene dropdown) — nothing has to clean the list up by hand.

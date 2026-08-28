@@ -51,6 +51,16 @@
   .wstep.open .wbody { display:block; }
   #inputcheck div, #markstatus div { padding:2px 0; }
 
+  /* модалка "новий набір" - навмисно окрема від того, що зараз завантажено */
+  #newsetOverlay { position:fixed; inset:0; z-index:60; display:flex;
+                   align-items:center; justify-content:center; background:rgba(5,8,14,.72); }
+  #newsetOverlay[hidden] { display:none; }
+  #newsetBox { width:360px; max-height:88vh; overflow:auto; padding:16px;
+               background:#111827; border:1px solid #2b3648; border-radius:10px; }
+  .ns_row { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+  .ns_row b { width:52px; flex:none; font-size:12px; color:#9fb0c7; }
+  .ns_row input[type=file] { flex:1; font-size:11px; padding:5px 4px; }
+
   /* оверлей розмітки лінії згину - окремий 2D-інструмент поверх 3D-в'ювера */
   #markOverlay { position:fixed; inset:0; z-index:50; display:flex; background:#0b0f16; }
   #markOverlay[hidden] { display:none; }
@@ -84,21 +94,7 @@
 
           <div id="pendingBox" style="margin:4px 0 8px"></div>
 
-          <div style="border-top:1px solid #2b3648;padding-top:8px;margin-top:2px">
-            <div style="color:#7c8aa0;font-size:11px;margin-bottom:4px">завантажити нове фото (не все одразу обов'язково):</div>
-            <div style="display:flex;gap:6px;margin-bottom:4px">
-              <select id="upkind" style="flex:0 0 34%">
-                <option value="back">back</option>
-                <option value="left">left</option>
-                <option value="top">top</option>
-                <option value="reference">еталон .LS</option>
-              </select>
-              <input type="file" id="upfile" style="flex:1;font-size:11px;padding:5px 4px">
-            </div>
-            <button id="upbtn">Завантажити</button>
-            <label><input type="checkbox" id="uppending"> запам'ятати цей набір у списку</label>
-            <div id="upmsg" style="color:#7c8aa0;font-size:12px;min-height:16px"></div>
-          </div>
+          <button id="newsetopen" style="border:1px dashed #3b6cf6;background:transparent">+ Новий набір</button>
         </div>
       </div>
       <div class="wstep" id="wstep-2">
@@ -181,6 +177,29 @@
     <div id="hint">вільний огляд: тягнути — обертати · коліщатко — наблизити · Shift+тягнути — зсунути<br>
     вигляд камерою: тягнути — зсунути фото · коліщатко — зум до курсора · клік по точці — вибрати<br>
     тьмяні точки — не видно на цьому фото (дальня сторона купола), їх не поправити по ньому</div>
+  </div>
+</div>
+
+<div id="newsetOverlay" hidden>
+  <div id="newsetBox">
+    <h2 style="text-transform:none;font-size:15px;color:#dbe3ef;letter-spacing:0;margin:0 0 4px">Новий набір</h2>
+    <p style="color:#7c8aa0;font-size:12px;margin:0 0 12px">Окремо від того, що зараз відкрито у в'ювері -
+      це завжди нове ім'я, ніякі файли вже порахованого набору не будуть перезаписані.</p>
+    <label style="display:block;margin-bottom:10px">Назва набору
+      <input id="ns_name" style="width:100%;padding:6px 8px;border-radius:6px;background:#1b2432;color:#dbe3ef;border:1px solid #2b3648;margin-top:3px">
+    </label>
+    <div class="ns_row"><b>back*</b><input type="file" id="ns_back"></div>
+    <div class="ns_row"><b>left*</b><input type="file" id="ns_left"></div>
+    <div class="ns_row"><b>top*</b><input type="file" id="ns_top"></div>
+    <div class="ns_row"><b>еталон .LS</b><input type="file" id="ns_ref"></div>
+    <p style="color:#7c8aa0;font-size:11px;margin:2px 0 10px">* обов'язкові для розрахунку; еталон - необов'язково,
+      якщо є записана раніше програма для цих самих фото.</p>
+    <label><input type="checkbox" id="ns_pending" checked> запам'ятати цей набір у списку</label>
+    <div id="ns_msg" style="color:#7c8aa0;font-size:12px;min-height:32px;margin-top:4px"></div>
+    <div style="display:flex;gap:6px">
+      <button id="ns_upload" style="flex:1">Завантажити</button>
+      <button id="ns_cancel" style="flex:0 0 32%">Скасувати</button>
+    </div>
   </div>
 </div>
 
