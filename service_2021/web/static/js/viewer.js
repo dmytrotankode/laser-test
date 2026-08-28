@@ -459,12 +459,14 @@ function draw() {
   }
   scene.cameras.forEach((cam, i) => { if (shown['cam:' + cam.name]) drawCamera(cam, i, pr); });
 
-  let hud = camIndex >= 0
-    ? `погляд камерою ${scene.cameras[camIndex].name}\nфокус ${scene.cameras[camIndex].focal_px.toFixed(0)} px`
-    : `вільний огляд\n${scene.frame}, мм`;
+  // Ім'я камери й фокусна відстань прибрані - камера й так підсвічена
+  // активною кнопкою в "Ракурс", а фокус - суто діагностика, не потрібна
+  // оператору (звіт користувача: текст зверху зліва зайвий).
+  let hud = camIndex >= 0 ? '' : `вільний огляд\n${scene.frame}, мм`;
   const rs = refStats();
-  if (rs) hud += `\n\nпроти еталона:\nсереднє ${rs.mean.toFixed(2)} мм, макс ${rs.max.toFixed(2)} мм\nв допуску 2мм: ${rs.pct.toFixed(0)}%`;
+  if (rs) hud += (hud ? '\n\n' : '') + `проти еталона:\nсереднє ${rs.mean.toFixed(2)} мм, макс ${rs.max.toFixed(2)} мм\nв допуску 2мм: ${rs.pct.toFixed(0)}%`;
   HUD.textContent = hud;
+  updatePadSaveButtons();
 }
 
 // Расхождение редактируемой линии с эталонной кривой (если есть) - ближайшая
@@ -691,6 +693,7 @@ async function loadScene(name) {
       camIndex = camIndex === i ? -1 : i;
       camZoom = 1; camPanX = 0; camPanY = 0;
       [...cams.children].forEach((x, j) => x.classList.toggle('on', j === camIndex));
+      document.getElementById('reset').classList.toggle('on', camIndex < 0);
       document.getElementById('photoAdjust').hidden = camIndex < 0;
       buildGroupEditor(); buildPointEditor();
       draw();
@@ -703,6 +706,8 @@ async function loadScene(name) {
       photos[cam.name] = im;
     }
   });
+  [...cams.children].forEach((x, j) => x.classList.toggle('on', j === camIndex));
+  document.getElementById('reset').classList.toggle('on', camIndex < 0);
   for (const m of scene.meshes) {
     const h = (m.color || '#d6be4a').replace('#', '');
     m._rgb = [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16));
@@ -909,17 +914,38 @@ function buildAxisPad() {
   // тут показувати.
   const saveRow = document.getElementById('padSave'); saveRow.innerHTML = '';
   const saveGroup = document.createElement('div'); saveGroup.className = 'padGroup';
-  const bSave = document.createElement('button'); bSave.textContent = 'Зберегти';
+  const bSave = document.createElement('button'); bSave.id = 'padSaveBtn'; bSave.textContent = 'Зберегти';
   bSave.onclick = async () => {
-    bSave.disabled = true;
+    bSave.disabled = true; bSave.classList.remove('dirty');
     const ok = await document.getElementById('gsave').onclick();
     bSave.textContent = ok ? '✓ Збережено' : '✗ Помилка';
-    setTimeout(() => { bSave.textContent = 'Зберегти'; bSave.disabled = false; }, 1400);
+    setTimeout(() => { bSave.textContent = 'Зберегти'; bSave.disabled = false; updatePadSaveButtons(); }, 1400);
   };
-  const bUndo = document.createElement('button'); bUndo.textContent = 'Скинути';
-  bUndo.onclick = () => document.getElementById('gundo').click();
+  const bUndo = document.createElement('button'); bUndo.id = 'padUndoBtn'; bUndo.textContent = 'Скинути';
+  bUndo.onclick = () => { document.getElementById('gundo').click(); updatePadSaveButtons(); };
   saveGroup.append(bSave, bUndo);
   saveRow.appendChild(saveGroup);
+  updatePadSaveButtons();
+}
+
+// Чи відрізняється поточна редагована крива від останнього збереженого на
+// диск стану (c._saved) - і "Зберегти" підсвічуємо зеленим, і "Скинути"
+// трохи активуємо, щоб не забували фіксувати правки перед вивантаженням .LS.
+function isDirty(c) {
+  if (!c || !c._saved) return false;
+  for (let i = 0; i < c.points.length; i++) {
+    const p = c.points[i], s = c._saved[i];
+    if (Math.abs(p[0]-s[0]) > 1e-6 || Math.abs(p[1]-s[1]) > 1e-6 || Math.abs(p[2]-s[2]) > 1e-6) return true;
+  }
+  return false;
+}
+function updatePadSaveButtons() {
+  const saveBtn = document.getElementById('padSaveBtn'), undoBtn = document.getElementById('padUndoBtn');
+  if (!saveBtn) return;
+  const ci = activeCurveIndex();
+  const dirty = ci >= 0 && isDirty(scene.curves[ci]);
+  if (!saveBtn.disabled) saveBtn.classList.toggle('dirty', dirty);
+  undoBtn.classList.toggle('dirty', dirty);
 }
 
 function buildGroupEditor() {
@@ -1092,6 +1118,7 @@ document.getElementById('reset').onclick = () => {
   camIndex = -1;
   camZoom = 1; camPanX = 0; camPanY = 0;
   [...document.getElementById('cams').children].forEach(x => x.classList.remove('on'));
+  document.getElementById('reset').classList.add('on');
   document.getElementById('photoAdjust').hidden = true;
   if (scene) { view.target = scene._center.slice(); view.yaw = 0.9; view.pitch = 0.5; }
   buildGroupEditor(); buildPointEditor();

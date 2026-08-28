@@ -141,6 +141,13 @@
                      color:#dbe3ef; display:flex; align-items:center; justify-content:center; }
   #axisPad button svg { display:block; }
   #padSave button { font-size:12.5px; padding:7px 10px; }
+  /* Незбережені правки - "Зберегти" явно зелена, щоб не забували фіксувати
+     перед вивантаженням .LS; "Скинути" лише трохи яскравіша (не так само
+     привабливо, як Зберегти - скидання це видалення роботи). Без правок
+     обидві приглушені - явний сигнал "тут зараз нічого робити". */
+  #padSaveBtn.dirty { background:#16a34a; border-color:#22c55e; color:#fff; }
+  #padUndoBtn.dirty { border-color:#f59e0b; color:#fde68a; }
+  #padSave button:not(.dirty):not(:disabled) { opacity:.5; }
   #padStep button.on { background:#1d4ed8; border-color:#3b6cf6; }
 </style>
 </head>
@@ -188,7 +195,7 @@
           <button id="exportls">Вивантажити .LS</button>
           <div id="exportmsg" style="color:#64748b;font-size:12px;min-height:16px"></div>
 
-          <h2>Вигляд</h2>
+          <h2>Ракурс</h2>
           <div style="display:flex;gap:4px;margin-bottom:6px">
             <button id="reset" style="width:auto;flex:1">Загальний</button>
             <div id="cams" style="display:flex;gap:4px;flex:2"></div>
