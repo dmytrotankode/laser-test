@@ -107,7 +107,7 @@ function rotGlyphs(u, v) {
 function rotIconSVG(u, v, sign) {
   const du = camDir(u), dv = camDir(v);
   if (!du) return null;
-  const N = 28, R = 11, CX = 16, CY = 16;
+  const N = 28, R = 13, CX = 18, CY = 18;
   const pts = [];
   for (let i = 0; i <= N; i++) {
     const th = i / N * 2 * Math.PI, c = Math.cos(th), s = Math.sin(th);
@@ -129,15 +129,28 @@ function rotIconSVG(u, v, sign) {
   const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
   if (sign < 0) { tx = -tx; ty = -ty; }
   const apex = scr[fi];
-  const tipx = apex[0] + tx * 3, tipy = apex[1] + ty * 3;
-  const bx = apex[0] - tx * 4.5, by = apex[1] - ty * 4.5;
-  const px = -ty, py = tx, wing = 3;
+  const tipx = apex[0] + tx * 3.5, tipy = apex[1] + ty * 3.5;
+  const bx = apex[0] - tx * 5.5, by = apex[1] - ty * 5.5;
+  const px = -ty, py = tx, wing = 3.8;
   const w1x = bx + px*wing, w1y = by + py*wing, w2x = bx - px*wing, w2y = by - py*wing;
-  return `<svg viewBox="0 0 32 32" width="18" height="18">
-    <path d="${dashed}" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2,2" fill="none" opacity="0.5"/>
-    <path d="${solid}" stroke="currentColor" stroke-width="1.8" fill="none"/>
+  // Ближня половина кільця - яскрава й товста (currentColor, як текст кнопки),
+  // дальня - тонший розріджений пунктир СВОГО, приглушеного кольору (не та
+  // сама фарба з opacity - різницю near/far було ледь видно на 18px).
+  return `<svg viewBox="0 0 36 36" width="24" height="24">
+    <path d="${dashed}" stroke="#5b6b85" stroke-width="1.4" stroke-linecap="round" stroke-dasharray="1,2.6" fill="none"/>
+    <path d="${solid}" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" fill="none"/>
     <path d="M${tipx.toFixed(1)},${tipy.toFixed(1)} L${w1x.toFixed(1)},${w1y.toFixed(1)} L${w2x.toFixed(1)},${w2y.toFixed(1)} Z" fill="currentColor"/>
   </svg>`;
+}
+// Наскільки вісь лежить У ПЛОЩИНІ екрана (0 - дивиться вздовж променя камери,
+// 1 - строго в площині) - той самий поріг, що вирішує показувати стрілку чи
+// -/+ в shiftGlyphs(). Тут ним же вирішуємо, чи показувати кнопки зсуву
+// вздовж цієї осі на плаваючій панелі взагалі: якщо на екрані майже не
+// видно руху, налаштовувати цю вісь із цього ракурсу все одно не варто.
+function screenPlanar(axis) {
+  const d = camDir(axis);
+  if (!d) return 1;
+  return Math.hypot(d[0], d[1]);
 }
 
 // Свободная камера: смотрит на target, ось Y кадра вниз - как у настоящих.
@@ -834,40 +847,67 @@ function buildAxisPad() {
   const rows = [...document.getElementById('groupctl').querySelectorAll('.prow')];
   const findRow = label => rows.find(r => { const b = r.querySelector('b'); return b && b.textContent === label; });
 
-  const shiftDefs = [['зсв X', 'X', [1,0,0]], ['зсв Y', 'Y', [0,1,0]], ['зсв Z', 'Z', [0,0,1]]];
+  const shiftDefs = [['зсв X', [1,0,0]], ['зсв Y', [0,1,0]], ['зсв Z', [0,0,1]]];
   const rotDefs = [
-    ['пов X', 'X', [0,1,0], [0,0,1]],
-    ['пов Y', 'Y', [0,0,1], [1,0,0]],
-    ['пов Z', 'Z', [1,0,0], [0,1,0]],
+    ['пов X', [0,1,0], [0,0,1]],
+    ['пов Y', [0,0,1], [1,0,0]],
+    ['пов Z', [1,0,0], [0,1,0]],
   ];
 
+  // Вісь зсуву, вздовж якої з поточного ракурсу на екрані майже нічого не
+  // рухається (дивиться вздовж променя камери) - тут не показуємо взагалі:
+  // налаштовувати наосліп сенсу нема, а кнопки лише займали б місце. У
+  // сайдбарі вона лишається (там завжди всі три, з тим самим -/+).
   const shiftRow = document.getElementById('padShift'); shiftRow.innerHTML = '';
-  for (const [label, letter] of shiftDefs) {
+  for (const [label, axis] of shiftDefs) {
+    if (screenPlanar(axis) < 0.35) continue;
     const row = findRow(label);
     if (!row) continue;
     const g = document.createElement('div'); g.className = 'padGroup';
-    const lab = document.createElement('span'); lab.className = 'padLabel'; lab.textContent = letter;
+    g.title = label;
     const bMinus = document.createElement('button'); bMinus.textContent = row.children[1].textContent;
+    bMinus.title = label + ' ' + row.children[1].textContent;
     bMinus.onclick = () => row.children[1].click();
     const bPlus = document.createElement('button'); bPlus.textContent = row.children[3].textContent;
+    bPlus.title = label + ' ' + row.children[3].textContent;
     bPlus.onclick = () => row.children[3].click();
-    g.append(lab, bMinus, bPlus);
+    g.append(bMinus, bPlus);
     shiftRow.appendChild(g);
   }
 
   const rotRow = document.getElementById('padRotate'); rotRow.innerHTML = '';
-  for (const [label, letter, u, v] of rotDefs) {
+  for (const [label, u, v] of rotDefs) {
     const row = findRow(label);
     if (!row) continue;
     const g = document.createElement('div'); g.className = 'padGroup';
-    const lab = document.createElement('span'); lab.className = 'padLabel'; lab.textContent = letter;
+    g.title = label;
     const bMinus = document.createElement('button'); bMinus.innerHTML = rotIconSVG(u, v, -1) || row.children[1].textContent;
     bMinus.onclick = () => row.children[1].click();
     const bPlus = document.createElement('button'); bPlus.innerHTML = rotIconSVG(u, v, 1) || row.children[3].textContent;
     bPlus.onclick = () => row.children[3].click();
-    g.append(lab, bMinus, bPlus);
+    g.append(bMinus, bPlus);
     rotRow.appendChild(g);
   }
+
+  // Крок (0.1/1/5/10) - проксі на ті самі кнопки #gsteps у сайдбарі, щоб не
+  // доводилось лізти в бокову панель заради зміни кроку під час роботи з
+  // плаваючою панеллю. Реальний клік у сайдбарі сам оновлює лише СВОЇ класи
+  // .on - тому після проксі-кліка підсвітку тут доводиться виставляти вручну.
+  const stepBtns = [...document.querySelectorAll('#gsteps button')];
+  const stepRow = document.getElementById('padStep'); stepRow.innerHTML = '';
+  const stepGroup = document.createElement('div'); stepGroup.className = 'padGroup'; stepGroup.title = 'крок';
+  const proxyBtns = stepBtns.map(sb => {
+    const b = document.createElement('button');
+    b.textContent = sb.textContent;
+    b.classList.toggle('on', sb.classList.contains('on'));
+    b.onclick = () => {
+      sb.click();
+      proxyBtns.forEach((x, j) => x.classList.toggle('on', stepBtns[j].classList.contains('on')));
+    };
+    stepGroup.appendChild(b);
+    return b;
+  });
+  stepRow.appendChild(stepGroup);
 }
 
 function buildGroupEditor() {
