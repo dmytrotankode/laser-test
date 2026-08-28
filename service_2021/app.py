@@ -20,9 +20,11 @@ pipeline/generate.py и README.md, раздел про численную про
 """
 import os
 import sys
+import io
 import json
 
-from flask import Flask, jsonify, render_template, send_from_directory, abort, request
+import cv2
+from flask import Flask, jsonify, render_template, send_from_directory, abort, request, send_file
 
 import scene
 import discover
@@ -85,6 +87,134 @@ def pipeline_status(name):
             for v in ('back', 'left')}
     calculated = os.path.exists(os.path.join(scene.SCENES, name, 'scene.json'))
     return jsonify(photos=photos, marks=marks, calculated=calculated)
+
+
+# ---------------------------------------------------------------- розмітка лінії згину
+# Вендорено з service_3030/app.py - той самий детектор (pipeline/detect.py, копія
+# без змін), той самий формат data/lines/<variant>_<view>.json, який уже читає
+# pipeline/line_marks.py. Малює й керує канвою web/static/js/mark.js, окремо
+# від 3D-в'ювера (виклик з кроку 3 майстер-панелі, оверлей поверх усього вікна).
+
+_mark_img_cache = {}
+MM_PER_PX = {'back': 0.09, 'left': 0.082, 'top': 0.12}
+
+
+def _mark_image_path(variant, view):
+    from pipeline import generate as gen
+    return os.path.join(gen.ARCHIVE, variant, f'{view}.png')
+
+
+def _mark_load(variant, view):
+    key = (variant, view)
+    if key not in _mark_img_cache:
+        p = _mark_image_path(variant, view)
+        if not os.path.exists(p):
+            return None
+        _mark_img_cache.clear()          # знімки великі, тримаємо один
+        _mark_img_cache[key] = cv2.imread(p, cv2.IMREAD_GRAYSCALE)
+    return _mark_img_cache[key]
+
+
+@app.route('/mark/img/<variant>/<view>.jpg')
+def mark_image(variant, view):
+    img = _mark_load(variant, view)
+    if img is None:
+        abort(404)
+    ok, buf = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 92])
+    return send_file(io.BytesIO(buf.tobytes()), mimetype='image/jpeg')
+
+
+@app.route('/api/mark/detect')
+def mark_detect():
+    from pipeline import detect
+    variant, view = request.args.get('variant'), request.args.get('view')
+    img = _mark_load(variant, view)
+    if img is None:
+        return jsonify(error='немає такого знімку'), 404
+    kw = {}
+    for k in detect.DEFAULTS:
+        v = request.args.get(k)
+        if v not in (None, ''):
+            kw[k] = float(v) if k in ('band_lo', 'band_hi', 'edge') else int(float(v))
+    res = detect.find_lines(img, **kw)
+    if res is None:
+        return jsonify(error='деталь на знімку не знайдена'), 400
+    res['mm_per_px'] = MM_PER_PX.get(view, 0.09)
+    return jsonify(res)
+
+
+@app.route('/api/mark/profile')
+def mark_profile():
+    from pipeline import detect
+    img = _mark_load(request.args.get('variant'), request.args.get('view'))
+    if img is None:
+        return jsonify(error='немає такого знімку'), 404
+    return jsonify(detect.profile_at(img, float(request.args.get('x', 0)),
+                                     float(request.args.get('y', 0))))
+
+
+@app.route('/api/mark/lines/<variant>/<view>', methods=['GET', 'POST'])
+def mark_lines(variant, view):
+    from pipeline import line_marks
+    p = os.path.join(line_marks.LINES, f'{variant}_{view}.json')
+    if request.method == 'POST':
+        data = request.get_json(force=True) or {}
+        data['variant'], data['view'] = variant, view
+        os.makedirs(line_marks.LINES, exist_ok=True)
+        with open(p, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=1)
+        return jsonify(status='saved')
+    if not os.path.exists(p):
+        return jsonify(points=[])
+    with open(p, encoding='utf-8') as f:
+        return jsonify(json.load(f))
+
+
+@app.route('/api/mark/compare')
+def mark_compare():
+    """Розбіжність автоматичних ліній із ручною розміткою, px і мм."""
+    from pipeline import detect, line_marks
+    import numpy as np
+    variant, view = request.args.get('variant'), request.args.get('view')
+    p = os.path.join(line_marks.LINES, f'{variant}_{view}.json')
+    if not os.path.exists(p):
+        return jsonify(error='еталон не розмічено')
+    with open(p, encoding='utf-8') as f:
+        pts = json.load(f).get('points', [])
+    if len(pts) < 2:
+        return jsonify(error='в еталоні менше двох точок')
+    img = _mark_load(variant, view)
+    kw = {}
+    for k in detect.DEFAULTS:
+        v = request.args.get(k)
+        if v not in (None, ''):
+            kw[k] = float(v) if k in ('band_lo', 'band_hi', 'edge') else int(float(v))
+    res = detect.find_lines(img, **kw)
+    if res is None:
+        return jsonify(error='деталь на знімку не знайдена')
+
+    pts = sorted(pts, key=lambda q: q[0])
+    px = np.array([q[0] for q in pts], float)
+    py = np.array([q[1] for q in pts], float)
+    xs = np.array(res['x'], float)
+    ok = np.array(res['ok'], bool)
+    inside = (xs >= px.min()) & (xs <= px.max()) & ok
+    mm = MM_PER_PX.get(view, 0.09)
+    out = {}
+    for name in ('upper', 'center', 'lower', 'edge_lo'):
+        y = np.array(res[name], float)
+        d = y[inside] - np.interp(xs[inside], px, py)
+        if len(d) == 0:
+            continue
+        out[name] = dict(n=int(len(d)),
+                         median=float(np.median(np.abs(d))),
+                         p90=float(np.percentile(np.abs(d), 90)),
+                         max=float(np.abs(d).max()),
+                         bias=float(np.median(d)),
+                         median_mm=float(np.median(np.abs(d)) * mm),
+                         p90_mm=float(np.percentile(np.abs(d), 90) * mm))
+    return jsonify(metrics=out, covered=int(inside.sum()),
+                   total=int(ok.sum()), mm_per_px=mm)
 
 
 @app.route('/api/scene/<name>')

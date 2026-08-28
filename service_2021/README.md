@@ -146,15 +146,30 @@ viewer's `эталон` comparison in `viewer.js::refStats()` doesn't care what
 produced either curve, so the HUD's mean/max/%-in-tolerance numbers just work
 as an A/B comparison with no new UI code.
 
-### Known gap: brand-new, never-photographed helmets
+### Marking the fold line (`pipeline/detect.py`, `mark.js`, step 3 of the wizard)
 
 `generate()` reads photos from `archive/<variant>/` and line marks from
-`lines/<variant>_{back,left}.json` — both must already exist. There is
-currently no vendored way to mark a NEW helmet's fold line (that tool,
-`service_3030/app.py`, has not been ported — see "Future ideas"), so a
-genuinely new variant still needs that old tool, and its photos still need to
-be placed into `archive/<variant>/` by hand. This is a known, deliberate gap,
-not an oversight.
+`lines/<variant>_{back,left}.json` — both must exist before it can run. The
+marking tool itself (originally `service_3030/app.py` + `detect.py`) is now
+vendored: `pipeline/detect.py` is an unchanged copy of the auto-detect
+algorithm (dynamic-programming trace of the dark fold-line band, plus a
+gradient-refined edge estimate — see its own docstring for why), and
+`web/static/js/mark.js` is the 2D pan/zoom/click marking canvas, opened as a
+full-screen overlay from wizard step 3 (`#markOverlay` in `index.html`). It
+writes the exact same `lines/<variant>_<view>.json` format `line_marks.py`
+already reads, so nothing downstream needed to change.
+
+Routes (`app.py`): `GET /mark/img/<variant>/<view>.jpg` (serves the archive
+photo as JPEG for the canvas), `GET /api/mark/detect`, `GET /api/mark/profile`
+(brightness cross-section, for judging where the trench floor really is),
+`GET|POST /api/mark/lines/<variant>/<view>`, `GET /api/mark/compare` (manual
+marks vs. the auto-detector, median/p90/bias in px and mm). These are
+deliberately separate from the older `/api/scene/...` routes — marking has
+nothing to do with a built scene, only with `archive/`+`lines/`.
+
+Remaining gap, unchanged: a genuinely new variant still needs its photos
+placed into `archive/<variant>/` by hand before either marking or generation
+can start (no upload flow exists yet for that step).
 
 ## Key domain facts (don't relearn these)
 
@@ -277,9 +292,9 @@ open at a time:
 2. **Вхідні дані** — ✓/✗ checklist for `archive/<name>/{back,left,top}.png`;
    "Розрахувати" calls `POST /api/generate/<name>` (disabled until photos AND
    marks both exist) and reloads the resulting scene.
-3. **Розмітка лінії згину** — ✓/✗ for `lines/<name>_{back,left}.json`. Honest
-   about the known gap (see above): if marks are missing, says so and points
-   at the old `service_3030/app.py` tool rather than pretending to offer one.
+3. **Розмітка лінії згину** — ✓/✗ for `lines/<name>_{back,left}.json`, plus
+   "Відкрити розмітку" which opens the vendored marking overlay (`mark.js`,
+   see the pipeline section above) for the chosen view.
 4. **Доведення та вивантаження** — the original point/group correction UI,
    unchanged, just moved under this step. Auto-expanded once a scene loads.
 
@@ -290,8 +305,7 @@ scenes built before this date had their stored curve names migrated in place
 `points`/`touched` data was altered). Code comments were deliberately left as
 they were (Russian/English) — this only covers what a user actually sees.
 
-Open item, still not done: the marking tool itself (`service_3030/app.py`)
-is not vendored, so step 3 can only report status, not let an operator draw a
-new line here. Vendoring it would mean either duplicating its logic into this
-service (keeping the self-containment rule above) or accepting a
-one-directional read-only dependency — decide deliberately before starting.
+Also translated: `mark.js`'s overlay (step 3's marking canvas) — it was
+already Ukrainian in `service_3030`'s original, ported as-is. `pipeline/`'s
+own Python docstrings/comments and the print statements in `app.py`/
+`build_scene.py`/etc. stay in Russian, same reasoning as above.

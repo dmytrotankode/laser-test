@@ -50,6 +50,23 @@
   .wbody { display:none; padding:10px; }
   .wstep.open .wbody { display:block; }
   #inputcheck div, #markstatus div { padding:2px 0; }
+
+  /* оверлей розмітки лінії згину - окремий 2D-інструмент поверх 3D-в'ювера */
+  #markOverlay { position:fixed; inset:0; z-index:50; display:flex; background:#0b0f16; }
+  #markOverlay[hidden] { display:none; }
+  #markSide { width:320px; flex:none; padding:14px; overflow:auto;
+              background:#111827; border-right:1px solid #1f2937; }
+  #markMain { flex:1; position:relative; overflow:hidden; background:#000; }
+  #markcv { position:absolute; inset:0; cursor:grab; width:100%; height:100%; }
+  #markhud { position:absolute; left:10px; bottom:10px; background:rgba(15,23,42,.85);
+             border:1px solid #2b3648; border-radius:6px; padding:6px 9px;
+             font:12px/1.4 monospace; pointer-events:none; color:#dbe3ef; }
+  #markprof { position:absolute; right:10px; bottom:10px; background:rgba(15,23,42,.92);
+              border:1px solid #2b3648; border-radius:6px; opacity:.9; }
+  #markSide table th, #markSide table td { text-align:right; padding:3px 4px;
+              border-bottom:1px solid #2b3648; }
+  #markSide table th:first-child, #markSide table td:first-child { text-align:left; }
+  #mdraw.on { background:#1d4ed8; border-color:#3b6cf6; }
 </style>
 </head>
 <body>
@@ -78,6 +95,13 @@
         <button class="whead" data-step="3">3. Розмітка лінії згину <span class="wmark" id="w3mark"></span></button>
         <div class="wbody">
           <div id="markstatus" style="font-size:12px;color:#9fb0c7"></div>
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <select id="markview" style="flex:1">
+              <option value="back">back</option>
+              <option value="left">left</option>
+            </select>
+            <button id="markopen" style="flex:1">Відкрити розмітку</button>
+          </div>
         </div>
       </div>
       <div class="wstep" id="wstep-4">
@@ -141,6 +165,46 @@
     тьмяні точки — не видно на цьому фото (дальня сторона купола), їх не поправити по ньому</div>
   </div>
 </div>
+
+<div id="markOverlay" hidden>
+  <div id="markSide">
+    <h2 style="text-transform:none;font-size:15px;color:#dbe3ef;letter-spacing:0;margin:0 0 4px">Розмітка лінії згину</h2>
+    <p style="color:#7c8aa0;font-size:12px;margin:0 0 12px">Коліщатко — масштаб, тягнути — зсув.
+      Щоб ставити точки своєї лінії, увімкніть <b>Малювання</b> (клавіша D):
+      тоді клік ставить точку, клік по точці прибирає, а зсув — Shift+тягнути.</p>
+    <div style="display:flex;gap:6px">
+      <button id="mrun" style="flex:1">Знайти лінії</button>
+      <button id="mfit">Вписати</button>
+    </div>
+    <button id="mdraw">✏️ Малювання: вимк</button>
+    <h2>Лінії</h2>
+    <label><input type="checkbox" id="mc_upper" checked><span class="sw" style="background:#38bdf8"></span>верхня межа тіні</label>
+    <label><input type="checkbox" id="mc_center" checked><span class="sw" style="background:#f59e0b"></span>дно борозни</label>
+    <label><input type="checkbox" id="mc_lower"><span class="sw" style="background:#22c55e"></span>нижня межа тіні</label>
+    <label><input type="checkbox" id="mc_edge_lo" checked><span class="sw" style="background:#c084fc"></span><b>край напливу</b></label>
+    <label><input type="checkbox" id="mc_manual" checked><span class="sw" style="background:#ef4444"></span><b>ваша лінія</b> (еталон)</label>
+    <h2>Ваша лінія — еталон</h2>
+    <p style="color:#7c8aa0;font-size:12px;margin:0 0 8px">Клікайте по знімку там, де проходить
+      справжня лінія згину. Достатньо 8–12 точок у місцях, де ви впевнені.</p>
+    <div class="prow"><b style="width:auto">точок</b><span id="mcount" style="margin-left:auto;font-family:monospace">0</span></div>
+    <div style="display:flex;gap:6px">
+      <button id="msave" style="flex:1">Зберегти</button>
+      <button id="mundo" style="flex:0 0 32%">Назад</button>
+      <button id="mclear" style="flex:0 0 32%">Очистити</button>
+    </div>
+    <button id="mcmp">Порівняти з автоматичними лініями</button>
+    <table id="mmetrics" style="width:100%;border-collapse:collapse;font-size:12px"></table>
+    <div id="mstatus" style="color:#7c8aa0;font-size:12px;min-height:32px;margin-top:8px"></div>
+    <button id="mclose" style="margin-top:10px">Закрити й повернутись</button>
+  </div>
+  <div id="markMain">
+    <canvas id="markcv"></canvas>
+    <div id="markhud">—</div>
+    <canvas id="markprof" width="220" height="110"></canvas>
+  </div>
+</div>
+
 <script src="/static/js/viewer.js"></script>
+<script src="/static/js/mark.js"></script>
 </body>
 </html>
