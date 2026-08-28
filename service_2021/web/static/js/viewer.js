@@ -141,7 +141,7 @@ function drawAxes(pr) {
     if (p[2] > 1) { ctx.fillStyle = col; ctx.fillText(name, p[0] + 4, p[1]); }
   }
   const o = pr.p([0, 0, 0]);
-  if (o[2] > 1) { ctx.fillStyle = '#94a3b8'; ctx.fillText('0 станка', o[0] + 6, o[1] + 14); }
+  if (o[2] > 1) { ctx.fillStyle = '#94a3b8'; ctx.fillText('0 верстата', o[0] + 6, o[1] + 14); }
 }
 
 function drawCamera(cam, i, pr) {
@@ -319,10 +319,10 @@ function draw() {
   scene.cameras.forEach((cam, i) => { if (shown['cam:' + cam.name]) drawCamera(cam, i, pr); });
 
   let hud = camIndex >= 0
-    ? `взгляд камерой ${scene.cameras[camIndex].name}\nфокус ${scene.cameras[camIndex].focal_px.toFixed(0)} px`
-    : `свободный обзор\n${scene.frame}, мм`;
+    ? `погляд камерою ${scene.cameras[camIndex].name}\nфокус ${scene.cameras[camIndex].focal_px.toFixed(0)} px`
+    : `вільний огляд\n${scene.frame}, мм`;
   const rs = refStats();
-  if (rs) hud += `\n\nпротив эталона:\nсреднее ${rs.mean.toFixed(2)} мм, макс ${rs.max.toFixed(2)} мм\nв допуске 2мм: ${rs.pct.toFixed(0)}%`;
+  if (rs) hud += `\n\nпроти еталона:\nсереднє ${rs.mean.toFixed(2)} мм, макс ${rs.max.toFixed(2)} мм\nв допуску 2мм: ${rs.pct.toFixed(0)}%`;
   HUD.textContent = hud;
 }
 
@@ -331,7 +331,7 @@ function draw() {
 function refStats() {
   if (!scene) return null;
   const edit = scene.curves.find(c => c.editable);
-  const ref = scene.curves.find(c => !c.editable && c.name.startsWith('эталон'));
+  const ref = scene.curves.find(c => !c.editable && c.name.startsWith('еталон'));
   if (!edit || !ref || !ref.points.length) return null;
   const ds = edit.points.map(q => {
     let best = Infinity;
@@ -409,7 +409,7 @@ function buildPointEditor() {
   const id = c.ids ? c.ids[pi] : pi;
   const touched = c.touched && c.touched[pi];
   document.getElementById('ptitle').textContent =
-    `#${id}${touched ? ' (тронута)' : ' (расчётная)'}`;
+    `#${id}${touched ? ' (торкнута)' : ' (розрахункова)'}`;
   const ctl = document.getElementById('pointctl');
   ctl.innerHTML = '';
   const labels = ['X', 'Y', 'Z'];
@@ -432,7 +432,7 @@ function buildPointEditor() {
     c.touched = c.touched || [];
     c.touched[pi] = true;
     if (c._saved) c._saved[pi] = c.points[pi].slice();
-    document.getElementById('ptmsg').textContent = r.ok ? 'сохранено в scene.json' : 'не сохранилось';
+    document.getElementById('ptmsg').textContent = r.ok ? 'збережено в scene.json' : 'не збереглося';
     buildPointEditor(); draw();
   };
   document.getElementById('ptreset').onclick = async () => {
@@ -442,7 +442,7 @@ function buildPointEditor() {
       c.points[pi] = c.points_original[pi].slice(); c.touched[pi] = false;
       if (c._saved) c._saved[pi] = c.points[pi].slice();
     }
-    document.getElementById('ptmsg').textContent = r.ok ? 'возвращено к расчёту' : 'не сохранилось';
+    document.getElementById('ptmsg').textContent = r.ok ? 'повернено до розрахунку' : 'не збереглося';
     buildPointEditor(); draw();
   };
 }
@@ -524,19 +524,19 @@ async function loadScene(name) {
   const layers = document.getElementById('layers'); layers.innerHTML = '';
   for (const c of scene.curves) {
     layers.appendChild(layerRow(c.name, c.color, c.name));
-    if (c.editable && c.axes) layers.appendChild(layerRow('путь сопла (живой)', '#93c5fd', 'nozzle:' + c.name));
+    if (c.editable && c.axes) layers.appendChild(layerRow('шлях сопла (живий)', '#93c5fd', 'nozzle:' + c.name));
   }
   for (const s of scene.points) layers.appendChild(layerRow(s.name, s.color, s.name));
   for (const m of scene.meshes) {
     layers.appendChild(layerRow(m.name, m.color, m.name));
-    if (m.rim) layers.appendChild(layerRow('кромка модели', '#f97316', 'rim:' + m.name));
+    if (m.rim) layers.appendChild(layerRow('кромка моделі', '#f97316', 'rim:' + m.name));
   }
   for (const c of scene.cameras) layers.appendChild(layerRow('камера ' + c.name, '#38bdf8', 'cam:' + c.name));
 
   const cams = document.getElementById('cams'); cams.innerHTML = '';
   scene.cameras.forEach((cam, i) => {
     const b = document.createElement('button');
-    b.textContent = 'Взгляд камерой ' + cam.name;
+    b.textContent = 'Погляд камерою ' + cam.name;
     b.onclick = () => {
       camIndex = camIndex === i ? -1 : i;
       camZoom = 1; camPanX = 0; camPanY = 0;
@@ -609,7 +609,7 @@ function buildPlacement() {
   m._start = JSON.parse(JSON.stringify(m.placement));
   const ctl = document.getElementById('pctl');
   ctl.innerHTML = '<div style="color:#7c8aa0;font-size:12px;margin-bottom:2px">'
-                + 'шаг на нажатие: градусы / мм</div><div id="steps"></div>';
+                + 'крок на натискання: градуси / мм</div><div id="steps"></div>';
   const steps = ctl.querySelector('#steps');
   for (const v of [0.1, 1, 5, 20]) {
     const b = document.createElement('button');
@@ -619,8 +619,8 @@ function buildPlacement() {
     steps.appendChild(b);
   }
   const rows = [['пов X', 'rot_deg', 0, '°'], ['пов Y', 'rot_deg', 1, '°'],
-                ['пов Z', 'rot_deg', 2, '°'], ['сдв X', 'translate', 0, 'мм'],
-                ['сдв Y', 'translate', 1, 'мм'], ['сдв Z', 'translate', 2, 'мм']];
+                ['пов Z', 'rot_deg', 2, '°'], ['зсв X', 'translate', 0, 'мм'],
+                ['зсв Y', 'translate', 1, 'мм'], ['зсв Z', 'translate', 2, 'мм']];
   for (const [label, field, i] of rows) {
     const row = document.createElement('div');
     row.className = 'prow';
@@ -651,7 +651,7 @@ function buildPlacement() {
       { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(m.placement) });
     document.getElementById('pmsg').textContent =
-      r.ok ? 'сохранено в scene.json' : 'не сохранилось';
+      r.ok ? 'збережено в scene.json' : 'не збереглося';
   };
   document.getElementById('preset').onclick = () => {
     m.placement = JSON.parse(JSON.stringify(m._start));
@@ -682,7 +682,7 @@ function buildGroupEditor() {
   const pts = activePoints();
   const whole = group_sel.length === 0;
   document.getElementById('gtitle').textContent =
-    whole ? `вся линия (${pts.length})` : `выбрано ${pts.length} из ${scene.curves[ci].points.length}`;
+    whole ? `уся лінія (${pts.length})` : `вибрано ${pts.length} із ${scene.curves[ci].points.length}`;
 
   const c = scene.curves[ci];
 
@@ -727,9 +727,9 @@ function buildGroupEditor() {
 
   const ctl = document.getElementById('groupctl');
   ctl.innerHTML = '<div style="color:#7c8aa0;font-size:11px;margin-bottom:2px">'
-                + 'шаг на нажатие: градусы / мм / %</div><div id="gsteps"></div>'
+                + 'крок на натискання: градуси / мм / %</div><div id="gsteps"></div>'
                 + '<div style="color:#7c8aa0;font-size:11px;margin:6px 0 2px">'
-                + 'итог с начала правки (можно вписать число):</div>';
+                + 'підсумок з початку правки (можна вписати число):</div>';
   const stepsBox = ctl.querySelector('#gsteps');
   for (const v of [0.1, 1, 5, 10]) {
     const b = document.createElement('button');
@@ -756,7 +756,7 @@ function buildGroupEditor() {
     sync();
     ctl.appendChild(row);
   }
-  const tRows = [['сдв X', [1,0,0]], ['сдв Y', [0,1,0]], ['сдв Z', [0,0,1]]];
+  const tRows = [['зсв X', [1,0,0]], ['зсв Y', [0,1,0]], ['зсв Z', [0,0,1]]];
   for (const [label, axis, i] of tRows.map((r, i) => [...r, i])) {
     const row = document.createElement('div');
     row.className = 'prow';
@@ -820,7 +820,7 @@ function buildGroupEditor() {
     c.touched = c.touched || [];
     payload.forEach(p => { c.touched[p.pidx] = true; c._saved[p.pidx] = p.xyz.slice(); });
     document.getElementById('gmsg').textContent =
-      r.ok ? `сохранено, сдвинуто ${payload.length}` : 'не сохранилось';
+      r.ok ? `збережено, зсунуто ${payload.length}` : 'не збереглося';
     buildGroupEditor(); draw();
   };
   document.getElementById('gclear').onclick = () => {
@@ -842,12 +842,12 @@ function rotFromDeg(rotDeg) {
 document.getElementById('exportls').onclick = async () => {
   if (!sceneName) return;
   const msg = document.getElementById('exportmsg');
-  msg.textContent = 'собираю...';
+  msg.textContent = 'збираю...';
   const r = await fetch(`/api/scene/${sceneName}/export`, { method: 'POST' });
   const j = await r.json();
-  if (!r.ok) { msg.textContent = 'ошибка: ' + (j.error || r.status); return; }
+  if (!r.ok) { msg.textContent = 'помилка: ' + (j.error || r.status); return; }
   msg.innerHTML = `готово: <a href="/download/${sceneName}/${j.file}" target="_blank">${j.file}</a>` +
-    ` (точек ${j.total}, тронуто ${j.touched})`;
+    ` (точок ${j.total}, торкнуто ${j.touched})`;
 };
 
 document.getElementById('reset').onclick = () => {
@@ -860,15 +860,101 @@ document.getElementById('reset').onclick = () => {
 for (const id of ['grid', 'axes', 'photo', 'solid'])
   document.getElementById(id).onchange = draw;
 
-(async () => {
-  const list = await (await fetch('/api/scenes')).json();
+// ---------------------------------------------------------------- майстер (кроки)
+// Розгорнутий лише один крок одразу - як в акордеоні. Крок сам по собі нічого
+// не рахує, тільки показує, чого бракує (фото/розмітка) і чи вже є розрахунок.
+function wizExpand(n) {
+  document.querySelectorAll('.wstep').forEach(el => {
+    el.classList.toggle('open', el.id === 'wstep-' + n);
+  });
+}
+document.querySelectorAll('.whead').forEach(b => {
+  b.onclick = () => wizExpand(+b.dataset.step);
+});
+
+function currentTargetName() {
+  const raw = document.getElementById('rawname').value.trim();
+  return raw || sceneName || '';
+}
+
+async function refreshWizard() {
+  const name = currentTargetName();
+  document.getElementById('w1mark').textContent = name || '';
+  const w2 = document.getElementById('w2mark'), w3 = document.getElementById('w3mark'),
+        w4 = document.getElementById('w4mark');
+  if (!name) { w2.textContent = w3.textContent = w4.textContent = ''; return; }
+
+  let st;
+  try {
+    st = await (await fetch('/api/pipeline/status/' + name)).json();
+  } catch (e) {
+    document.getElementById('inputcheck').textContent = 'не вдалося перевірити: ' + e;
+    return;
+  }
+
+  const ic = document.getElementById('inputcheck');
+  ic.innerHTML = ['back', 'left', 'top']
+    .map(v => `<div>${st.photos[v] ? '✓' : '✗'} фото ${v}</div>`).join('');
+  const allPhotos = st.photos.back && st.photos.left && st.photos.top;
+  w2.className = 'wmark ' + (st.calculated ? 'ok' : (allPhotos ? '' : 'bad'));
+  w2.textContent = st.calculated ? 'порахована' : (allPhotos ? 'готово рахувати' : 'бракує фото');
+
+  const allMarks = st.marks.back && st.marks.left;
+  const ms = document.getElementById('markstatus');
+  ms.innerHTML = ['back', 'left']
+    .map(v => `<div>${st.marks[v] ? '✓' : '✗'} розмітка ${v}</div>`).join('')
+    + (allMarks ? '' : '<div style="margin-top:6px;color:#7c8aa0">'
+      + 'розмітки лінії згину бракує - поки що її можна зробити тільки старим '
+      + 'інструментом (service_3030/app.py, порт 3030)</div>');
+  w3.className = 'wmark ' + (allMarks ? 'ok' : 'bad');
+  w3.textContent = allMarks ? 'є' : 'немає';
+
+  const genBtn = document.getElementById('dogenerate');
+  genBtn.disabled = !(allPhotos && allMarks);
+  genBtn.title = genBtn.disabled ? 'бракує фото або розмітки лінії згину' : '';
+
+  w4.textContent = st.calculated ? '' : 'ще не порахована';
+}
+document.getElementById('rawname').oninput = refreshWizard;
+
+document.getElementById('dogenerate').onclick = async () => {
+  const name = currentTargetName();
+  if (!name) return;
+  const msg = document.getElementById('genmsg');
+  msg.textContent = 'рахую...';
+  const r = await fetch(`/api/generate/${name}`, { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  const j = await r.json();
+  if (!r.ok) { msg.textContent = 'помилка: ' + (j.error || r.status); return; }
+  msg.textContent = `готово: ${j.file}`;
+  await reloadSceneList();
+  document.getElementById('scenes').value = name;
+  document.getElementById('rawname').value = '';
+  await loadScene(name);
+  await refreshWizard();
+  wizExpand(4);
+};
+
+function rebuildSceneSelect(list) {
   const sel = document.getElementById('scenes');
+  sel.innerHTML = '';
   for (const s of list) {
     const o = document.createElement('option');
     o.value = s.name; o.textContent = `${s.name} — ${s.note || ''}`;
     sel.appendChild(o);
   }
-  sel.onchange = () => loadScene(sel.value);
-  if (list.length) loadScene(list[0].name);
-  else HUD.textContent = 'нет ни одной сцены в data/scenes';
+}
+async function reloadSceneList() {
+  const list = await (await fetch('/api/scenes')).json();
+  rebuildSceneSelect(list);
+  return list;
+}
+
+(async () => {
+  const list = await reloadSceneList();
+  const sel = document.getElementById('scenes');
+  sel.onchange = () => { loadScene(sel.value); refreshWizard(); };
+  if (list.length) { await loadScene(list[0].name); wizExpand(4); }
+  else { HUD.textContent = 'немає жодної сцени в data/scenes'; wizExpand(1); }
+  await refreshWizard();
 })();

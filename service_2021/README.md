@@ -267,25 +267,31 @@ rotate/translate delta pattern for scale, it'll double up incorrectly.
 `draw()`) or the displayed totals go stale relative to the actual points —
 this was a real bug once.
 
-## Future ideas (not started — recorded per user request, 2026-08-27)
+## UI: step wizard + Ukrainian (done 2026-08-28)
 
-Idea for a bigger UI redesign: turn the sidebar into a collapsible step
-wizard (Figma-panel style, only one step expanded at a time):
-1. Pick variant (or start a new "current" in-progress one).
-2. Check inputs present (photos, cameras) — show "waiting for X" if not.
-3. (Conditional) draw the cut-line marking on new photos, similar to
-   `service_3030/app.py`'s line-marking tool — only needed if that step
-   hasn't been done yet for this variant.
-4. Correct + export (what this service does today), with a short,
-   unique-but-not-long name for the exported file.
+The sidebar is a collapsible step wizard (`.wiz`/`.wstep`/`.whead`/`.wbody` in
+`index.html`, `wizExpand()`/`refreshWizard()` in `viewer.js`) — only one step
+open at a time:
+1. **Набір** — pick a built scene, or type a not-yet-built variant name into
+   `#rawname` to check/generate it (reads `/api/pipeline/status/<name>`).
+2. **Вхідні дані** — ✓/✗ checklist for `archive/<name>/{back,left,top}.png`;
+   "Розрахувати" calls `POST /api/generate/<name>` (disabled until photos AND
+   marks both exist) and reloads the resulting scene.
+3. **Розмітка лінії згину** — ✓/✗ for `lines/<name>_{back,left}.json`. Honest
+   about the known gap (see above): if marks are missing, says so and points
+   at the old `service_3030/app.py` tool rather than pretending to offer one.
+4. **Доведення та вивантаження** — the original point/group correction UI,
+   unchanged, just moved under this step. Auto-expanded once a scene loads.
 
-Open question raised by the user: when step 3 (line drawing) is active, the
-main view may end up looking almost identical to the final correction step
-(same photos, same-ish overlay) — worth checking during design whether steps
-3 and 4 should actually be one screen with a mode switch rather than two
-separate wizard steps.
+The whole UI (`index.html`, `viewer.js`'s dynamic strings, and the curve
+names/scene notes `build_scene.py` generates) is in Ukrainian. Existing
+scenes built before this date had their stored curve names migrated in place
+(a rename-only edit of `scene.json`, touching nothing else — no
+`points`/`touched` data was altered). Code comments were deliberately left as
+they were (Russian/English) — this only covers what a user actually sees.
 
-This would likely mean either duplicating `service_3030`'s marking-tool logic
-into this service (to keep the self-containment rule above), or accepting a
-one-directional read-only dependency on it — decide deliberately before
-starting, don't default into breaking self-containment.
+Open item, still not done: the marking tool itself (`service_3030/app.py`)
+is not vendored, so step 3 can only report status, not let an operator draw a
+new line here. Vendoring it would mean either duplicating its logic into this
+service (keeping the self-containment rule above) or accepting a
+one-directional read-only dependency — decide deliberately before starting.

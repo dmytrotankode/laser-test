@@ -28,7 +28,7 @@ def attach(variant, reference_path):
     with open(p, encoding='utf-8') as f:
         doc = json.load(f)
 
-    prefix = 'эталон, линия реза ('
+    prefix = 'еталон, лінія різу ('
     doc['curves'] = [c for c in doc['curves'] if not c['name'].startswith(prefix)]
     new_curves = B.reference_curves(reference_path)
     if not new_curves:

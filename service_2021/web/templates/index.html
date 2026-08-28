@@ -1,15 +1,15 @@
 <!doctype html>
-<html lang="ru">
+<html lang="uk">
 <head>
 <meta charset="utf-8">
-<title>2021 — доводка траектории реза</title>
+<title>2021 — доведення траєкторії різу</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
   body { margin:0; background:#0b0f16; color:#dbe3ef;
          font:14px/1.45 -apple-system,Segoe UI,Roboto,sans-serif; overflow:hidden; }
   #wrap { display:flex; height:100vh; }
-  #side { width:280px; flex:none; padding:12px; overflow:auto;
+  #side { width:300px; flex:none; padding:12px; overflow:auto;
           background:#111827; border-right:1px solid #1f2937; }
   #view { flex:1; position:relative; }
   canvas { display:block; width:100%; height:100%; }
@@ -33,65 +33,112 @@
   .prow button { width:26px; flex:none; padding:3px 0; margin:0; font-size:13px; }
   #steps, #gsteps { display:flex; gap:4px; margin:6px 0; }
   #steps button, #gsteps button { margin:0; padding:3px 0; font-size:12px; width:auto; }
+
+  /* майстер-панель: сворачувані кроки, розгорнутий лише один */
+  .wiz { border:1px solid #1f2937; border-radius:8px; overflow:hidden; margin-bottom:14px; }
+  .wstep + .wstep { border-top:1px solid #1f2937; }
+  .whead { display:flex; justify-content:space-between; align-items:center;
+           width:100%; margin:0; border:0; border-radius:0; background:#161f2e;
+           padding:9px 10px; font-size:12.5px; font-weight:600; text-align:left; }
+  .whead:hover { background:#1c2739; cursor:pointer; }
+  .wstep.open .whead { background:#1d4ed8; }
+  .wmark { font-weight:400; font-size:11px; color:#7c8aa0; }
+  .wstep.open .wmark { color:#cfe0ff; }
+  .wmark.ok::before { content:"\2713  "; color:#4ade80; }
+  .wstep.open .wmark.ok::before { color:#bbf7d0; }
+  .wmark.bad::before { content:"\2717  "; color:#f87171; }
+  .wbody { display:none; padding:10px; }
+  .wstep.open .wbody { display:block; }
+  #inputcheck div, #markstatus div { padding:2px 0; }
 </style>
 </head>
 <body>
 <div id="wrap">
   <div id="side">
-    <h1>Доводка траектории реза</h1>
-    <select id="scenes"></select>
-    <button id="exportls">Выгрузить .LS</button>
-    <div id="exportmsg" style="color:#7c8aa0;font-size:12px;min-height:16px"></div>
-    <h2>Вид</h2>
-    <button id="reset">Общий вид</button>
+    <h1>Доведення траєкторії різу</h1>
+
+    <div class="wiz" id="wiz">
+      <div class="wstep" id="wstep-1">
+        <button class="whead" data-step="1">1. Набір <span class="wmark" id="w1mark"></span></button>
+        <div class="wbody">
+          <select id="scenes"></select>
+          <div style="color:#7c8aa0;font-size:11px;margin:4px 0 2px">або перевірити інший (ще не порахований):</div>
+          <input id="rawname" placeholder="напр. v27" style="padding:6px 8px;border-radius:6px;background:#1b2432;color:#dbe3ef;border:1px solid #2b3648">
+        </div>
+      </div>
+      <div class="wstep" id="wstep-2">
+        <button class="whead" data-step="2">2. Вхідні дані <span class="wmark" id="w2mark"></span></button>
+        <div class="wbody">
+          <div id="inputcheck" style="font-size:12px;color:#9fb0c7"></div>
+          <button id="dogenerate">Розрахувати</button>
+          <div id="genmsg" style="color:#7c8aa0;font-size:12px;min-height:16px"></div>
+        </div>
+      </div>
+      <div class="wstep" id="wstep-3">
+        <button class="whead" data-step="3">3. Розмітка лінії згину <span class="wmark" id="w3mark"></span></button>
+        <div class="wbody">
+          <div id="markstatus" style="font-size:12px;color:#9fb0c7"></div>
+        </div>
+      </div>
+      <div class="wstep" id="wstep-4">
+        <button class="whead" data-step="4">4. Доведення та вивантаження <span class="wmark" id="w4mark"></span></button>
+        <div class="wbody">
+          <button id="exportls">Вивантажити .LS</button>
+          <div id="exportmsg" style="color:#7c8aa0;font-size:12px;min-height:16px"></div>
+          <div id="place" hidden>
+            <h2>Положення моделі</h2>
+            <div id="pctl"></div>
+            <div style="display:flex;gap:6px">
+              <button id="psave">Зберегти</button>
+              <button id="preset" style="flex:0 0 40%">Скинути</button>
+            </div>
+            <div id="pmsg" style="color:#7c8aa0;font-size:12px;min-height:16px"></div>
+          </div>
+          <div id="group" hidden>
+            <h2>Комплексний зсув: <span id="gtitle"></span></h2>
+            <div style="display:flex;gap:6px;margin-bottom:6px">
+              <button id="gselall">Уся лінія</button>
+              <button id="gselvis">Видимі тут</button>
+            </div>
+            <div style="color:#7c8aa0;font-size:11px;margin:0 0 6px">або Shift+клік по точках, щоб звузити</div>
+            <div id="groupctl"></div>
+            <div style="display:flex;gap:6px">
+              <button id="gsave">Зберегти</button>
+              <button id="gundo" style="flex:0 0 32%">Скасувати</button>
+              <button id="gclear" style="flex:0 0 32%">Скинути вибір</button>
+            </div>
+            <div id="gmsg" style="color:#7c8aa0;font-size:12px;min-height:16px"></div>
+          </div>
+          <div id="point" hidden>
+            <h2>Точка <span id="ptitle"></span></h2>
+            <div id="pointctl"></div>
+            <div style="display:flex;gap:6px">
+              <button id="ptsave">Зберегти</button>
+              <button id="ptreset" style="flex:0 0 40%">До розрахунку</button>
+            </div>
+            <div id="ptmsg" style="color:#7c8aa0;font-size:12px;min-height:16px"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h2>Вигляд</h2>
+    <button id="reset">Загальний вигляд</button>
     <div id="cams"></div>
-    <h2>Объекты</h2>
+    <h2>Об'єкти</h2>
     <div id="layers"></div>
-    <div id="place" hidden>
-      <h2>Положение модели</h2>
-      <div id="pctl"></div>
-      <div style="display:flex;gap:6px">
-        <button id="psave">Сохранить</button>
-        <button id="preset" style="flex:0 0 40%">Сброс</button>
-      </div>
-      <div id="pmsg" style="color:#7c8aa0;font-size:12px;min-height:16px"></div>
-    </div>
-    <div id="group" hidden>
-      <h2>Комплексный сдвиг: <span id="gtitle"></span></h2>
-      <div style="display:flex;gap:6px;margin-bottom:6px">
-        <button id="gselall">Вся линия</button>
-        <button id="gselvis">Видимые здесь</button>
-      </div>
-      <div style="color:#7c8aa0;font-size:11px;margin:0 0 6px">или Shift+клик по точкам, чтобы сузить</div>
-      <div id="groupctl"></div>
-      <div style="display:flex;gap:6px">
-        <button id="gsave">Сохранить</button>
-        <button id="gundo" style="flex:0 0 32%">Отменить</button>
-        <button id="gclear" style="flex:0 0 32%">Сброс выбора</button>
-      </div>
-      <div id="gmsg" style="color:#7c8aa0;font-size:12px;min-height:16px"></div>
-    </div>
-    <div id="point" hidden>
-      <h2>Точка <span id="ptitle"></span></h2>
-      <div id="pointctl"></div>
-      <div style="display:flex;gap:6px">
-        <button id="ptsave">Сохранить</button>
-        <button id="ptreset" style="flex:0 0 40%">К расчёту</button>
-      </div>
-      <div id="ptmsg" style="color:#7c8aa0;font-size:12px;min-height:16px"></div>
-    </div>
-    <h2>Опоры</h2>
-    <label><input type="checkbox" id="grid" checked> сетка 100 мм</label>
-    <label><input type="checkbox" id="axes" checked> оси станка</label>
-    <label><input type="checkbox" id="photo" checked> фото под камерой</label>
-    <label><input type="checkbox" id="solid"> модель без прозрачности</label>
+    <h2>Опори</h2>
+    <label><input type="checkbox" id="grid" checked> сітка 100 мм</label>
+    <label><input type="checkbox" id="axes" checked> осі верстата</label>
+    <label><input type="checkbox" id="photo" checked> фото під камерою</label>
+    <label><input type="checkbox" id="solid"> модель без прозорості</label>
   </div>
   <div id="view">
     <canvas id="c"></canvas>
     <div id="hud"></div>
-    <div id="hint">свободный обзор: тянуть — вращать · колесо — приблизить · Shift+тянуть — сдвинуть<br>
-    вид камерой: тянуть — сдвинуть фото · колесо — зум к курсору · клик по точке — выбрать<br>
-    тусклые точки — не видны на этом фото (дальняя сторона купола), их не поправить по нему</div>
+    <div id="hint">вільний огляд: тягнути — обертати · коліщатко — наблизити · Shift+тягнути — зсунути<br>
+    вигляд камерою: тягнути — зсунути фото · коліщатко — зум до курсора · клік по точці — вибрати<br>
+    тьмяні точки — не видно на цьому фото (дальня сторона купола), їх не поправити по ньому</div>
   </div>
 </div>
 <script src="/static/js/viewer.js"></script>

@@ -71,6 +71,22 @@ def scenes():
     return jsonify(out)
 
 
+@app.route('/api/pipeline/status/<name>')
+def pipeline_status(name):
+    """Для кроків 2-3 мастер-панелі: що вже є для цього варіанта на диску, а
+    чого бракує - фото/камери/розмітка (вхід pipeline/generate.py) та чи вже
+    порахована лінія реза (є scene.json). Нічого не рахує, тільки перевіряє
+    наявність файлів."""
+    from pipeline import generate as gen
+    photo_dir = os.path.join(gen.ARCHIVE, name)
+    photos = {v: os.path.exists(os.path.join(photo_dir, f'{v}.png'))
+             for v in ('back', 'left', 'top')}
+    marks = {v: os.path.exists(os.path.join(BASE, 'lines', f'{name}_{v}.json'))
+            for v in ('back', 'left')}
+    calculated = os.path.exists(os.path.join(scene.SCENES, name, 'scene.json'))
+    return jsonify(photos=photos, marks=marks, calculated=calculated)
+
+
 @app.route('/api/scene/<name>')
 def one(name):
     p = os.path.join(scene.SCENES, name, 'scene.json')

@@ -52,9 +52,9 @@ def reference_curves(reference_path):
     name = os.path.basename(reference_path)
     print(f'  эталон: {name}, {len(ref_pts)} точек')
     return [
-        S.curve(f'эталон, линия реза ({name})', [list(p[2]) for p in ref_pts],
+        S.curve(f'еталон, лінія різу ({name})', [list(p[2]) for p in ref_pts],
                '#22c55e', closed=True, width=2),
-        S.curve(f'эталон, путь сопла ({name})', [list(p[1]) for p in ref_pts],
+        S.curve(f'еталон, шлях сопла ({name})', [list(p[1]) for p in ref_pts],
                '#86efac', closed=True, width=1),
     ]
 
@@ -90,7 +90,7 @@ def build(variant, ls_path, cams, photos, reference_path=None):
     # первой же правки. Вместо этого viewer.js считает его на лету из ТЕКУЩИХ
     # точек редактируемой кривой + axes (та же формула: сопло = рез + 10*ось),
     # он всегда синхронен с тем, что реально видно/правится.
-    curve = S.curve(f'линия реза (расчёт, {variant})', cut_xyz, '#3b82f6',
+    curve = S.curve(f'лінія різу (розрахунок, {variant})', cut_xyz, '#3b82f6',
                     closed=True, width=2, editable=True, ids=ids, axes=axes)
     curves = [curve]
 
@@ -98,7 +98,7 @@ def build(variant, ls_path, cams, photos, reference_path=None):
         curves += reference_curves(reference_path)
 
     path = S.write(variant, cameras=cam_objs, curves=curves,
-                   note=f'{variant}: из {os.path.basename(ls_path)}, довести руками')
+                   note=f'{variant}: з {os.path.basename(ls_path)}, довести руками')
     print(f'сцена готова: {path}')
     print('открыть: http://localhost:2021')
 
