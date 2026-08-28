@@ -19,11 +19,13 @@ pipeline/generate.py и README.md, раздел про численную про
     start.bat        или        python app.py     (порт 2021)
 """
 import os
+import re
 import sys
 import io
 import json
 
 import cv2
+import numpy as np
 from flask import Flask, jsonify, render_template, send_from_directory, abort, request, send_file
 
 import scene
@@ -79,6 +81,7 @@ def pipeline_status(name):
     чого бракує - фото/камери/розмітка (вхід pipeline/generate.py) та чи вже
     порахована лінія реза (є scene.json). Нічого не рахує, тільки перевіряє
     наявність файлів."""
+    name = _safe_name(name)
     from pipeline import generate as gen
     photo_dir = os.path.join(gen.ARCHIVE, name)
     photos = {v: os.path.exists(os.path.join(photo_dir, f'{v}.png'))
@@ -337,6 +340,7 @@ def generate_ls(name):
     (пере)собрать сцену из результата - как build_scene.py, полностью
     перезаписывает scene.json. Использовать только для варианта без сохранённых
     правок (или когда затирание правок - осознанное решение)."""
+    name = _safe_name(name)
     d = request.get_json(silent=True) or {}
     recipe_name = d.get('recipe', 'production_2026-08-27')
     from pipeline import generate as gen
@@ -353,6 +357,103 @@ def generate_ls(name):
     build_scene.build(name, ls_path, cams, photos)
 
     return jsonify(status='ok', file=os.path.basename(ls_path), report=report)
+
+
+_NAME_RE = re.compile(r'^[A-Za-z0-9_.-]{1,64}$')
+
+
+def _safe_name(name):
+    """Ім'я набору йде прямо у шлях файлу (archive/<name>/...) - без цієї
+    перевірки завантаження з довільним ім'ям було б обходом каталогу."""
+    if not _NAME_RE.match(name or ''):
+        abort(400, description="некоректне ім'я набору")
+    return name
+
+
+_RAW_RE = re.compile(r'_w(\d+)_h(\d+)_p(\w+)', re.IGNORECASE)
+
+
+def _decode_upload_image(filename, data):
+    """.raw (8-біт mono, без заголовка, wNNNN_hNNNN_pMono8 у імені) або
+    звичайний jpg/png/... - в обох випадках повертає масив OpenCV (H,W)."""
+    if filename.lower().endswith('.raw'):
+        m = _RAW_RE.search(filename)
+        w, h = (int(m.group(1)), int(m.group(2))) if m else (4096, 3000)
+        arr = np.frombuffer(data, dtype=np.uint8)
+        if arr.size != w * h:
+            raise ValueError(f'.raw {filename}: очікував {w}x{h}={w*h} байт, отримав {arr.size}')
+        return arr.reshape(h, w)
+    arr = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+    if arr is None:
+        raise ValueError(f'не вдалося розпізнати зображення: {filename}')
+    return arr
+
+
+@app.route('/api/upload/<name>/<kind>', methods=['POST'])
+def upload(name, kind):
+    """Покласти одне фото (back/left/top, .raw або звичайне) чи еталонний
+    .LS (kind=reference) у archive/<name>/ - той самий каталог, який читає
+    pipeline/generate.py. Ім'я вихідного файлу завжди фіксоване
+    (back.png/left.png/top.png/ground_truth.ls) - оригінальна назва файлу,
+    яку прислали, для пайплайна не важлива і ніде не зберігається."""
+    name = _safe_name(name)
+    if kind not in ('back', 'left', 'top', 'reference'):
+        abort(400, description='kind має бути back/left/top/reference')
+    f = request.files.get('file')
+    if f is None or not f.filename:
+        return jsonify(error='файл не передано'), 400
+
+    from pipeline import generate as gen
+    dst_dir = os.path.join(gen.ARCHIVE, name)
+    os.makedirs(dst_dir, exist_ok=True)
+    data = f.read()
+
+    if kind == 'reference':
+        with open(os.path.join(dst_dir, 'ground_truth.ls'), 'wb') as out:
+            out.write(data)
+        return jsonify(status='ok', saved='ground_truth.ls')
+
+    try:
+        img = _decode_upload_image(f.filename, data)
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
+    cv2.imwrite(os.path.join(dst_dir, f'{kind}.png'), img)
+    return jsonify(status='ok', saved=f'{kind}.png', shape=list(img.shape))
+
+
+PENDING_PATH = os.path.join(BASE, 'data', 'pending.json')
+
+
+def _load_pending():
+    if not os.path.exists(PENDING_PATH):
+        return []
+    with open(PENDING_PATH, encoding='utf-8') as f:
+        return json.load(f)
+
+
+@app.route('/api/pending', methods=['GET'])
+def pending_list():
+    """Набори, які користувач попросив 'запам'ятати' під час завантаження,
+    але які ще НЕ порахували (є scene.json - значить вже в основному списку,
+    прибираємо зі списку 'в процесі' самі, вручну чистити не треба)."""
+    names = [n for n in _load_pending()
+            if not os.path.exists(os.path.join(scene.SCENES, n, 'scene.json'))]
+    if names != _load_pending():
+        with open(PENDING_PATH, 'w', encoding='utf-8') as f:
+            json.dump(names, f, ensure_ascii=False)
+    return jsonify(names)
+
+
+@app.route('/api/pending/<name>', methods=['POST'])
+def pending_add(name):
+    name = _safe_name(name)
+    names = _load_pending()
+    if name not in names:
+        names.append(name)
+        os.makedirs(os.path.dirname(PENDING_PATH), exist_ok=True)
+        with open(PENDING_PATH, 'w', encoding='utf-8') as f:
+            json.dump(names, f, ensure_ascii=False)
+    return jsonify(status='ok')
 
 
 @app.route('/download/<name>/<path:filename>')

@@ -80,7 +80,25 @@
         <div class="wbody">
           <select id="scenes"></select>
           <div style="color:#7c8aa0;font-size:11px;margin:4px 0 2px">або перевірити інший (ще не порахований):</div>
-          <input id="rawname" placeholder="напр. v27" style="padding:6px 8px;border-radius:6px;background:#1b2432;color:#dbe3ef;border:1px solid #2b3648">
+          <input id="rawname" placeholder="напр. v27" style="width:100%;padding:6px 8px;border-radius:6px;background:#1b2432;color:#dbe3ef;border:1px solid #2b3648;margin-bottom:6px">
+
+          <div id="pendingBox" style="margin:4px 0 8px"></div>
+
+          <div style="border-top:1px solid #2b3648;padding-top:8px;margin-top:2px">
+            <div style="color:#7c8aa0;font-size:11px;margin-bottom:4px">завантажити нове фото (не все одразу обов'язково):</div>
+            <div style="display:flex;gap:6px;margin-bottom:4px">
+              <select id="upkind" style="flex:0 0 34%">
+                <option value="back">back</option>
+                <option value="left">left</option>
+                <option value="top">top</option>
+                <option value="reference">еталон .LS</option>
+              </select>
+              <input type="file" id="upfile" style="flex:1;font-size:11px;padding:5px 4px">
+            </div>
+            <button id="upbtn">Завантажити</button>
+            <label><input type="checkbox" id="uppending"> запам'ятати цей набір у списку</label>
+            <div id="upmsg" style="color:#7c8aa0;font-size:12px;min-height:16px"></div>
+          </div>
         </div>
       </div>
       <div class="wstep" id="wstep-2">

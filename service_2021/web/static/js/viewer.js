@@ -882,7 +882,7 @@ async function refreshWizard() {
   document.getElementById('w1mark').textContent = name || '';
   const w2 = document.getElementById('w2mark'), w3 = document.getElementById('w3mark'),
         w4 = document.getElementById('w4mark');
-  if (!name) { w2.textContent = w3.textContent = w4.textContent = ''; return; }
+  if (!name) { w2.textContent = w3.textContent = w4.textContent = ''; refreshPending(); return; }
 
   let st;
   try {
@@ -904,8 +904,7 @@ async function refreshWizard() {
   ms.innerHTML = ['back', 'left']
     .map(v => `<div>${st.marks[v] ? '✓' : '✗'} розмітка ${v}</div>`).join('')
     + (allMarks ? '' : '<div style="margin-top:6px;color:#7c8aa0">'
-      + 'розмітки лінії згину бракує - поки що її можна зробити тільки старим '
-      + 'інструментом (service_3030/app.py, порт 3030)</div>');
+      + 'розмітки бракує - оберіть ракурс нижче і натисніть "Відкрити розмітку"</div>');
   w3.className = 'wmark ' + (allMarks ? 'ok' : 'bad');
   w3.textContent = allMarks ? 'є' : 'немає';
 
@@ -914,8 +913,61 @@ async function refreshWizard() {
   genBtn.title = genBtn.disabled ? 'бракує фото або розмітки лінії згину' : '';
 
   w4.textContent = st.calculated ? '' : 'ще не порахована';
+  refreshPending();
 }
 document.getElementById('rawname').oninput = refreshWizard;
+
+// ------------------------------------------------------- завантаження фото/еталона
+// Ім'я генерується тут же, коротке й унікальне достатньою мірою для ручного
+// потоку (один файл за раз, рідко) - не крипто-унікальне, і не повинно бути.
+function genName() {
+  const d = new Date();
+  const mmdd = String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+  const suf = Math.random().toString(36).slice(2, 6);
+  return `nabir-${mmdd}-${suf}`;
+}
+
+async function refreshPending() {
+  const box = document.getElementById('pendingBox');
+  let names;
+  try { names = await (await fetch('/api/pending')).json(); }
+  catch (e) { return; }
+  if (!names.length) { box.innerHTML = ''; return; }
+  const cur = currentTargetName();
+  box.innerHTML = '<div style="color:#7c8aa0;font-size:11px;margin-bottom:3px">'
+    + `у процесі (${names.length}):</div>`
+    + names.map(n => `<button data-pending="${n}" style="${n === cur ? 'background:#1d4ed8' : ''}">${n}</button>`).join('');
+  box.querySelectorAll('[data-pending]').forEach(b => {
+    b.onclick = () => {
+      document.getElementById('rawname').value = b.dataset.pending;
+      refreshWizard();
+    };
+  });
+}
+
+document.getElementById('upbtn').onclick = async () => {
+  const msg = document.getElementById('upmsg');
+  const file = document.getElementById('upfile').files[0];
+  if (!file) { msg.textContent = 'спершу оберіть файл'; return; }
+  let name = currentTargetName();
+  if (!name) {
+    name = genName();
+    document.getElementById('rawname').value = name;
+  }
+  const kind = document.getElementById('upkind').value;
+  const fd = new FormData();
+  fd.append('file', file);
+  msg.textContent = 'завантажую...';
+  const r = await fetch(`/api/upload/${name}/${kind}`, { method: 'POST', body: fd });
+  const j = await r.json();
+  if (!r.ok) { msg.textContent = 'помилка: ' + (j.error || r.status); return; }
+  msg.textContent = `завантажено: ${j.saved}`;
+  document.getElementById('upfile').value = '';
+  if (document.getElementById('uppending').checked) {
+    await fetch(`/api/pending/${name}`, { method: 'POST' });
+  }
+  refreshWizard();
+};
 
 document.getElementById('dogenerate').onclick = async () => {
   const name = currentTargetName();

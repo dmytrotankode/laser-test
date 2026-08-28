@@ -167,9 +167,30 @@ marks vs. the auto-detector, median/p90/bias in px and mm). These are
 deliberately separate from the older `/api/scene/...` routes — marking has
 nothing to do with a built scene, only with `archive/`+`lines/`.
 
-Remaining gap, unchanged: a genuinely new variant still needs its photos
-placed into `archive/<variant>/` by hand before either marking or generation
-can start (no upload flow exists yet for that step).
+### Uploading photos (`POST /api/upload/<name>/<kind>`, done 2026-08-28)
+
+Closes the gap above: `kind` is one of `back`/`left`/`top`/`reference`, body
+is a single `multipart/form-data` file field named `file`. The original
+filename is never kept — output is always `archive/<name>/{back,left,top}.png`
+or `archive/<name>/ground_truth.ls` — so it doesn't matter that camera
+exports arrive with arbitrary/wrong names, or that a reference `.LS` has some
+unrelated name too.
+
+Two input shapes are accepted for photos, both ending up as a plain PNG:
+- A normal image (`.png`/`.jpg`/...) — decoded with `cv2.imdecode` and
+  re-saved as PNG.
+- A raw sensor dump named like `..._w4096_h3000_pMono8.raw` — 8-bit
+  grayscale, one byte per pixel, **no header** (`numpy.frombuffer(data,
+  dtype=np.uint8).reshape(h, w)`; `w`/`h` parsed from the filename via
+  `_RAW_RE`, falling back to 4096×3000 if the filename doesn't match). This
+  matches every `.raw` capture seen in this project so far (confirmed against
+  `scratch_convert_new_variants.py`, `import_test1.py`, `capture.py` — none
+  of which exposed a reusable function, so this is a fresh implementation of
+  the same well-established format, not a call into existing code).
+
+`name` is validated (`_safe_name`, `^[A-Za-z0-9_.-]{1,64}$`) before it ever
+reaches a file path — needed once user-chosen names started driving file
+writes, not just reads.
 
 ## Key domain facts (don't relearn these)
 
@@ -288,7 +309,15 @@ The sidebar is a collapsible step wizard (`.wiz`/`.wstep`/`.whead`/`.wbody` in
 `index.html`, `wizExpand()`/`refreshWizard()` in `viewer.js`) — only one step
 open at a time:
 1. **Набір** — pick a built scene, or type a not-yet-built variant name into
-   `#rawname` to check/generate it (reads `/api/pipeline/status/<name>`).
+   `#rawname` to check/generate it (reads `/api/pipeline/status/<name>`). Also
+   has a one-photo-at-a-time uploader (`POST /api/upload/<name>/<kind>`,
+   `kind` ∈ back/left/top/reference) — see "Uploading photos" below — and a
+   "запам'ятати цей набір у списку" checkbox that adds the name to
+   `data/pending.json` (`GET/POST /api/pending`), shown as a row of buttons
+   under the name field so an in-progress variant (photos uploaded, not yet
+   calculated) doesn't have to be retyped from memory. A name drops out of
+   that list automatically once it has a `scene.json` (i.e. it graduated to
+   the real scene dropdown) — nothing has to clean the list up by hand.
 2. **Вхідні дані** — ✓/✗ checklist for `archive/<name>/{back,left,top}.png`;
    "Розрахувати" calls `POST /api/generate/<name>` (disabled until photos AND
    marks both exist) and reloads the resulting scene.
