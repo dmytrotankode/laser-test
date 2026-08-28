@@ -23,6 +23,7 @@ import re
 import sys
 import io
 import json
+import datetime
 
 import cv2
 import numpy as np
@@ -370,6 +371,45 @@ def _safe_name(name):
     return name
 
 
+def _name_status(name):
+    """Що вже існує під цим ім'ям - для модалки "Новий набір": відрізняємо
+    "вже ПОРАХОВАНО" (calculated=True - реальний ризик тихо влізти у чиюсь
+    готову роботу, як з archive/v21/back.png; це підстава ЗАБОРОНИТИ) від
+    "вже є якісь файли, але ще не порахований" (has_data=True без calculated
+    - це нормальний випадок повернутися й дозавантажити свій же учорашній
+    набір; тут тільки попереджаємо, не блокуємо)."""
+    from pipeline import generate as gen, line_marks
+    has_photos = os.path.isdir(os.path.join(gen.ARCHIVE, name)) and bool(os.listdir(os.path.join(gen.ARCHIVE, name)))
+    has_marks = any(os.path.exists(os.path.join(line_marks.LINES, f'{name}_{v}.json')) for v in ('back', 'left'))
+    calculated = os.path.exists(os.path.join(scene.SCENES, name, 'scene.json'))
+    return dict(has_data=has_photos or has_marks, calculated=calculated)
+
+
+@app.route('/api/name_taken/<name>')
+def name_taken(name):
+    name = _safe_name(name)
+    return jsonify(**_name_status(name))
+
+
+@app.route('/api/suggest_name')
+def suggest_name():
+    """nabir-MMDD-NNN - наступний вільний номер за сьогодні. Рахує від уже
+    зайнятих імен (archive/), а не від лічильника в файлі - не залежить від
+    того, чи хтось видалив/перейменував щось руками."""
+    from pipeline import generate as gen
+    mmdd = datetime.date.today().strftime('%m%d')
+    prefix = f'nabir-{mmdd}-'
+    used = set()
+    if os.path.isdir(gen.ARCHIVE):
+        for d in os.listdir(gen.ARCHIVE):
+            if d.startswith(prefix) and d[len(prefix):].isdigit():
+                used.add(int(d[len(prefix):]))
+    n = 1
+    while n in used:
+        n += 1
+    return jsonify(name=f'{prefix}{n:03d}')
+
+
 _RAW_RE = re.compile(r'_w(\d+)_h(\d+)_p(\w+)', re.IGNORECASE)
 
 
@@ -399,6 +439,14 @@ def upload(name, kind):
     name = _safe_name(name)
     if kind not in ('back', 'left', 'top', 'reference'):
         abort(400, description='kind має бути back/left/top/reference')
+    if _name_status(name)['calculated']:
+        # Реальний захист, не тільки підказка в UI - вже траплялося, що
+        # завантаження тихо переписувало archive/v21/back.png поверх уже
+        # порахованого набору. Дозавантажувати СВІЙ незавершений набір
+        # (фото є, розрахунку ще нема) можна й далі - блокуємо лише те, що
+        # вже має готову сцену.
+        return jsonify(error=f"«{name}» вже порахований - завантаження сюди "
+                             f"заборонено, щоб не переписати готову роботу"), 409
     f = request.files.get('file')
     if f is None or not f.filename:
         return jsonify(error='файл не передано'), 400

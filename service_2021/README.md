@@ -338,12 +338,21 @@ open at a time:
    calculated) doesn't have to be retyped from memory. A name drops out of
    that list automatically once it has a `scene.json` (i.e. it graduated to
    the real scene dropdown) — nothing has to clean the list up by hand.
-2. **Вхідні дані** — ✓/✗ checklist for `archive/<name>/{back,left,top}.png`;
-   "Розрахувати" calls `POST /api/generate/<name>` (disabled until photos AND
-   marks both exist) and reloads the resulting scene.
-3. **Розмітка лінії згину** — ✓/✗ for `lines/<name>_{back,left}.json`, plus
+2. **Розмітка лінії згину** — ✓/✗ for `lines/<name>_{back,left}.json`, plus
    "Відкрити розмітку" which opens the vendored marking overlay (`mark.js`,
    see the pipeline section above) for the chosen view.
+3. **Вхідні дані** — ✓/✗ checklist for `archive/<name>/{back,left,top}.png`;
+   "Розрахувати" calls `POST /api/generate/<name>` (disabled until photos AND
+   marks both exist) and reloads the resulting scene. **Deliberately placed
+   after marking, not before** — the button does nothing useful until marks
+   exist, so putting "check inputs" ahead of "the one input that's usually
+   still missing" just meant clicking a dead button first. Note that the
+   internal element ids (`w2mark` for this step's status, `w3mark` for
+   marking's) still don't match the visual step numbers — only the `<div>`
+   order, `data-step` values, and header text were swapped; every id-based
+   JS reference (`#dogenerate`, `#markstatus`, `#inputcheck`, ...) is
+   untouched, so don't "fix" the ids to match without re-checking every call
+   site that assumes the old mapping.
 4. **Доведення та вивантаження** — the original point/group correction UI,
    unchanged, just moved under this step. Auto-expanded once a scene loads.
 
@@ -415,3 +424,59 @@ kind of thing that looks fine in isolation.
    by giving `#markprof` explicit `width:220px; height:110px` in its own CSS
    rule. Verified both the fixed layout (`getBoundingClientRect()` before/after)
    and that a synthetic click now actually appends to `M.manual`.
+
+## Six more fixes/features, same session (2026-08-28)
+
+1. **Step order swapped** — see the numbered wizard list above; marking now
+   comes before "Вхідні дані" since the latter's button is dead until marks
+   exist.
+2. **Confirmed (not changed): the marking overlay loads full-resolution
+   photos.** `/mark/img/<variant>/<view>.jpg` serves the original archive PNG
+   re-encoded as JPEG, dimensions untouched — verified `M.img.naturalWidth ===
+   4096`. Zooming in the marking canvas reveals real detail, not an upscaled
+   thumbnail; this was already true before today, just re-verified since it
+   was asked about directly.
+3. **Sequential, checked naming for new sets.** `genName()` no longer
+   generates a random client-side suffix — it calls `GET /api/suggest_name`,
+   which scans `archive/` for `nabir-<today's MMDD>-NNN` and returns the next
+   free `NNN` (zero-padded, resets daily). Typing a custom name (e.g. `v26`)
+   into `#ns_name` now triggers a debounced `GET /api/name_taken/<name>`
+   check (`_name_status()` in `app.py`): a name with an existing `scene.json`
+   is **hard-blocked**, both in the modal (upload button refuses, clear
+   message) and — the real safety net — in `POST /api/upload/...` itself
+   (returns 409 even if the client-side check is bypassed entirely, e.g. a
+   raw `fetch` from the console). A name with *some* files but no
+   `scene.json` yet (an in-progress upload from earlier) only warns, since
+   coming back to add a missing photo to your own unfinished set is a normal
+   workflow, not the dangerous case.
+4. **Hand-drawn marks now show as a layer in the main 3D viewer**, not just
+   inside the marking overlay. `markLines.{back,left}` are fetched (`GET
+   /api/mark/lines/<name>/<view>`) when a scene loads, and drawn in `draw()`
+   using the *same* `pr.fit` affine transform the background photo itself
+   uses (they're pixel coordinates on that specific photo, not 3D points —
+   drawing them via the normal `pr.p()` world-to-screen projection would be
+   meaningless). Gated strictly on `scene.cameras[camIndex].name` matching
+   the view the marks belong to, so back-view marks never appear while
+   looking from `left` or in free orbit — not a toggle a user has to manage,
+   just a structural consequence of them being image-space data.
+5. **Brightness/contrast sliders for the camera-view photo** (`#photoAdjust`,
+   shown only while `camIndex >= 0`), applied via `ctx.filter =
+   'brightness(N%) contrast(N%)'` right before `drawImage` and reset to
+   `'none'` immediately after (a lingering `ctx.filter` would otherwise leak
+   into every other draw call this frame). Explicitly session-only state —
+   nothing here is written to `scene.json`, `localStorage`, or anywhere else;
+   "Скинути" and the general "Загальний вигляд" button both reset it to
+   100/100, and it starts neutral on every page load.
+6. **Color collision between item 4's new mark-line layer and the existing
+   "touched" point marker** — both were `#ef4444`, so a touched point sitting
+   near the hand-drawn line was indistinguishable from it once both were
+   visible at the same time (a combination that only became possible once
+   item 4 existed). Resolved by giving each its own color rather than
+   picking one arbitrarily to keep: touched points moved to `#dc2626` (a
+   calmer, slightly darker red, also just a touch smaller) since that
+   convention already existed project-wide and had prior expectations built
+   up around it; the brand-new mark-line layer took the color change instead
+   (`#f472b6`, pink) since nothing yet depended on it being red specifically
+   — it was three lines of code old at the time. `mark.js`'s own overlay
+   canvas keeps its original red for "your line" — that one never showed
+   touched points alongside it, so there was never a collision there to fix.

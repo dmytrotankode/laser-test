@@ -114,15 +114,7 @@
         </div>
       </div>
       <div class="wstep" id="wstep-2">
-        <button class="whead" data-step="2">2. Вхідні дані <span class="wmark" id="w2mark"></span></button>
-        <div class="wbody">
-          <div id="inputcheck" style="font-size:12px;color:#9fb0c7"></div>
-          <button id="dogenerate">Розрахувати</button>
-          <div id="genmsg" style="color:#7c8aa0;font-size:12px;min-height:16px"></div>
-        </div>
-      </div>
-      <div class="wstep" id="wstep-3">
-        <button class="whead" data-step="3">3. Розмітка лінії згину <span class="wmark" id="w3mark"></span></button>
+        <button class="whead" data-step="2">2. Розмітка лінії згину <span class="wmark" id="w3mark"></span></button>
         <div class="wbody">
           <div id="markstatus" style="font-size:12px;color:#9fb0c7"></div>
           <div style="display:flex;gap:6px;margin-top:8px">
@@ -132,6 +124,14 @@
             </select>
             <button id="markopen" style="flex:1">Відкрити розмітку</button>
           </div>
+        </div>
+      </div>
+      <div class="wstep" id="wstep-3">
+        <button class="whead" data-step="3">3. Вхідні дані <span class="wmark" id="w2mark"></span></button>
+        <div class="wbody">
+          <div id="inputcheck" style="font-size:12px;color:#9fb0c7"></div>
+          <button id="dogenerate">Розрахувати</button>
+          <div id="genmsg" style="color:#7c8aa0;font-size:12px;min-height:16px"></div>
         </div>
       </div>
       <div class="wstep" id="wstep-4">
@@ -179,6 +179,11 @@
     <h2>Вигляд</h2>
     <button id="reset">Загальний вигляд</button>
     <div id="cams"></div>
+    <div id="photoAdjust" hidden style="margin:2px 0 8px">
+      <div class="prow"><b style="width:78px">Яскравість</b><input type="range" id="pa_bright" min="50" max="200" value="100" style="flex:1"><span id="pa_brightval" style="width:38px;text-align:right;font-family:monospace;font-size:11px">100%</span></div>
+      <div class="prow"><b style="width:78px">Контраст</b><input type="range" id="pa_contrast" min="50" max="200" value="100" style="flex:1"><span id="pa_contrastval" style="width:38px;text-align:right;font-family:monospace;font-size:11px">100%</span></div>
+      <button id="pa_reset">Скинути</button>
+    </div>
     <h2>Об'єкти</h2>
     <div id="layers"></div>
     <h2>Опори</h2>
@@ -205,9 +210,10 @@
     <h2 style="text-transform:none;font-size:15px;color:#dbe3ef;letter-spacing:0;margin:0 0 4px">Новий набір</h2>
     <p style="color:#7c8aa0;font-size:12px;margin:0 0 12px">Окремо від того, що зараз відкрито у в'ювері -
       це завжди нове ім'я, ніякі файли вже порахованого набору не будуть перезаписані.</p>
-    <label style="display:block;margin-bottom:10px">Назва набору
+    <label style="display:block;margin-bottom:4px">Назва набору
       <input id="ns_name" style="width:100%;padding:6px 8px;border-radius:6px;background:#1b2432;color:#dbe3ef;border:1px solid #2b3648;margin-top:3px">
     </label>
+    <div id="ns_namestatus" style="font-size:11px;min-height:15px;margin-bottom:8px"></div>
     <div class="ns_row"><b>back*</b><input type="file" id="ns_back"></div>
     <div class="ns_row"><b>left*</b><input type="file" id="ns_left"></div>
     <div class="ns_row"><b>top*</b><input type="file" id="ns_top"></div>

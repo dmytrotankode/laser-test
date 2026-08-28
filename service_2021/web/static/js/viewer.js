@@ -19,9 +19,18 @@ let camIndex = -1;          // -1 = свободный обзор, иначе и
 let sel_point = null;        // {cidx, pidx} выбранной точки редактируемой кривой (тонкая правка)
 let group_sel = [];           // [pidx, ...] группа для комплексного сдвига (Shift+клик)
 let camZoom = 1, camPanX = 0, camPanY = 0;   // зум/сдвиг ТОЛЬКО картинки в виде камерой, не самой камеры
+// Тимчасова допомога для очей при розгляданні/розмітці фото - НЕ зберігається
+// ніде (ні в scene.json, ні в localStorage), скидається на 100/100 при
+// кожному відкритті сторінки і кнопкою "Скинути".
+let photoBrightness = 100, photoContrast = 100;
 const NOMINAL_STANDOFF = 10.0;               // мм, тот же, что ls_points.NOMINAL_STANDOFF в 2021
 const shown = {};           // имя слоя -> показывать
 const photos = {};          // имя камеры -> Image
+// Ручна розмітка лінії згину (крок 3, mark.js) - точки в ПІКСЕЛЯХ фото, не в
+// координатах верстата, тому малюються тим самим f=pr.fit, що й саме фото,
+// а не через звичайну 3D-проекцію pr.p(). Має сенс лише під тим самим видом
+// камерою, з якого його малювали - на back-фото ліва розмітка беззмістовна.
+const markLines = { back: [], left: [] };
 const meshes = {};          // имя меша -> {tris:Float32Array}
 
 // ---------------------------------------------------------------- математика
@@ -238,8 +247,36 @@ function draw() {
     if (im && im.complete && im.naturalWidth) {
       const f = pr.fit;
       ctx.globalAlpha = 0.75;
+      if (photoBrightness !== 100 || photoContrast !== 100) {
+        ctx.filter = `brightness(${photoBrightness}%) contrast(${photoContrast}%)`;
+      }
       ctx.drawImage(im, f.ox, f.oy, f.iw * f.k, f.ih * f.k);
+      ctx.filter = 'none';
       ctx.globalAlpha = 1;
+    }
+  }
+  // Ручна розмітка лінії згину - тільки під тим самим видом камерою, звідки
+  // її малювали (пікселі фото, не 3D-точки; безглуздо показувати їх деінде).
+  if (camIndex >= 0) {
+    const camName = scene.cameras[camIndex].name;
+    const pts = markLines[camName];
+    if (pts && pts.length >= 2 && shown['markline:' + camName]) {
+      const f = pr.fit;
+      const toScreen = ([x, y]) => [f.ox + f.k * x, f.oy + f.k * y];
+      // НЕ #ef4444 - тим самим кольором позначені touched-точки лінії реза,
+      // разом на фото ззаду/збоку вони зливалися в одну пляму (звіт користувача).
+      ctx.strokeStyle = '#f472b6'; ctx.lineWidth = 2 * devicePixelRatio * 0.8;
+      ctx.beginPath();
+      [...pts].sort((a, b) => a[0] - b[0]).forEach(([x, y], i) => {
+        const [sx, sy] = toScreen([x, y]);
+        i ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy);
+      });
+      ctx.stroke();
+      ctx.fillStyle = '#f472b6';
+      for (const p of pts) {
+        const [sx, sy] = toScreen(p);
+        ctx.beginPath(); ctx.arc(sx, sy, 3.5 * devicePixelRatio * 0.8, 0, 7); ctx.fill();
+      }
     }
   }
   if (document.getElementById('grid').checked) drawGrid(pr);
@@ -300,8 +337,11 @@ function draw() {
         ctx.beginPath(); ctx.arc(p[0], p[1], r, 0, 7); ctx.fill();
         return;
       }
-      ctx.fillStyle = sel ? '#facc15' : (touched ? '#ef4444' : '#94a3b8');
-      const r = (sel ? 6 : (touched ? 4.5 : 3.5)) * devicePixelRatio * 0.8;
+      // Приглушений відтінок навмисно (не яскраво-червоний #ef4444) - той
+      // самий колір тепер займає рядна розмітка від руки (нижче), і на
+      // фото ззаду/збоку вони раніше зливалися в одну пляму.
+      ctx.fillStyle = sel ? '#facc15' : (touched ? '#dc2626' : '#94a3b8');
+      const r = (sel ? 6 : (touched ? 4 : 3.5)) * devicePixelRatio * 0.8;
       ctx.beginPath(); ctx.arc(p[0], p[1], r, 0, 7); ctx.fill();
       if (sel) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke(); }
     });
@@ -533,6 +573,21 @@ async function loadScene(name) {
   }
   for (const c of scene.cameras) layers.appendChild(layerRow('камера ' + c.name, '#38bdf8', 'cam:' + c.name));
 
+  // Ручна розмітка лінії згину - лише для back/left (на top її не малюють) і
+  // лише якщо камера з такою назвою є в цій сцені (без неї немає pr.fit,
+  // яким малюються точки в пікселях фото).
+  markLines.back = []; markLines.left = [];
+  for (const view of ['back', 'left']) {
+    if (!scene.cameras.some(c => c.name === view)) continue;
+    fetch(`/api/mark/lines/${name}/${view}`).then(r => r.json()).then(d => {
+      markLines[view] = d.points || [];
+      if (markLines[view].length >= 2) {
+        layers.appendChild(layerRow(`розмітка ${view} (від руки)`, '#f472b6', 'markline:' + view));
+      }
+      draw();
+    }).catch(() => {});
+  }
+
   const cams = document.getElementById('cams'); cams.innerHTML = '';
   scene.cameras.forEach((cam, i) => {
     const b = document.createElement('button');
@@ -541,6 +596,7 @@ async function loadScene(name) {
       camIndex = camIndex === i ? -1 : i;
       camZoom = 1; camPanX = 0; camPanY = 0;
       [...cams.children].forEach((x, j) => x.classList.toggle('on', j === camIndex));
+      document.getElementById('photoAdjust').hidden = camIndex < 0;
       draw();
     };
     cams.appendChild(b);
@@ -854,11 +910,25 @@ document.getElementById('reset').onclick = () => {
   camIndex = -1;
   camZoom = 1; camPanX = 0; camPanY = 0;
   [...document.getElementById('cams').children].forEach(x => x.classList.remove('on'));
+  document.getElementById('photoAdjust').hidden = true;
   if (scene) { view.target = scene._center.slice(); view.yaw = 0.9; view.pitch = 0.5; }
   draw();
 };
 for (const id of ['grid', 'axes', 'photo', 'solid'])
   document.getElementById(id).onchange = draw;
+
+// ------------------------------------------------- яскравість/контраст фото
+function setPhotoAdjust(bright, contrast) {
+  photoBrightness = bright; photoContrast = contrast;
+  document.getElementById('pa_bright').value = bright;
+  document.getElementById('pa_contrast').value = contrast;
+  document.getElementById('pa_brightval').textContent = bright + '%';
+  document.getElementById('pa_contrastval').textContent = contrast + '%';
+  draw();
+}
+document.getElementById('pa_bright').oninput = e => setPhotoAdjust(+e.target.value, photoContrast);
+document.getElementById('pa_contrast').oninput = e => setPhotoAdjust(photoBrightness, +e.target.value);
+document.getElementById('pa_reset').onclick = () => setPhotoAdjust(100, 100);
 
 // ---------------------------------------------------------------- майстер (кроки)
 // Розгорнутий лише один крок одразу - як в акордеоні. Крок сам по собі нічого
@@ -887,8 +957,10 @@ function clearViewer(placeholderName) {
   group_sel = []; sel_point = null;
   Object.keys(photos).forEach(k => delete photos[k]);
   Object.keys(meshes).forEach(k => delete meshes[k]);
+  markLines.back = []; markLines.left = [];
   document.getElementById('cams').innerHTML = '';
   document.getElementById('layers').innerHTML = '';
+  document.getElementById('photoAdjust').hidden = true;
   document.getElementById('place').hidden = true;
   document.getElementById('group').hidden = true;
   document.getElementById('point').hidden = true;
@@ -952,13 +1024,15 @@ document.getElementById('rawname').oninput = () => {
 };
 
 // ------------------------------------------------------- завантаження фото/еталона
-// Ім'я генерується тут же, коротке й унікальне достатньою мірою для ручного
-// потоку (один файл за раз, рідко) - не крипто-унікальне, і не повинно бути.
-function genName() {
-  const d = new Date();
-  const mmdd = String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
-  const suf = Math.random().toString(36).slice(2, 6);
-  return `nabir-${mmdd}-${suf}`;
+// nabir-MMDD-NNN, порядковий номер за сьогодні - рахує сервер (GET
+// /api/suggest_name) від того, що вже реально лежить в archive/, а не
+// генерується наосліп на клієнті.
+async function genName() {
+  try {
+    return (await (await fetch('/api/suggest_name')).json()).name;
+  } catch (e) {
+    return 'nabir-' + Date.now();          // мережа впала - хоч щось унікальне
+  }
 }
 
 async function refreshPending() {
@@ -984,10 +1058,38 @@ async function refreshPending() {
 // ns_name, щоб завантаження в жодному разі не могло потрапити у вже
 // порахований набір, який зараз відкрито у в'ювері (був реальний ризик
 // тихо переписати archive/v21/back.png, поки v21 обрано в дропдауні).
-function openNewSet() {
-  document.getElementById('ns_name').value = genName();
+let _nsTaken = false;   // останній відомий статус ns_name - "вже порахований", блокує завантаження
+
+async function checkNsName() {
+  const el = document.getElementById('ns_namestatus');
+  const name = document.getElementById('ns_name').value.trim();
+  if (!name) { el.textContent = ''; _nsTaken = false; return; }
+  let st;
+  try { st = await (await fetch('/api/name_taken/' + encodeURIComponent(name))).json(); }
+  catch (e) { el.textContent = ''; _nsTaken = false; return; }
+  _nsTaken = !!st.calculated;
+  if (st.calculated) {
+    el.style.color = '#f87171';
+    el.textContent = `⚠ «${name}» вже порахований - оберіть іншу назву`;
+  } else if (st.has_data) {
+    el.style.color = '#facc15';
+    el.textContent = `«${name}» вже має якісь файли (це нормально, якщо це ваш же незавершений набір)`;
+  } else {
+    el.textContent = '';
+  }
+}
+let _nsTimer = null;
+document.getElementById('ns_name').oninput = () => {
+  clearTimeout(_nsTimer);
+  _nsTimer = setTimeout(checkNsName, 250);
+};
+
+async function openNewSet() {
+  document.getElementById('ns_name').value = await genName();
   for (const id of ['ns_back', 'ns_left', 'ns_top', 'ns_ref']) document.getElementById(id).value = '';
   document.getElementById('ns_msg').textContent = '';
+  document.getElementById('ns_namestatus').textContent = '';
+  _nsTaken = false;
   document.getElementById('newsetOverlay').hidden = false;
 }
 document.getElementById('newsetopen').onclick = openNewSet;
@@ -997,6 +1099,8 @@ document.getElementById('ns_upload').onclick = async () => {
   const msg = document.getElementById('ns_msg');
   const name = document.getElementById('ns_name').value.trim();
   if (!name) { msg.textContent = "вкажіть назву набору"; return; }
+  await checkNsName();          // не покладаємось на застарілий результат дебаунса
+  if (_nsTaken) { msg.textContent = `«${name}» вже порахований - оберіть іншу назву`; return; }
   const jobs = [['ns_back', 'back'], ['ns_left', 'left'], ['ns_top', 'top'], ['ns_ref', 'reference']]
     .map(([id, kind]) => ({ file: document.getElementById(id).files[0], kind }))
     .filter(j => j.file);
