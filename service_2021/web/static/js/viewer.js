@@ -578,11 +578,11 @@ cv.addEventListener('wheel', e => {
 addEventListener('resize', draw);
 
 // ---------------------------------------------------------------- загрузка
-function layerRow(name, color, key) {
+function layerRow(name, color, key, defaultOn = true) {
   const l = document.createElement('label');
-  l.innerHTML = `<input type="checkbox" checked><span class="sw" style="background:${color}"></span>${name}`;
+  l.innerHTML = `<input type="checkbox"${defaultOn ? ' checked' : ''}><span class="sw" style="background:${color}"></span>${name}`;
   l.querySelector('input').onchange = e => { shown[key] = e.target.checked; draw(); };
-  shown[key] = true;
+  shown[key] = defaultOn;
   return l;
 }
 
@@ -608,7 +608,7 @@ async function loadScene(name) {
   const layers = document.getElementById('layers'); layers.innerHTML = '';
   for (const c of scene.curves) {
     layers.appendChild(layerRow(c.name, c.color, c.name));
-    if (c.editable && c.axes) layers.appendChild(layerRow('шлях сопла (живий)', '#93c5fd', 'nozzle:' + c.name));
+    if (c.editable && c.axes) layers.appendChild(layerRow('шлях сопла (живий)', '#93c5fd', 'nozzle:' + c.name, false));
   }
   for (const s of scene.points) layers.appendChild(layerRow(s.name, s.color, s.name));
   for (const m of scene.meshes) {
