@@ -94,6 +94,52 @@ function rotGlyphs(u, v) {
   return [minus, plus];
 }
 
+// Плаваюча панель (axisPad) отримує не текстовий '↻'/'↺', а справжню
+// перспективну еліпсу-кільце: коло обертання (в площині u,v) буквально
+// проєктується цією ж камерою, тому лягає "плазом" (тонкою еліпсою), коли
+// вісь повороту майже в площині екрана (нахил), і лишається повним колом,
+// коли вісь дивиться майже вздовж променя камери (чистий обертання екрана) -
+// саме це мав на увазі "иконки должны быть 3д". Суцільна дуга - ближня до
+// камери половина кільця, пунктирна - дальня (та сама ідея, що й у
+// гізмо-кільцях CAD-редакторів), стрілка - на найближчій до глядача точці,
+// напрямок хвостика показує бік ЦІЄЇ конкретної кнопки (sign=+1 - у бік u->v,
+// sign=-1 - назад).
+function rotIconSVG(u, v, sign) {
+  const du = camDir(u), dv = camDir(v);
+  if (!du) return null;
+  const N = 28, R = 11, CX = 16, CY = 16;
+  const pts = [];
+  for (let i = 0; i <= N; i++) {
+    const th = i / N * 2 * Math.PI, c = Math.cos(th), s = Math.sin(th);
+    pts.push([du[0]*c + dv[0]*s, du[1]*c + dv[1]*s, du[2]*c + dv[2]*s]);
+  }
+  const maxR = Math.max(1e-6, ...pts.map(p => Math.hypot(p[0], p[1])));
+  const k = R / maxR;
+  const scr = pts.map(p => [CX + p[0]*k, CY + p[1]*k, p[2]]);
+  let solid = '', dashed = '';
+  for (let i = 0; i < N; i++) {
+    const a = scr[i], b = scr[i+1];
+    const seg = `M${a[0].toFixed(1)},${a[1].toFixed(1)} L${b[0].toFixed(1)},${b[1].toFixed(1)} `;
+    if (a[2] < 0 && b[2] < 0) solid += seg; else dashed += seg;
+  }
+  let fi = 0;
+  for (let i = 1; i <= N; i++) if (scr[i][2] < scr[fi][2]) fi = i;
+  const nb = scr[(fi + 1) % (N + 1)], pb = scr[(fi - 1 + N + 1) % (N + 1)];
+  let tx = nb[0] - pb[0], ty = nb[1] - pb[1];
+  const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+  if (sign < 0) { tx = -tx; ty = -ty; }
+  const apex = scr[fi];
+  const tipx = apex[0] + tx * 3, tipy = apex[1] + ty * 3;
+  const bx = apex[0] - tx * 4.5, by = apex[1] - ty * 4.5;
+  const px = -ty, py = tx, wing = 3;
+  const w1x = bx + px*wing, w1y = by + py*wing, w2x = bx - px*wing, w2y = by - py*wing;
+  return `<svg viewBox="0 0 32 32" width="18" height="18">
+    <path d="${dashed}" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2,2" fill="none" opacity="0.5"/>
+    <path d="${solid}" stroke="currentColor" stroke-width="1.8" fill="none"/>
+    <path d="M${tipx.toFixed(1)},${tipy.toFixed(1)} L${w1x.toFixed(1)},${w1y.toFixed(1)} L${w2x.toFixed(1)},${w2y.toFixed(1)} Z" fill="currentColor"/>
+  </svg>`;
+}
+
 // Свободная камера: смотрит на target, ось Y кадра вниз - как у настоящих.
 function orbitPose() {
   const cp = Math.cos(view.pitch), sp = Math.sin(view.pitch);
@@ -775,10 +821,59 @@ function activePoints() {
   return scene.curves[ci].points.map((_, pi) => ({ cidx: ci, pidx: pi }));
 }
 
+// Плаваюча панель поверх 3D-вигляду - дублює кнопки +/- з groupctl (та сама
+// логіка, ті самі totals), лише більшими іконками, підлаштованими під ракурс.
+// Лишень для вигляду з камери - у вільному огляді осі верстата й так не
+// прив'язані до жодного постійного напрямку на екрані (сама камера крутиться
+// мишею), тому підказка була б безглуздою.
+function buildAxisPad() {
+  const pad = document.getElementById('axisPad');
+  const groupBox = document.getElementById('group');
+  if (camIndex < 0 || groupBox.hidden) { pad.hidden = true; return; }
+  pad.hidden = false;
+  const rows = [...document.getElementById('groupctl').querySelectorAll('.prow')];
+  const findRow = label => rows.find(r => { const b = r.querySelector('b'); return b && b.textContent === label; });
+
+  const shiftDefs = [['зсв X', 'X', [1,0,0]], ['зсв Y', 'Y', [0,1,0]], ['зсв Z', 'Z', [0,0,1]]];
+  const rotDefs = [
+    ['пов X', 'X', [0,1,0], [0,0,1]],
+    ['пов Y', 'Y', [0,0,1], [1,0,0]],
+    ['пов Z', 'Z', [1,0,0], [0,1,0]],
+  ];
+
+  const shiftRow = document.getElementById('padShift'); shiftRow.innerHTML = '';
+  for (const [label, letter] of shiftDefs) {
+    const row = findRow(label);
+    if (!row) continue;
+    const g = document.createElement('div'); g.className = 'padGroup';
+    const lab = document.createElement('span'); lab.className = 'padLabel'; lab.textContent = letter;
+    const bMinus = document.createElement('button'); bMinus.textContent = row.children[1].textContent;
+    bMinus.onclick = () => row.children[1].click();
+    const bPlus = document.createElement('button'); bPlus.textContent = row.children[3].textContent;
+    bPlus.onclick = () => row.children[3].click();
+    g.append(lab, bMinus, bPlus);
+    shiftRow.appendChild(g);
+  }
+
+  const rotRow = document.getElementById('padRotate'); rotRow.innerHTML = '';
+  for (const [label, letter, u, v] of rotDefs) {
+    const row = findRow(label);
+    if (!row) continue;
+    const g = document.createElement('div'); g.className = 'padGroup';
+    const lab = document.createElement('span'); lab.className = 'padLabel'; lab.textContent = letter;
+    const bMinus = document.createElement('button'); bMinus.innerHTML = rotIconSVG(u, v, -1) || row.children[1].textContent;
+    bMinus.onclick = () => row.children[1].click();
+    const bPlus = document.createElement('button'); bPlus.innerHTML = rotIconSVG(u, v, 1) || row.children[3].textContent;
+    bPlus.onclick = () => row.children[3].click();
+    g.append(lab, bMinus, bPlus);
+    rotRow.appendChild(g);
+  }
+}
+
 function buildGroupEditor() {
   const box = document.getElementById('group');
   const ci = activeCurveIndex();
-  if (ci < 0) { box.hidden = true; return; }
+  if (ci < 0) { box.hidden = true; buildAxisPad(); return; }
   box.hidden = false;
   const pts = activePoints();
   const whole = group_sel.length === 0;
@@ -933,6 +1028,7 @@ function buildGroupEditor() {
   document.getElementById('gclear').onclick = () => {
     group_sel = []; buildGroupEditor(); draw();
   };
+  buildAxisPad();
 }
 
 // Матрица поворота Rz*Ry*Rx из градусов - та же формула, что placementMatrix,

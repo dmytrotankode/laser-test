@@ -121,6 +121,24 @@
   /* "Опори" - згорнуті за замовчуванням під однією іконкою-налаштуванням */
   #oporyToggle { width:auto; padding:4px 8px; font-size:12px; margin-bottom:4px; }
   #oporyPanel[hidden] { display:none; }
+
+  /* Плаваюча панель пов/зсув над 3D-виглядом - лише під час перегляду з
+     камери (там осі верстата не збігаються з тим, що видно на екрані, і
+     кнопки-стрілки тут дублюють ті самі кнопки з бокової панелі, підлаштовані
+     під поточний ракурс). Два ряди: зсув, потім поворот. */
+  #axisPad { position:absolute; left:50%; bottom:16px; transform:translateX(-50%);
+             z-index:20; display:flex; flex-direction:column; gap:6px;
+             background:rgba(15,23,42,.85); border:1px solid #2b3648; border-radius:10px;
+             padding:8px 10px; }
+  #axisPad[hidden] { display:none; }
+  .padRow { display:flex; gap:2px; align-items:center; }
+  .padGroup { display:flex; align-items:center; gap:2px; padding:0 8px;
+              border-right:1px solid #2b3648; }
+  .padGroup:last-child { border-right:none; }
+  .padLabel { color:#7c8aa0; font-size:11px; width:14px; text-align:center; flex:none; }
+  #axisPad button { width:auto; margin:0; padding:6px 8px; font-size:16px; line-height:1;
+                     color:#dbe3ef; display:flex; align-items:center; justify-content:center; }
+  #axisPad button svg { display:block; }
 </style>
 </head>
 <body>
@@ -225,6 +243,10 @@
   <div id="view">
     <canvas id="c"></canvas>
     <div id="hud"></div>
+    <div id="axisPad" hidden>
+      <div class="padRow" id="padShift"></div>
+      <div class="padRow" id="padRotate"></div>
+    </div>
     <div id="calcOverlay" hidden>
       <div class="spinner"></div>
       <div id="calcText"></div>
