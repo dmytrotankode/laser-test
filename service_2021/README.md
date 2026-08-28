@@ -480,3 +480,38 @@ kind of thing that looks fine in isolation.
    — it was three lines of code old at the time. `mark.js`'s own overlay
    canvas keeps its original red for "your line" — that one never showed
    touched points alongside it, so there was never a collision there to fix.
+
+## CRITICAL, found live: exported `.LS` could fail to load on the real robot
+
+`export_final.py` built the corrected program's name as
+`f'CORR_{variant.upper()}'` and passed it straight into
+`ls_points.write_points()`, which inserted it into `/PROG` **with no
+validation at all**. This happened to work for every name that existed
+before this session (`v21`, `v26`, ...) purely because none of them
+contained anything but letters and digits. The `nabir-MMDD-NNN` naming
+introduced this same session broke it immediately: `CORR_NABIR-0828-001`
+has hyphens, which the Fanuc controller rejects outright. Caught live — the
+user tried to load `nabir-0828-001`'s exported program on the actual robot
+controller and got `ASBN-002/008/009/050: Invalid name in /PROG section`.
+The user noted this exact class of naming problem "has been a recurring
+issue," which is why the fix below is a general sanitizer, not a special
+case for the hyphen.
+
+Fixed with `ls_points.fanuc_safe_name(raw, max_len=17)`: strips anything
+that isn't a letter or digit to `_`, uppercases, strips leading/trailing
+`_`, truncates to 17 chars (the same empirically-proven limit already used
+by `pipeline/geometry.py::program_name` — longest name ever run in
+production is `TORXL_NEW_PROG2_5`, 17 chars). `export_final.py` now calls
+`ls_points.fanuc_safe_name(f'CORR_{variant}')` instead of building the name
+inline. Verified: `v21`/`v26` produce byte-identical names to before
+(`CORR_V21`/`CORR_V26`, no regression); `nabir-0828-001` now produces
+`CORR_NABIR_0828_0` (valid, no hyphens, ≤17 chars). Two already-exported
+files on disk from before this fix (`nabir-0828-001_final.LS`,
+`nabir-0828-nieo_final.LS`) had the bad `/PROG` line and were regenerated.
+
+**Anyone adding another `new_prog_name=...`/`/PROG` writer to this service in
+the future must route the name through `fanuc_safe_name()` first** — this bug
+class doesn't announce itself in testing with old-style names, only fails
+once someone types (or the code generates) a name with a character outside
+`[A-Za-z0-9]`, and the failure shows up on the physical controller, not in
+this codebase.

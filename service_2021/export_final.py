@@ -43,8 +43,9 @@ def export(variant):
     n_touched = sum(1 for t in c.get('touched', []) if t)
 
     out_path = os.path.join(d, f'{variant}_final.LS')
+    prog_name = ls_points.fanuc_safe_name(f'CORR_{variant}')
     ls_points.write_points(tmpl_path, out_path, cut_by_id, axis_by_id,
-                           new_prog_name=f'CORR_{variant.upper()}')
+                           new_prog_name=prog_name)
     print(f'{variant}: {out_path}')
     print(f'  точек всего {len(cut_by_id)}, тронуто оператором {n_touched}')
     return out_path, len(cut_by_id), n_touched

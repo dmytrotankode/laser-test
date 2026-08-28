@@ -1126,18 +1126,11 @@ document.getElementById('ns_upload').onclick = async () => {
   wizExpand(2);
 };
 
-// Немає реального потоку прогресу з бекенду (один блокуючий POST), тому
-// підписи нижче - орієнтовна послідовність того, що generate() зазвичай
-// робить в цьому порядку (див. pipeline/generate.py), а не підтверджені
-// живі кроки. Чесність тут - "приблизно що відбувається", а не "рівно на
-// цьому моменті зараз".
-const CALC_STAGES = [
-  'Обчислюю відступи бібліотеки сусідів…',
-  'Підганяю позу під фото (back/left/top)…',
-  'Шукаю найближчого сусіда…',
-  'Записую .LS…',
-];
-
+// Немає реального потоку прогресу з бекенду (один блокуючий POST) - секундомір
+// нижче єдине, що тут чесне (він завжди точний), тому це і є основний вміст
+// оверлею. Раніше тут по колу гортались вигадані "етапи" (~4с кожен) - при
+// типовому розрахунку в 2+ хв вони встигали повторитися разів 8-9, що на
+// практиці читалося як "це несправжній прогрес", а не як інформація.
 document.getElementById('dogenerate').onclick = async () => {
   const name = currentTargetName();
   if (!name) return;
@@ -1145,11 +1138,16 @@ document.getElementById('dogenerate').onclick = async () => {
   const overlay = document.getElementById('calcOverlay');
   const calcText = document.getElementById('calcText');
 
-  let si = 0;
-  const setStage = () => { calcText.textContent = `Рахую «${name}»…\n${CALC_STAGES[si]}`; };
-  setStage();
+  const t0 = Date.now();
+  const fmt = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  const setElapsed = () => {
+    calcText.textContent = `Рахую «${name}»… ${fmt(Math.floor((Date.now() - t0) / 1000))}\n`
+      + 'Перший розрахунок після запуску сервера триває довше (~2–3 хв) - '
+      + 'наступні в цій сесії швидші.';
+  };
+  setElapsed();
   overlay.hidden = false;
-  const timer = setInterval(() => { si = (si + 1) % CALC_STAGES.length; setStage(); }, 4000);
+  const timer = setInterval(setElapsed, 1000);
 
   msg.textContent = 'рахую...';
   try {

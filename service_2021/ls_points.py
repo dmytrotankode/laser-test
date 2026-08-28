@@ -22,6 +22,22 @@ from scipy.spatial.transform import Rotation
 
 NOMINAL_STANDOFF = 10.0
 
+
+def fanuc_safe_name(raw, max_len=17):
+    """Ім'я, яке контролер точно погодиться завантажити в /PROG.
+
+    Спіймано наживо: /PROG CORR_NABIR-0828-001 (дефіси з наших-таки нових
+    імен на кшталт nabir-0828-001) впала з ASBN-002/008/009/050 "Invalid
+    name in /PROG section" при спробі завантажити на робота. write_points()
+    раніше писала new_prog_name у файл без жодної перевірки - працювало
+    лише випадково, поки імена варіантів (v21, v26) не містили нічого, крім
+    літер і цифр. 17 символів - те саме емпіричне обмеження, що вже
+    задокументоване в pipeline/geometry.py.program_name (найдовше ім'я в
+    продакшені - TORXL_NEW_PROG2_5).
+    """
+    s = re.sub(r'[^A-Za-z0-9]+', '_', raw).upper().strip('_')
+    return (s[:max_len] or 'PROG')
+
 POINT_RE = re.compile(
     r'P\[(\d+)\]\{.*?'
     r'X\s*=\s*([-\d.]+).*?Y\s*=\s*([-\d.]+).*?Z\s*=\s*([-\d.]+).*?'
