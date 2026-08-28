@@ -88,24 +88,22 @@
   #markprof { position:absolute; right:10px; bottom:10px; width:220px; height:110px;
               background:rgba(15,23,42,.92);
               border:1px solid #2b3648; border-radius:6px; opacity:.9; }
-  #markSide table th, #markSide table td { text-align:right; padding:3px 4px;
-              border-bottom:1px solid #2b3648; }
-  #markSide table th:first-child, #markSide table td:first-child { text-align:left; }
   #mdraw.on { background:#1d4ed8; border-color:#3b6cf6; }
 
-  /* Світла тема - ЛИШЕ для основного сайдбара #side; #view (3D-канва),
-     розмітка (#markOverlay) і модалка нового набору (#newsetOverlay)
-     навмисно лишаються темними - фото/лінії на них тримають контраст на
-     тёмному, і користувач просив світлу тему саме для бокового меню. */
-  #side { background:#f5f7fa; color:#1e293b; border-right:1px solid #dde3ea; }
-  #side h1 { color:#1e293b; }
-  #side h2 { color:#64748b; }
-  #side select, #side button { background:#fff; color:#1e293b; border:1px solid #cbd5e1; }
-  #side button:hover { background:#eef1f5; }
-  #side button.on { background:#1d4ed8; color:#fff; border-color:#3b6cf6; }
-  #side label { color:#1e293b; }
-  #side .prow b { color:#475569; }
-  #side .prow input { background:#fff; color:#1e293b; border:1px solid #cbd5e1; }
+  /* Світла тема - для основного сайдбара #side і сайдбара розмітки #markSide;
+     #view/#markMain (канва/фото) навмисно лишаються темними - фото й лінії
+     на них тримають контраст на тёмному, і користувач просив світлу тему
+     саме для бокових панелей з елементами керування. */
+  #side, #markSide { background:#f5f7fa; color:#1e293b; border-right:1px solid #dde3ea; }
+  #side h1, #markSide h1 { color:#1e293b; }
+  #side h2, #markSide h2 { color:#64748b; }
+  #side select, #side button, #markSide select, #markSide button {
+    background:#fff; color:#1e293b; border:1px solid #cbd5e1; }
+  #side button:hover, #markSide button:hover { background:#eef1f5; }
+  #side button.on, #markSide button.on { background:#1d4ed8; color:#fff; border-color:#3b6cf6; }
+  #side label, #markSide label { color:#1e293b; }
+  #side .prow b, #markSide .prow b { color:#475569; }
+  #side .prow input, #markSide .prow input { background:#fff; color:#1e293b; border:1px solid #cbd5e1; }
   #side .wiz { border-color:#dde3ea; }
   #side .wstep + .wstep { border-top-color:#dde3ea; }
   #side .whead { background:#eef1f5; color:#1e293b; }
@@ -116,7 +114,7 @@
   #side .wmark.ok::before { color:#16a34a; }
   #side .wstep.open .wmark.ok::before { color:#bbf7d0; }
   #side .wmark.bad::before { color:#dc2626; }
-  #side .muted { color:#64748b; font-size:12px; }
+  #side .muted, #markSide .muted { color:#64748b; font-size:12px; }
 
   /* "Опори" - згорнуті за замовчуванням під однією іконкою-налаштуванням */
   #oporyToggle { width:auto; padding:4px 8px; font-size:12px; margin-bottom:4px; }
@@ -291,33 +289,20 @@
 
 <div id="markOverlay" hidden>
   <div id="markSide">
-    <h2 style="text-transform:none;font-size:15px;color:#dbe3ef;letter-spacing:0;margin:0 0 4px">Розмітка лінії згину</h2>
-    <p style="color:#7c8aa0;font-size:12px;margin:0 0 12px">Коліщатко — масштаб, тягнути — зсув.
+    <h1>Розмітка лінії згину</h1>
+    <p class="muted" style="margin:0 0 12px">Коліщатко — масштаб, тягнути — зсув.
       Щоб ставити точки своєї лінії, увімкніть <b>Малювання</b> (клавіша D):
       тоді клік ставить точку, клік по точці прибирає, а зсув — Shift+тягнути.</p>
-    <div style="display:flex;gap:6px">
-      <button id="mrun" style="flex:1">Знайти лінії</button>
-      <button id="mfit">Вписати</button>
-    </div>
+    <button id="mfit">Вписати у вікно</button>
     <button id="mdraw">✏️ Малювання: вимк</button>
-    <h2>Лінії</h2>
-    <label><input type="checkbox" id="mc_upper" checked><span class="sw" style="background:#38bdf8"></span>верхня межа тіні</label>
-    <label><input type="checkbox" id="mc_center" checked><span class="sw" style="background:#f59e0b"></span>дно борозни</label>
-    <label><input type="checkbox" id="mc_lower"><span class="sw" style="background:#22c55e"></span>нижня межа тіні</label>
-    <label><input type="checkbox" id="mc_edge_lo" checked><span class="sw" style="background:#c084fc"></span><b>край напливу</b></label>
-    <label><input type="checkbox" id="mc_manual" checked><span class="sw" style="background:#ef4444"></span><b>ваша лінія</b> (еталон)</label>
-    <h2>Ваша лінія — еталон</h2>
-    <p style="color:#7c8aa0;font-size:12px;margin:0 0 8px">Клікайте по знімку там, де проходить
-      справжня лінія згину. Достатньо 8–12 точок у місцях, де ви впевнені.</p>
+    <h2>Ваша лінія</h2>
     <div class="prow"><b style="width:auto">точок</b><span id="mcount" style="margin-left:auto;font-family:monospace">0</span></div>
     <div style="display:flex;gap:6px">
       <button id="msave" style="flex:1">Зберегти</button>
       <button id="mundo" style="flex:0 0 32%">Назад</button>
       <button id="mclear" style="flex:0 0 32%">Очистити</button>
     </div>
-    <button id="mcmp">Порівняти з автоматичними лініями</button>
-    <table id="mmetrics" style="width:100%;border-collapse:collapse;font-size:12px"></table>
-    <div id="mstatus" style="color:#7c8aa0;font-size:12px;min-height:32px;margin-top:8px"></div>
+    <div id="mstatus" class="muted" style="min-height:32px;margin-top:8px"></div>
     <button id="mclose" style="margin-top:10px">Закрити й повернутись</button>
   </div>
   <div id="markMain">

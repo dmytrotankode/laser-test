@@ -9,12 +9,9 @@
 
 const mcv = document.getElementById('markcv'), mctx = mcv.getContext('2d');
 const mprof = document.getElementById('markprof'), mpctx = mprof.getContext('2d');
-const M = { img: new Image(), scale: 0.25, ox: 0, oy: 0, lines: null, manual: [],
+const M = { img: new Image(), scale: 0.25, ox: 0, oy: 0, manual: [],
            drag: null, variant: null, view: null, touched: false, drawing: false };
 const $m = id => document.getElementById(id);
-const M_COLORS = { upper: '#38bdf8', center: '#f59e0b', lower: '#22c55e', edge_lo: '#c084fc' };
-const M_NAMES = { upper: 'верхня межа', center: 'дно борозни', lower: 'нижня межа',
-                  edge_lo: 'край напливу' };
 
 function mstatus(t) { $m('mstatus').textContent = t || ''; }
 
@@ -48,23 +45,7 @@ function mdraw() {
   mctx.imageSmoothingEnabled = M.scale < 1;
   mctx.drawImage(M.img, M.ox, M.oy, M.img.width * M.scale, M.img.height * M.scale);
 
-  if (M.lines) {
-    for (const key of ['upper', 'center', 'lower', 'edge_lo']) {
-      if (!$m('mc_' + key).checked) continue;
-      mctx.strokeStyle = M_COLORS[key];
-      mctx.lineWidth = 1.6;
-      mctx.beginPath();
-      let started = false;
-      M.lines.x.forEach((x, i) => {
-        if (!M.lines.ok[i]) { started = false; return; }
-        const [sx, sy] = mToScreen(x, M.lines[key][i]);
-        started ? mctx.lineTo(sx, sy) : mctx.moveTo(sx, sy);
-        started = true;
-      });
-      mctx.stroke();
-    }
-  }
-  if ($m('mc_manual').checked && M.manual.length) {
+  if (M.manual.length) {
     const pts = [...M.manual].sort((a, b) => a[0] - b[0]);
     mctx.strokeStyle = '#ef4444'; mctx.lineWidth = 2;
     mctx.beginPath();
@@ -138,13 +119,7 @@ function mRefreshManual() {
 mcv.addEventListener('mousemove', e => {
   if (M.drag) { M.ox = e.offsetX - M.drag[0]; M.oy = e.offsetY - M.drag[1]; M.touched = true; mdraw(); return; }
   const [ix, iy] = mToImage(e.offsetX, e.offsetY);
-  let extra = '';
-  if (M.lines) {
-    const i = M.lines.x.findIndex(x => x >= ix);
-    if (i > 0) extra = ['upper', 'center', 'lower', 'edge_lo']
-      .map(k => `${k[0]}:${Math.round(M.lines[k][i])}`).join('  ');
-  }
-  $m('markhud').textContent = `x ${Math.round(ix)}  y ${Math.round(iy)}   масштаб ${M.scale.toFixed(2)}   ${extra}`;
+  $m('markhud').textContent = `x ${Math.round(ix)}  y ${Math.round(iy)}   масштаб ${M.scale.toFixed(2)}`;
   clearTimeout(M.pt);
   M.pt = setTimeout(() => mProfile(ix, iy), 120);
 });
@@ -175,16 +150,6 @@ async function mProfile(x, y) {
   mpctx.fillText('яскравість поперек лінії', 6, 11);
 }
 
-async function mRun() {
-  mstatus('шукаю…');
-  const r = await fetch(`/api/mark/detect?variant=${M.variant}&view=${M.view}`);
-  const d = await r.json();
-  if (d.error) { mstatus('помилка: ' + d.error); return; }
-  M.lines = d;
-  const good = d.ok.filter(Boolean).length;
-  mstatus(`знайдено, надійних точок ${good} з ${d.ok.length}`);
-  mdraw();
-}
 async function mSave() {
   await fetch(`/api/mark/lines/${M.variant}/${M.view}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -193,36 +158,19 @@ async function mSave() {
   mstatus(`вашу лінію збережено (${M.manual.length} точок)`);
   if (window.refreshWizard) refreshWizard();
 }
-async function mCompare() {
-  const d = await (await fetch(`/api/mark/compare?variant=${M.variant}&view=${M.view}`)).json();
-  if (d.error) { mstatus(d.error); $m('mmetrics').innerHTML = ''; return; }
-  let html = '<tr><th>лінія</th><th>медіана</th><th>p90</th><th>зсув</th></tr>';
-  for (const k of ['upper', 'center', 'lower']) {
-    const m = d.metrics[k]; if (!m) continue;
-    html += `<tr><td style="color:${M_COLORS[k]}">${M_NAMES[k]}</td>` +
-            `<td>${m.median.toFixed(1)} px<br><span style="color:#94a3b8">${m.median_mm.toFixed(2)} мм</span></td>` +
-            `<td>${m.p90.toFixed(1)}</td><td>${m.bias > 0 ? '+' : ''}${m.bias.toFixed(1)}</td></tr>`;
-  }
-  $m('mmetrics').innerHTML = html;
-  mstatus(`порівняно на ${d.covered} точках`);
-}
 
-$m('mrun').addEventListener('click', mRun);
 $m('msave').addEventListener('click', mSave);
-$m('mcmp').addEventListener('click', mCompare);
 $m('mclear').addEventListener('click', () => {
   M.manual = []; mRefreshManual(); mdraw();
   mstatus('вашу лінію очищено (на диску лишилась, доки не збережете)');
 });
 $m('mfit').addEventListener('click', () => { M.touched = false; mresize(true); });
-['mc_upper', 'mc_center', 'mc_lower', 'mc_manual'].forEach(id => $m(id).addEventListener('change', mdraw));
 
 // -------------------------------------------------------------- відкрити/закрити
 async function openMarkOverlay(variant, view) {
-  M.variant = variant; M.view = view; M.lines = null; M.manual = []; M.touched = false;
+  M.variant = variant; M.view = view; M.manual = []; M.touched = false;
   document.getElementById('markOverlay').hidden = false;
   mSetDrawing(false);
-  $m('mmetrics').innerHTML = '';
   const saved = await (await fetch(`/api/mark/lines/${variant}/${view}`)).json();
   M.manual = saved.points || [];
   M.img = new Image();
