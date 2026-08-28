@@ -1016,15 +1016,6 @@ async function refreshWizard() {
   }
   refreshPending();
 }
-// Дебаунс: без нього кожна набрана літера тягла б за собою loadScene()/
-// clearViewer() (реальний мережевий запит + перебудова панелей), а не
-// тільки лічильник статусу.
-let _wizTimer = null;
-document.getElementById('rawname').oninput = () => {
-  clearTimeout(_wizTimer);
-  _wizTimer = setTimeout(refreshWizard, 250);
-};
-
 // ------------------------------------------------------- завантаження фото/еталона
 // nabir-MMDD-NNN, порядковий номер за сьогодні - рахує сервер (GET
 // /api/suggest_name) від того, що вже реально лежить в archive/, а не
