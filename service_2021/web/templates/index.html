@@ -140,6 +140,7 @@
   #axisPad button { width:auto; margin:0; padding:7px 9px; font-size:16px; line-height:1;
                      color:#dbe3ef; display:flex; align-items:center; justify-content:center; }
   #axisPad button svg { display:block; }
+  #padSave button { font-size:12.5px; padding:7px 10px; }
   #padStep button.on { background:#1d4ed8; border-color:#3b6cf6; }
 </style>
 </head>
@@ -188,8 +189,10 @@
           <div id="exportmsg" style="color:#64748b;font-size:12px;min-height:16px"></div>
 
           <h2>Вигляд</h2>
-          <button id="reset">Загальний вигляд</button>
-          <div id="cams"></div>
+          <div style="display:flex;gap:4px;margin-bottom:6px">
+            <button id="reset" style="width:auto;flex:1">Загальний</button>
+            <div id="cams" style="display:flex;gap:4px;flex:2"></div>
+          </div>
           <div id="photoAdjust" hidden style="margin:2px 0 8px">
             <div class="prow"><b style="width:78px">Яскравість</b><input type="range" id="pa_bright" min="50" max="200" value="100" style="flex:1"><span id="pa_brightval" style="width:38px;text-align:right;font-family:monospace;font-size:11px">100%</span></div>
             <div class="prow"><b style="width:78px">Контраст</b><input type="range" id="pa_contrast" min="50" max="200" value="100" style="flex:1"><span id="pa_contrastval" style="width:38px;text-align:right;font-family:monospace;font-size:11px">100%</span></div>
@@ -205,20 +208,14 @@
             </div>
             <div id="pmsg" style="color:#64748b;font-size:12px;min-height:16px"></div>
           </div>
-          <div id="group" hidden>
-            <h2>Комплексний зсув: <span id="gtitle"></span></h2>
-            <div style="display:flex;gap:6px;margin-bottom:6px">
-              <button id="gselall">Уся лінія</button>
-              <button id="gselvis">Видимі тут</button>
-            </div>
-            <div style="color:#64748b;font-size:11px;margin:0 0 6px">або Shift+клік по точках, щоб звузити</div>
+          <!-- "Комплексний зсув" переїхав у плаваючу панель над 3D-виглядом
+               (axisPad) - тут лишається лише прихований службовий стан
+               (groupctl/gsave/gundo), який ця панель проксує кліками. -->
+          <div id="group" hidden style="display:none">
             <div id="groupctl"></div>
-            <div style="display:flex;gap:6px">
-              <button id="gsave">Зберегти</button>
-              <button id="gundo" style="flex:0 0 32%">Скасувати</button>
-              <button id="gclear" style="flex:0 0 32%">Скинути вибір</button>
-            </div>
-            <div id="gmsg" style="color:#64748b;font-size:12px;min-height:16px"></div>
+            <button id="gsave">Зберегти</button>
+            <button id="gundo">Скасувати</button>
+            <div id="gmsg"></div>
           </div>
           <div id="point" hidden>
             <h2>Точка <span id="ptitle"></span></h2>
@@ -251,6 +248,8 @@
       <div class="padSection" id="padRotate"></div>
       <div class="padDivider"></div>
       <div class="padSection" id="padStep"></div>
+      <div class="padDivider"></div>
+      <div class="padSection" id="padSave"></div>
     </div>
     <div id="calcOverlay" hidden>
       <div class="spinner"></div>

@@ -496,7 +496,7 @@ cv.addEventListener('mousedown', e => {
 addEventListener('mouseup', e => {
   // Клик почти без движения мыши - выбор точки, а не вращение обзора.
   if (drag && Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 4) {
-    trySelectPoint(e, e.shiftKey);
+    trySelectPoint(e);
   }
   drag = null;
 });
@@ -521,24 +521,14 @@ function findPointAt(e) {
   return best;
 }
 
-// Обычный клик - тонкая правка одной точки (сбрасывает групповой выбор).
-// Shift+клик - копится в группу для комплексного сдвига (buildGroupEditor).
-function trySelectPoint(e, shift) {
+// Клик - вибір однієї точки для тонкої правки. Раніше Shift+клік копичив
+// точки в окрему групу для "комплексного зсуву" з вибором підмножини -
+// прибрано разом з усією UI цього режиму (завжди діємо на всю лінію,
+// group_sel лишається порожнім, activePoints() завжди повертає всю криву).
+function trySelectPoint(e) {
   if (!scene) return;
-  const hit = findPointAt(e);
-  if (shift) {
-    if (!hit) return;
-    const i = group_sel.findIndex(g => g.cidx === hit.cidx && g.pidx === hit.pidx);
-    if (i >= 0) group_sel.splice(i, 1); else group_sel.push(hit);
-    sel_point = null;
-    document.getElementById('point').hidden = true;
-    buildGroupEditor();
-  } else {
-    sel_point = hit;
-    group_sel = [];              // группа возвращается к "вся линия", не прячется
-    buildPointEditor();
-    buildGroupEditor();
-  }
+  sel_point = findPointAt(e);
+  buildPointEditor();
   draw();
 }
 
@@ -694,7 +684,9 @@ async function loadScene(name) {
   const cams = document.getElementById('cams'); cams.innerHTML = '';
   scene.cameras.forEach((cam, i) => {
     const b = document.createElement('button');
-    b.textContent = 'Погляд камерою ' + cam.name;
+    b.textContent = cam.name;
+    b.title = 'Погляд камерою ' + cam.name;
+    b.style.width = 'auto'; b.style.flex = '1';
     b.onclick = () => {
       camIndex = camIndex === i ? -1 : i;
       camZoom = 1; camPanX = 0; camPanY = 0;
@@ -908,6 +900,26 @@ function buildAxisPad() {
     return b;
   });
   stepRow.appendChild(stepGroup);
+
+  // Зберегти/скинути - той самий gsave/gundo, що й раніше в сайдбарі (тепер
+  // прихований, лишень службовий стан). Кнопку "скинути" просто проксуємо
+  // кліком, а "зберегти" - викликаємо напряму як функцію (а не .click()),
+  // щоб дочекатись відповіді сервера (async) і на мить показати результат
+  // прямо на кнопці - без окремого текстового повідомлення, яке нема кому
+  // тут показувати.
+  const saveRow = document.getElementById('padSave'); saveRow.innerHTML = '';
+  const saveGroup = document.createElement('div'); saveGroup.className = 'padGroup';
+  const bSave = document.createElement('button'); bSave.textContent = 'Зберегти';
+  bSave.onclick = async () => {
+    bSave.disabled = true;
+    const ok = await document.getElementById('gsave').onclick();
+    bSave.textContent = ok ? '✓ Збережено' : '✗ Помилка';
+    setTimeout(() => { bSave.textContent = 'Зберегти'; bSave.disabled = false; }, 1400);
+  };
+  const bUndo = document.createElement('button'); bUndo.textContent = 'Скинути';
+  bUndo.onclick = () => document.getElementById('gundo').click();
+  saveGroup.append(bSave, bUndo);
+  saveRow.appendChild(saveGroup);
 }
 
 function buildGroupEditor() {
@@ -916,10 +928,6 @@ function buildGroupEditor() {
   if (ci < 0) { box.hidden = true; buildAxisPad(); return; }
   box.hidden = false;
   const pts = activePoints();
-  const whole = group_sel.length === 0;
-  document.getElementById('gtitle').textContent =
-    whole ? `уся лінія (${pts.length})` : `вибрано ${pts.length} із ${scene.curves[ci].points.length}`;
-
   const c = scene.curves[ci];
 
   // Применяется НЕМЕДЛЕННО к точкам и перерисовывает - как и одиночная точка,
@@ -1038,17 +1046,6 @@ function buildGroupEditor() {
     ctl.appendChild(row);
   }
 
-  document.getElementById('gselall').onclick = () => { group_sel = []; buildGroupEditor(); draw(); };
-  document.getElementById('gselvis').onclick = () => {
-    const pr = projector();
-    const near = nearSideMask(c, pr);
-    group_sel = c.points.map((_, pi) => pi)
-      .filter(pi => camIndex < 0 || near[pi])
-      .map(pi => ({ cidx: ci, pidx: pi }));
-    sel_point = null;
-    document.getElementById('point').hidden = true;
-    buildGroupEditor(); draw();
-  };
   document.getElementById('gundo').onclick = () => {
     for (const g of pts) c.points[g.pidx] = (c._saved ? c._saved[g.pidx] : c.points_original[g.pidx]).slice();
     buildGroupEditor(); draw();
@@ -1064,9 +1061,7 @@ function buildGroupEditor() {
     document.getElementById('gmsg').textContent =
       r.ok ? `збережено, зсунуто ${payload.length}` : 'не збереглося';
     buildGroupEditor(); draw();
-  };
-  document.getElementById('gclear').onclick = () => {
-    group_sel = []; buildGroupEditor(); draw();
+    return r.ok;
   };
   buildAxisPad();
 }
