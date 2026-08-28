@@ -51,6 +51,49 @@ const trmulv = (R, v) => [R[0] * v[0] + R[3] * v[1] + R[6] * v[2],
                           R[2] * v[0] + R[5] * v[1] + R[8] * v[2]];
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 
+// ------------------------------------------------ напрямок осі на екрані (лише вид з камери)
+// Кнопки "пов X/Y/Z"/"зсв X/Y/Z" рухають точку вздовж осей ВЕРСТАТА, які не
+// збігаються з тим, що оператор бачить на екрані під конкретним ракурсом
+// камери - звідси й скарга "не можу второпати, куди що рухати" при вигляді
+// з камери. Тут переводимо вісь верстата в напрямок на екрані ЦІЄЇ камери,
+// щоб підписати кнопки стрілками за реальним рухом на фото. У вільному
+// огляді (camIndex<0) сенсу нема - там саму камеру крутить миша, лишаємо
+// звичайні -/+.
+function camDir(vec) {
+  if (camIndex < 0 || !scene) return null;
+  return mulv(rodrigues(scene.cameras[camIndex].rotation), vec);
+}
+const ARROWS8 = ['→', '↘', '↓', '↙', '←', '↖', '↑', '↗']; // → ↘ ↓ ↙ ← ↖ ↑ ↗
+function arrow8(dx, dy) {
+  let deg = Math.atan2(dy, dx) * 180 / Math.PI;
+  if (deg < 0) deg += 360;
+  return ARROWS8[Math.round(deg / 45) % 8];
+}
+// Якщо вісь лежить переважно У ПЛОЩИНІ екрана - підписуємо кнопки стрілками
+// (+ у бік осі, - у протилежний). Якщо вісь дивиться переважно ВЗДОВЖ
+// погляду камери (на глядача чи від нього) - стрілка була б непомітною і
+// оманливою на майже нерухомій картинці, лишаємо звичайні -/+.
+function shiftGlyphs(axis) {
+  const d = camDir(axis);
+  if (!d) return ['−', '+'];
+  if (Math.hypot(d[0], d[1]) < 0.35) return ['−', '+'];
+  return [arrow8(-d[0], -d[1]), arrow8(d[0], d[1])];
+}
+// Кнопки повороту навколо axis: u,v - ті самі дві осі в тому ж циклічному
+// порядку, в якому rotFromDeg() реально крутить точки (перевірено: "пов X"
+// рухає Y у бік Z, "пов Y" рухає Z у бік X, "пов Z" рухає X у бік Y). Дивимось,
+// у який бік на екрані (за/проти годинникової) рух від u до v - це і є
+// напрямок ДОДАТНОГО повороту. Екран має вісь Y вниз, тому знак навпаки, ніж
+// у звичній математичній площині (y вгору) - враховано у виборі '↻'/'↺' нижче.
+function rotGlyphs(u, v) {
+  const du = camDir(u), dv = camDir(v);
+  if (!du) return ['−', '+'];
+  const cross = du[0] * dv[1] - du[1] * dv[0];
+  const plus = cross > 0 ? '↻' : '↺';       // ↻ ↺
+  const minus = plus === '↻' ? '↺' : '↻';
+  return [minus, plus];
+}
+
 // Свободная камера: смотрит на target, ось Y кадра вниз - как у настоящих.
 function orbitPose() {
   const cp = Math.cos(view.pitch), sp = Math.sin(view.pitch);
@@ -452,10 +495,12 @@ function buildPointEditor() {
   const ctl = document.getElementById('pointctl');
   ctl.innerHTML = '';
   const labels = ['X', 'Y', 'Z'];
+  const axes3 = [[1,0,0], [0,1,0], [0,0,1]];
   for (let i = 0; i < 3; i++) {
     const row = document.createElement('div');
     row.className = 'prow';
-    row.innerHTML = `<b>${labels[i]}</b><button>−</button><input><button>+</button>`;
+    const [g1, g2] = shiftGlyphs(axes3[i]);
+    row.innerHTML = `<b>${labels[i]}</b><button>${g1}</button><input><button>${g2}</button>`;
     const inp = row.querySelector('input');
     const sync = () => { inp.value = c.points[pi][i].toFixed(2); draw(); };
     row.children[1].onclick = () => { c.points[pi][i] -= step; sync(); };
@@ -596,6 +641,7 @@ async function loadScene(name) {
       camZoom = 1; camPanX = 0; camPanY = 0;
       [...cams.children].forEach((x, j) => x.classList.toggle('on', j === camIndex));
       document.getElementById('photoAdjust').hidden = camIndex < 0;
+      buildGroupEditor(); buildPointEditor();
       draw();
     };
     cams.appendChild(b);
@@ -793,11 +839,16 @@ function buildGroupEditor() {
     b.onclick = () => { step = v; [...stepsBox.children].forEach(x => x.classList.toggle('on', +x.textContent === step)); };
     stepsBox.appendChild(b);
   }
-  const rotRows = [['пов X', [1,0,0]], ['пов Y', [0,1,0]], ['пов Z', [0,0,1]]];
-  for (const [label, axis, i] of rotRows.map((r, i) => [...r, i])) {
+  const rotRows = [
+    ['пов X', [1,0,0], [0,1,0], [0,0,1]],
+    ['пов Y', [0,1,0], [0,0,1], [1,0,0]],
+    ['пов Z', [0,0,1], [1,0,0], [0,1,0]],
+  ];
+  for (const [label, axis, u, v, i] of rotRows.map((r, i) => [...r, i])) {
     const row = document.createElement('div');
     row.className = 'prow';
-    row.innerHTML = `<b>${label}</b><button>−</button><input><button>+</button>`;
+    const [g1, g2] = rotGlyphs(u, v);
+    row.innerHTML = `<b>${label}</b><button>${g1}</button><input><button>${g2}</button>`;
     const inp = row.querySelector('input');
     const sync = () => { inp.value = totals.rot[i].toFixed(2); };
     const step_ = (sign) => { rotate(axis.map(a => a * sign * step)); totals.rot[i] += sign * step; sync(); };
@@ -815,7 +866,8 @@ function buildGroupEditor() {
   for (const [label, axis, i] of tRows.map((r, i) => [...r, i])) {
     const row = document.createElement('div');
     row.className = 'prow';
-    row.innerHTML = `<b>${label}</b><button>−</button><input><button>+</button>`;
+    const [g1, g2] = shiftGlyphs(axis);
+    row.innerHTML = `<b>${label}</b><button>${g1}</button><input><button>${g2}</button>`;
     const inp = row.querySelector('input');
     const sync = () => { inp.value = totals.t[i].toFixed(2); };
     const step_ = (sign) => { translate(axis.map(a => a * sign * step)); totals.t[i] += sign * step; sync(); };
@@ -911,6 +963,7 @@ document.getElementById('reset').onclick = () => {
   [...document.getElementById('cams').children].forEach(x => x.classList.remove('on'));
   document.getElementById('photoAdjust').hidden = true;
   if (scene) { view.target = scene._center.slice(); view.yaw = 0.9; view.pitch = 0.5; }
+  buildGroupEditor(); buildPointEditor();
   draw();
 };
 for (const id of ['grid', 'axes', 'photo'])
