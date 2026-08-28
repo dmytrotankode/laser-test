@@ -218,7 +218,7 @@ function drawMesh(m, pr) {
   }
   out.sort((a, b) => b[0] - a[0]);
   const [r, g, b] = m._rgb || [214, 190, 74];
-  ctx.globalAlpha = m.solid ? 1 : m.opacity;
+  ctx.globalAlpha = m.opacity;
   for (const [, P, sh] of out) {
     ctx.fillStyle = `rgb(${r*sh|0},${g*sh|0},${b*sh|0})`;
     ctx.beginPath();
@@ -282,8 +282,7 @@ function draw() {
   if (document.getElementById('grid').checked) drawGrid(pr);
   if (document.getElementById('axes').checked) drawAxes(pr);
 
-  const solid = document.getElementById('solid').checked;
-  for (const m of scene.meshes || []) if (shown[m.name]) { m.solid = solid; drawMesh(m, pr); }
+  for (const m of scene.meshes || []) if (shown[m.name]) drawMesh(m, pr);
   // Собственная кромка модели. Хранится в её координатах, поэтому едет вместе с
   // ней при ручной установке - иначе сравнивать было бы не с чем.
   for (const m of scene.meshes || []) {
@@ -914,8 +913,11 @@ document.getElementById('reset').onclick = () => {
   if (scene) { view.target = scene._center.slice(); view.yaw = 0.9; view.pitch = 0.5; }
   draw();
 };
-for (const id of ['grid', 'axes', 'photo', 'solid'])
+for (const id of ['grid', 'axes', 'photo'])
   document.getElementById(id).onchange = draw;
+document.getElementById('oporyToggle').onclick = () => {
+  document.getElementById('oporyPanel').hidden = !document.getElementById('oporyPanel').hidden;
+};
 
 // ------------------------------------------------- яскравість/контраст фото
 function setPhotoAdjust(bright, contrast) {

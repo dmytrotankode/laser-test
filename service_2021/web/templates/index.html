@@ -22,7 +22,6 @@
   button.on { background:#1d4ed8; border-color:#3b6cf6; }
   label { display:flex; align-items:center; gap:7px; padding:2px 0; cursor:pointer; }
   .sw { width:11px; height:11px; border-radius:2px; flex:none; }
-  #hint { position:absolute; left:12px; bottom:10px; color:#64748b; font-size:12px; }
   #hud { position:absolute; right:12px; top:10px; text-align:right; color:#94a3b8;
          font-size:12px; white-space:pre; }
   .prow { display:flex; align-items:center; gap:4px; margin-bottom:4px; }
@@ -93,6 +92,35 @@
               border-bottom:1px solid #2b3648; }
   #markSide table th:first-child, #markSide table td:first-child { text-align:left; }
   #mdraw.on { background:#1d4ed8; border-color:#3b6cf6; }
+
+  /* Світла тема - ЛИШЕ для основного сайдбара #side; #view (3D-канва),
+     розмітка (#markOverlay) і модалка нового набору (#newsetOverlay)
+     навмисно лишаються темними - фото/лінії на них тримають контраст на
+     тёмному, і користувач просив світлу тему саме для бокового меню. */
+  #side { background:#f5f7fa; color:#1e293b; border-right:1px solid #dde3ea; }
+  #side h1 { color:#1e293b; }
+  #side h2 { color:#64748b; }
+  #side select, #side button { background:#fff; color:#1e293b; border:1px solid #cbd5e1; }
+  #side button:hover { background:#eef1f5; }
+  #side button.on { background:#1d4ed8; color:#fff; border-color:#3b6cf6; }
+  #side label { color:#1e293b; }
+  #side .prow b { color:#475569; }
+  #side .prow input { background:#fff; color:#1e293b; border:1px solid #cbd5e1; }
+  #side .wiz { border-color:#dde3ea; }
+  #side .wstep + .wstep { border-top-color:#dde3ea; }
+  #side .whead { background:#eef1f5; color:#1e293b; }
+  #side .whead:hover { background:#e2e8f0; }
+  #side .wstep.open .whead { background:#1d4ed8; color:#fff; }
+  #side .wmark { color:#64748b; }
+  #side .wstep.open .wmark { color:#dbeafe; }
+  #side .wmark.ok::before { color:#16a34a; }
+  #side .wstep.open .wmark.ok::before { color:#bbf7d0; }
+  #side .wmark.bad::before { color:#dc2626; }
+  #side .muted { color:#64748b; font-size:12px; }
+
+  /* "Опори" - згорнуті за замовчуванням під однією іконкою-налаштуванням */
+  #oporyToggle { width:auto; padding:4px 8px; font-size:12px; margin-bottom:4px; }
+  #oporyPanel[hidden] { display:none; }
 </style>
 </head>
 <body>
@@ -105,8 +133,8 @@
         <button class="whead" data-step="1">1. Набір <span class="wmark" id="w1mark"></span></button>
         <div class="wbody">
           <select id="scenes"></select>
-          <div style="color:#7c8aa0;font-size:11px;margin:4px 0 2px">або перевірити інший (ще не порахований):</div>
-          <input id="rawname" placeholder="напр. v27" style="width:100%;padding:6px 8px;border-radius:6px;background:#1b2432;color:#dbe3ef;border:1px solid #2b3648;margin-bottom:6px">
+          <div style="color:#64748b;font-size:11px;margin:4px 0 2px">або перевірити інший (ще не порахований):</div>
+          <input id="rawname" placeholder="напр. v27" style="width:100%;padding:6px 8px;border-radius:6px;background:#fff;color:#1e293b;border:1px solid #cbd5e1;margin-bottom:6px">
 
           <div id="pendingBox" style="margin:4px 0 8px"></div>
 
@@ -131,14 +159,14 @@
         <div class="wbody">
           <div id="inputcheck" style="font-size:12px;color:#9fb0c7"></div>
           <button id="dogenerate">Розрахувати</button>
-          <div id="genmsg" style="color:#7c8aa0;font-size:12px;min-height:16px"></div>
+          <div id="genmsg" style="color:#64748b;font-size:12px;min-height:16px"></div>
         </div>
       </div>
       <div class="wstep" id="wstep-4">
         <button class="whead" data-step="4">4. Доведення та вивантаження <span class="wmark" id="w4mark"></span></button>
         <div class="wbody">
           <button id="exportls">Вивантажити .LS</button>
-          <div id="exportmsg" style="color:#7c8aa0;font-size:12px;min-height:16px"></div>
+          <div id="exportmsg" style="color:#64748b;font-size:12px;min-height:16px"></div>
           <div id="place" hidden>
             <h2>Положення моделі</h2>
             <div id="pctl"></div>
@@ -146,7 +174,7 @@
               <button id="psave">Зберегти</button>
               <button id="preset" style="flex:0 0 40%">Скинути</button>
             </div>
-            <div id="pmsg" style="color:#7c8aa0;font-size:12px;min-height:16px"></div>
+            <div id="pmsg" style="color:#64748b;font-size:12px;min-height:16px"></div>
           </div>
           <div id="group" hidden>
             <h2>Комплексний зсув: <span id="gtitle"></span></h2>
@@ -154,14 +182,14 @@
               <button id="gselall">Уся лінія</button>
               <button id="gselvis">Видимі тут</button>
             </div>
-            <div style="color:#7c8aa0;font-size:11px;margin:0 0 6px">або Shift+клік по точках, щоб звузити</div>
+            <div style="color:#64748b;font-size:11px;margin:0 0 6px">або Shift+клік по точках, щоб звузити</div>
             <div id="groupctl"></div>
             <div style="display:flex;gap:6px">
               <button id="gsave">Зберегти</button>
               <button id="gundo" style="flex:0 0 32%">Скасувати</button>
               <button id="gclear" style="flex:0 0 32%">Скинути вибір</button>
             </div>
-            <div id="gmsg" style="color:#7c8aa0;font-size:12px;min-height:16px"></div>
+            <div id="gmsg" style="color:#64748b;font-size:12px;min-height:16px"></div>
           </div>
           <div id="point" hidden>
             <h2>Точка <span id="ptitle"></span></h2>
@@ -170,7 +198,7 @@
               <button id="ptsave">Зберегти</button>
               <button id="ptreset" style="flex:0 0 40%">До розрахунку</button>
             </div>
-            <div id="ptmsg" style="color:#7c8aa0;font-size:12px;min-height:16px"></div>
+            <div id="ptmsg" style="color:#64748b;font-size:12px;min-height:16px"></div>
           </div>
         </div>
       </div>
@@ -186,18 +214,16 @@
     </div>
     <h2>Об'єкти</h2>
     <div id="layers"></div>
-    <h2>Опори</h2>
-    <label><input type="checkbox" id="grid" checked> сітка 100 мм</label>
-    <label><input type="checkbox" id="axes" checked> осі верстата</label>
-    <label><input type="checkbox" id="photo" checked> фото під камерою</label>
-    <label><input type="checkbox" id="solid"> модель без прозорості</label>
+    <button id="oporyToggle">⚙ Опори</button>
+    <div id="oporyPanel" hidden>
+      <label><input type="checkbox" id="grid"> сітка 100 мм</label>
+      <label><input type="checkbox" id="axes" checked> осі верстата</label>
+      <label><input type="checkbox" id="photo" checked> фото під камерою</label>
+    </div>
   </div>
   <div id="view">
     <canvas id="c"></canvas>
     <div id="hud"></div>
-    <div id="hint">вільний огляд: тягнути — обертати · коліщатко — наблизити · Shift+тягнути — зсунути<br>
-    вигляд камерою: тягнути — зсунути фото · коліщатко — зум до курсора · клік по точці — вибрати<br>
-    тьмяні точки — не видно на цьому фото (дальня сторона купола), їх не поправити по ньому</div>
     <div id="calcOverlay" hidden>
       <div class="spinner"></div>
       <div id="calcText"></div>
