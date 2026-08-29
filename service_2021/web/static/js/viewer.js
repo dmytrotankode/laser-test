@@ -1338,6 +1338,21 @@ document.getElementById('ns_upload').onclick = async () => {
 document.getElementById('dogenerate').onclick = async () => {
   const name = currentTargetName();
   if (!name) return;
+  // /api/generate повністю перезбирає scene.json (як build_scene.py) - якщо
+  // в поточному наборі вже є ручні правки, попереджаємо, бо повторний
+  // розрахунок їх мовчки зітре. Перевіряємо тільки коли ЦЕЙ набір вже
+  // завантажений у в'ювері (sceneName===name) - інакше touched ще нізвідки
+  // взяти без зайвого запиту.
+  if (sceneName === name && scene) {
+    const editCurve = scene.curves.find(c => c.editable);
+    const touchedCount = editCurve && editCurve.touched ? editCurve.touched.filter(Boolean).length : 0;
+    if (touchedCount > 0) {
+      const ok = confirm(`У наборі «${name}» вже є ${touchedCount} точок з ручними правками.\n`
+        + 'Повторний розрахунок повністю перезбере лінію - усі правки буде втрачено.\n\n'
+        + 'Продовжити?');
+      if (!ok) return;
+    }
+  }
   const msg = document.getElementById('genmsg');
   const overlay = document.getElementById('calcOverlay');
   const calcText = document.getElementById('calcText');
