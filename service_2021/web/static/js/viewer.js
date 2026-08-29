@@ -1205,18 +1205,25 @@ async function refreshWizard() {
   w2.className = 'wmark ' + (st.calculated ? 'ok' : (allPhotos ? '' : 'bad'));
   w2.textContent = st.calculated ? 'порахована' : (allPhotos ? 'готово рахувати' : 'бракує фото');
 
+  // Розмітка НЕОБОВ'ЯЗКОВА (2026-08-29) - на виробництві 300 шлемів/день,
+  // 3 хвилини на ручну розмітку кожного зверху ще й доведення - забагато.
+  // Якщо розмітки нема, contour_fit.py просто пропускає цей член нев'язки
+  // (лишається силует + контур зверху) - трохи слабший старт, який
+  // добивається швидким доведенням у кроці 4. Тому тут не "помилка"
+  // (жодного bad/✗), а нейтральна підказка: розмітка лише підвищує точність.
   const allMarks = st.marks.back && st.marks.left;
+  const someMarks = st.marks.back || st.marks.left;
   const ms = document.getElementById('markstatus');
   ms.innerHTML = ['back', 'left']
-    .map(v => `<div>${st.marks[v] ? '✓' : '✗'} розмітка ${v}</div>`).join('')
-    + (allMarks ? '' : '<div style="margin-top:6px;color:#7c8aa0">'
-      + 'розмітки бракує - оберіть ракурс нижче і натисніть "Відкрити розмітку"</div>');
-  w3.className = 'wmark ' + (allMarks ? 'ok' : 'bad');
-  w3.textContent = allMarks ? 'є' : 'немає';
+    .map(v => `<div>${st.marks[v] ? '✓' : '—'} розмітка ${v}</div>`).join('')
+    + '<div style="margin-top:6px;color:#7c8aa0">необов\'язково - підвищує точність розрахунку,'
+    + ' але не потрібна для нього</div>';
+  w3.className = 'wmark' + (allMarks ? ' ok' : '');
+  w3.textContent = allMarks ? 'є' : (someMarks ? 'частково' : 'немає (необов\'язково)');
 
   const genBtn = document.getElementById('dogenerate');
-  genBtn.disabled = !(allPhotos && allMarks);
-  genBtn.title = genBtn.disabled ? 'бракує фото або розмітки лінії згину' : '';
+  genBtn.disabled = !allPhotos;
+  genBtn.title = genBtn.disabled ? 'бракує фото' : '';
 
   w4.textContent = st.calculated ? '' : 'ще не порахована';
 

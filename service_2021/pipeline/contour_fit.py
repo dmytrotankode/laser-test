@@ -78,19 +78,30 @@ def resid_of(archive_dir, variant, rim, verts, marks, cams, R0, t0, fold_radial,
     the photographed silhouette even where the rim/mark residuals are locally flat), and
     the top-view contour-vs-mask distance with a free radial "skirt" allowance (uncut
     kevlar sticking out beyond the CAD rim in the photo).
+
+    Fold-line marks are OPTIONAL (2026-08-29): manual marking takes real operator time
+    that production can't always spare, and the mark distance is only one of three
+    terms here - the silhouette box-check and top-contour terms still constrain the fit
+    without it, just less tightly. `marks` may be missing the variant entirely, or have
+    only one of back/left (load_marks() already drops any view with under 3 points) -
+    either way, that view's mark term is skipped rather than raising, and the operator
+    can always tighten the result afterward via the per-point correction UI.
     """
     off = fold_radial * radial(rim)
     off[:, 2] += fold_up
     rad = radial(rim)
+    var_marks = marks.get(variant, {})
 
     def resid(p):
         R = cv2.Rodrigues(p[:3])[0] @ R0
         fold = (rim + off) @ R.T + t0 + p[3:6]
         out = []
         for w in ('back', 'left'):
+            if w not in var_marks:
+                continue
             pc, f = cams[w]
             uv, z = E.project(fold, pc[:3], pc[3:6], f)
-            d = np.abs(E.dist_to_polyline(resample(marks[variant][w]), E.near_arc(uv, z)))
+            d = np.abs(E.dist_to_polyline(resample(var_marks[w]), E.near_arc(uv, z)))
             out.append(d * float(np.median(z)) / f / np.sqrt(len(d)))
         V = verts @ R.T + t0 + p[3:6]
         for w in ('back', 'left'):
