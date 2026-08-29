@@ -148,9 +148,10 @@ as an A/B comparison with no new UI code.
 
 ### Marking the fold line (`pipeline/detect.py`, `mark.js`, step 2 of the wizard)
 
-`generate()` reads photos from `archive/<variant>/` and line marks from
-`lines/<variant>_{back,left}.json` — both must exist before it can run. The
-marking tool itself (originally `service_3030/app.py` + `detect.py`) is now
+`generate()` reads photos from `archive/<variant>/` and, optionally, line
+marks from `lines/<variant>_{back,left}.json` — only photos are required
+(see "Fold-line marking is optional" further down for why and since when).
+The marking tool itself (originally `service_3030/app.py` + `detect.py`) is now
 vendored: `pipeline/detect.py` is an unchanged copy of the auto-detect
 algorithm (dynamic-programming trace of the dark fold-line band, plus a
 gradient-refined edge estimate — see its own docstring for why), and
@@ -738,3 +739,80 @@ click a real save/persist button against the live dev server while
 verifying UI behavior unless the save itself is under test, and if it is,
 revert immediately afterward rather than leaving test data sitting in a
 scene that's actually in use.
+
+## Confirmation before re-running "Розрахувати" on a corrected scene (2026-08-29)
+
+`/api/generate/<name>` fully rebuilds `scene.json` (same as `build_scene.py`
+— see its own docstring warning above), silently discarding any saved
+per-point corrections. Direct follow-up from the same-day incident above:
+`dogenerate`'s click handler now checks whether the currently-loaded scene
+(only when `sceneName === currentTargetName()`) has any `touched` points on
+its editable curve, and if so shows a plain `confirm()` — **Ukrainian text
+only**, matching the rest of the UI — naming exactly how many points are at
+risk, before doing anything. Cancelling makes zero network requests
+(verified by stubbing `window.confirm` to return `false` and checking
+`read_network_requests`), so it's safe to test this path without touching a
+real scene.
+
+## Fold-line marking is optional (2026-08-29)
+
+Production reality forced this: with ~300 helmets/day, spending ~3 minutes
+per helmet on manual fold-line marking *on top of* per-point correction
+afterward is too slow. No checkbox/config flag was needed to make marking
+optional — the fold-line mark distance was always just one of three terms
+`contour_fit.py::resid_of` combines (the silhouette bounding-box check and
+the top-view contour distance are the other two, and they're computed from
+photos alone, not from marks), so the fix was making that one term tolerate
+being absent instead of requiring it.
+
+`resid_of()` now does `marks.get(variant, {})` and skips a view's mark term
+entirely with a plain `if w not in var_marks: continue` (previously
+`marks[variant][w]` — an unconditional `KeyError` if the variant had no
+marks at all, or a *silent wrong-view* bug if `line_marks.load_marks()` had
+dropped one view for having under 3 points, since Python doesn't error on
+dict access it never reaches only when *neither* view is present — worth
+knowing this half-broken partial case existed before, not just the
+no-marks-at-all one). This also transparently supports **partial** marking
+(only `back` or only `left`) — nobody asked for that specifically, but it
+falls out of the same fix for free and there was no reason to special-case
+it away.
+
+`viewer.js`'s "Розрахувати" button now only requires photos
+(`genBtn.disabled = !allPhotos`, was `!(allPhotos && allMarks)`); step 2's
+status stopped rendering missing marks as an error (no more red `✗`/`bad`
+class) — it's a neutral "необов'язково" note now, since it genuinely isn't
+required.
+
+**The accuracy tradeoff is real and was measured, not assumed**: re-running
+`generate('v1', ...)` on the same variant with its marks physically moved
+out of `lines/` gave `mean_mm≈6.6, within_2mm_pct≈7.3` vs. `mean_mm≈2.7,
+within_2mm_pct≈39.6` with marks present. Skipping marking is a legitimate
+choice for throughput, not a free accuracy lunch — the expectation is that
+the now-faster per-point correction step (see the floating axis pad above)
+absorbs the gap, and every correction made this way is itself training
+signal for a future without either step (see "Roadmap" below).
+
+## Roadmap: feeding operator corrections back into the neighbor library
+
+Not yet implemented — captured here so the idea doesn't get lost. Every
+`touched=true` point already recorded on a corrected `.LS` is exactly the
+supervised signal a future improvement needs, and the natural place to feed
+it back in is `pipeline/neighbor.py`'s k-NN library
+(`calib/libraries/<name>/variants.json`), not a new ML model: once an
+operator has fully corrected a variant, add its resulting `.LS` to the
+neighbor pool as a new "known-good" reference. The next helmet with a
+similar silhouette then picks up an already-corrected shape via nearest-
+neighbor instead of the uncorrected baseline, with no new inference code —
+the existing `neighbor.nearest()` mechanism does the work as-is. Over
+enough corrected helmets (the operator's own estimate: "через 100 шлемов"),
+this should shrink both how much marking helps and how much per-point
+correction is needed, converging toward needing neither for well-represented
+helmet shapes. Two things this needs before it's real, not sketched:
+- A decision on *when* a corrected variant is "good enough" to add (all
+  points touched? below some residual threshold vs. a later independent
+  check? operator says so explicitly?) — adding a badly-corrected variant
+  would poison the neighbor pool for everything similar to it afterward.
+- Versioning discipline for `calib/libraries/` (a new named library
+  snapshot when the pool changes, per the existing convention in "Versioned
+  calibrations/models" above) so a regression can be traced to *which*
+  addition caused it, not just "the library" in the abstract.
