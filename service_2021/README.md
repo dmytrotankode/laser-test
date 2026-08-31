@@ -878,29 +878,74 @@ Results:
   reference being off than with the detector tracking the wrong thing, but
   wasn't independently re-verified against the photo by eye.
 
-**Implementation** (`mark.js`): `openMarkOverlay()` now fetches
-`/api/mark/detect` and stores it as `M.auto` — **but only when the variant
-has no saved manual mark yet** (`M.manual.length === 0`), so an existing
-real marking is never silently touched. The draft draws in yellow,
-continuous, solid where `ok` is true and dashed where false (the
-underlying DP path was always continuous end-to-end; the *old*, removed UI
-broke the polyline rendering at low-confidence columns, which is why it
-used to look discontinuous — that was a rendering choice, not an algorithm
-limit). `autoTransformed()` applies a rigid shift+rotate around the
-draft's own centroid (`M.autoAdj`, plain `−`/`+` buttons, same pattern as
-`buildGroupEditor()`'s controls in the 3D viewer, just in 2D photo pixels
-instead of mm) — deliberately **rigid-only for this first version**, not a
-per-point bend, to keep the interaction to a handful of clicks. "Застосувати
-як лінію" (`applyAutoAsManual()`) downsamples the transformed draft to ~40
-points and drops them into the normal `M.manual` array, after which the
-existing click-to-add/remove editing (`Малювання` mode) works on it
-unchanged — the semi-auto path is additive, not a separate code path from
-manual marking downstream of that point. Saving goes through the same
-`/api/mark/lines/<variant>/<view>` endpoint either way; `contour_fit.py`
-cannot tell where a mark came from.
+**First implementation used `detect.py`'s live output directly as the
+draft — superseded same day.** It worked, but visually "rывками" (jagged) —
+real operator feedback after actually looking at it. `detect.py`'s
+per-column trace follows genuine pixel-level noise (JPEG artifacts, minor
+contrast fluctuation), which is exactly what you'd expect from a live pixel
+detector and exactly why it looks rough even where its own numbers (above)
+say it's accurate. The fix wasn't to smooth the trace further — it was to
+stop drafting from photo pixels at all.
 
-Not yet done, left for later measurement/iteration: comparing actual
-operator time (auto+adjust vs. draw-from-scratch) and whether rigid-only
-adjustment is expressive enough in practice, or a later version needs a
-small number of independently-draggable anchor points for cases where the
-disagreement isn't a simple shift/rotation.
+### The draft is now a projected CAD template, not a pixel trace (`/api/mark/template`)
+
+The insight: `pipeline/generate.py` already treats the fold line as *a
+known, fixed 3D shape* (the CAD rim, `mesh_rim.mesh_rim()`, offset by the
+measured `FOLD_RADIAL`/`FOLD_UP` constants) that only needs *placing*, not
+re-discovering, per photo — that's the entire premise behind `on_cad()`'s
+per-point snap in the real calculation. So the draft line should be exactly
+that: the same rim geometry, offset the same way, projected through the
+same calibrated camera — perfectly smooth by construction, because it never
+touches a single photo pixel. `GET /api/mark/template?view=back|left`
+(`app.py`) does this: `mesh_rim` + `contour_fit.radial()` for the
+fold-offset direction, `camera_model.project()` through
+`calib/cameras/<recipe>/cam_<view>.npy`, `camera_model.near_arc()` to keep
+only the camera-facing half of the closed rim loop (order-preserving, so
+the result is already a clean polyline, no sorting needed). **Identical for
+every variant under the same view** — the model and camera don't depend on
+the photo — so it's computed once per process and cached
+(`_TEMPLATE_LINE_CACHE`, keyed by view only).
+
+**Which pose to project at was tested cheaply before deciding, not
+assumed.** The obvious-sounding option — run the same marks-free pose fit
+`generate()` already does when marks are absent (silhouette + top-contour
+only) and project at *that* pose — was measured against real manual marks
+on 3 variants (6 view-samples) before writing any UI code: the nominal,
+*unfitted* pose (straight from `calib/cad_placement`, zero adjustment) beat
+the "quick-fit" pose in 5 of 6 samples, sometimes drastically (v9: nominal
+4.5mm vs. fitted 38.5mm). Without a fold-line constraint, the silhouette/
+contour-only optimizer can drift the pose *away* from the true fold while
+still satisfying its own (weaker, less specific) terms — worth remembering
+as a caveat about `generate()`'s own no-marks path too, not just about this
+draft feature; not chased further here since it's a separate question from
+what to draft with. So the template is projected at the **nominal pose,
+with no fit at all** — cheaper (zero extra compute, vs. several seconds of
+segmentation for a pose fit) and more accurate in this test, a rare
+free lunch. Checked properly with `near_arc` applied (an earlier pass of
+this same test forgot that step and mixed in far-side/behind-camera points,
+producing misleadingly bad numbers): against real marks, nominal-pose
+`edge_lo`-equivalent projection lands at 2.0mm/1.4mm (v1 back/left), 3.8mm/
+2.1mm (v9) — genuinely close — and 10.7mm/9.7mm on `v21_back`, the same
+outlier flagged in the `detect.py` validation above.
+
+**Implementation** (`mark.js`): unchanged interaction from the first
+version — `openMarkOverlay()` fetches the draft only when the variant has
+no saved manual mark yet (`M.manual.length === 0`, so a real marking is
+never silently touched), draws it as a plain solid yellow polyline (no
+confidence concept anymore — the shape doesn't depend on the photo, so
+there's nothing to be "unsure" about), and `autoTransformed()`/`M.autoAdj`
+apply a rigid shift+rotate around its centroid, same pattern as
+`buildGroupEditor()`'s controls in the 3D viewer (just 2D photo pixels
+instead of mm) — deliberately **rigid-only**, not a per-point bend, to keep
+the interaction to a handful of clicks. "Застосувати як лінію"
+(`applyAutoAsManual()`) downsamples the transformed draft to ~40 points
+into the normal `M.manual` array, after which existing click-to-add/remove
+editing works on it unchanged — additive, not a separate code path.
+Saving still goes through `/api/mark/lines/<variant>/<view>`;
+`contour_fit.py` cannot tell where a mark came from either way.
+
+Not yet done: comparing actual operator time (template+adjust vs.
+draw-from-scratch), and whether rigid-only adjustment is expressive enough
+in practice or a later version needs a small number of independently-
+draggable anchor points for cases where the disagreement isn't a simple
+shift/rotation.
