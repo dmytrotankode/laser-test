@@ -221,6 +221,45 @@ def mark_compare():
                    total=int(ok.sum()), mm_per_px=mm)
 
 
+_TEMPLATE_LINE_CACHE = {}
+
+
+@app.route('/api/mark/template')
+def mark_template():
+    """Гладкий контур обода CAD-моделі (без жодної підгонки - номінальна поза
+    calib/cad_placement), спроєктований у вигляд камери - шаблон для розмітки
+    замість шумної піксельної трасування detect.py.
+
+    Однаковий для БУДЬ-ЯКОГО варіанта під цим ракурсом (та сама модель, та
+    сама камера, номінальна поза не залежить від фото) - тому кешується один
+    раз на процес за view, не за (variant, view). Перевірено наживо
+    (2026-08-29): підгонка позиції лише по силуету/контуру (без розмітки)
+    часто дає ГІРШИЙ старт, ніж просто номінальна поза без будь-якої
+    підгонки (на трьох реальних варіантах - гірше в 5 випадках з 6, іноді в
+    рази) - тому тут навмисно НЕМАЄ least_squares, лише пряма проекція.
+    """
+    view = request.args.get('view')
+    if view not in ('back', 'left'):
+        return jsonify(error="view має бути 'back' або 'left'"), 400
+    if view in _TEMPLATE_LINE_CACHE:
+        return jsonify(_TEMPLATE_LINE_CACHE[view])
+    from pipeline import generate as gen, contour_fit, mesh_rim, cad_placement, camera_model as CM
+    recipe = gen.load_recipe('production_2026-08-27')
+    calib_dir = os.path.join(gen.CALIB, 'cameras', recipe['camera_calibration'])
+    cams = contour_fit.marker_cams(calib_dir)
+    R0, t0 = cad_placement.load(recipe['cad_placement'])
+    rim = mesh_rim.mesh_rim(gen.MODEL_3D)
+    off = recipe['constants']['fold_radial_mm'] * contour_fit.radial(rim)
+    off[:, 2] += recipe['constants']['fold_up_mm']
+    fold_world = (rim + off) @ R0.T + t0
+    pc, f = cams[view]
+    uv, z = CM.project(fold_world, pc[:3], pc[3:6], f)
+    vis = CM.near_arc(uv, z)
+    result = dict(x=vis[:, 0].tolist(), y=vis[:, 1].tolist())
+    _TEMPLATE_LINE_CACHE[view] = result
+    return jsonify(result)
+
+
 @app.route('/api/scene/<name>')
 def one(name):
     p = os.path.join(scene.SCENES, name, 'scene.json')

@@ -46,24 +46,21 @@ function mdraw() {
   mctx.imageSmoothingEnabled = M.scale < 1;
   mctx.drawImage(M.img, M.ox, M.oy, M.img.width * M.scale, M.img.height * M.scale);
 
-  // Жовта чернетка від автодетектора (pipeline/detect.py) - показується ЛИШЕ
-  // поки в M.manual ще нема жодної точки (щойно оператор застосував її або
-  // намалював свою - чернетка ховається, плутати з чимось уже готовим не
-  // повинна). Суцільна там, де контраст на краю впевнений (res.ok), пунктир -
-  // де ні (див. checkCurveGaps/README: сама лінія в алгоритмі БЕЗПЕРЕРВНА
-  // навіть у місцях низької впевненості - раніше тут її помилково рвали при
-  // малюванні, хоча под капотом розрив нема).
+  // Жовта чернетка - гладкий контур CAD-обода на номінальній позі (без
+  // підгонки, /api/mark/template), а не шумна піксельна трасування. Завжди
+  // суцільна - тут нема поняття "невпевненості", як у детектора, форма не
+  // залежить від конкретного фото. Показується ЛИШЕ поки в M.manual ще нема
+  // жодної точки (щойно оператор застосував її або намалював свою - чернетка
+  // ховається, плутати з чимось уже готовим не повинна).
   if (M.auto && !M.manual.length) {
     const pts = autoTransformed();
     mctx.lineWidth = 2; mctx.strokeStyle = '#facc15';
-    for (let i = 0; i + 1 < pts.length; i++) {
-      const a = pts[i], b = pts[i + 1];
-      const [sx1, sy1] = mToScreen(a[0], a[1]);
-      const [sx2, sy2] = mToScreen(b[0], b[1]);
-      mctx.setLineDash(a[2] && b[2] ? [] : [7, 5]);
-      mctx.beginPath(); mctx.moveTo(sx1, sy1); mctx.lineTo(sx2, sy2); mctx.stroke();
-    }
-    mctx.setLineDash([]);
+    mctx.beginPath();
+    pts.forEach(([x, y], i) => {
+      const [sx, sy] = mToScreen(x, y);
+      i ? mctx.lineTo(sx, sy) : mctx.moveTo(sx, sy);
+    });
+    mctx.stroke();
   }
 
   if (M.manual.length) {
@@ -88,14 +85,14 @@ function mdraw() {
 // 2D-піксельних координатах фото. Повертає [x, y, ok] на точку.
 function autoTransformed() {
   if (!M.auto) return null;
-  const { x, y, ok } = M.auto;
+  const { x, y } = M.auto;
   const cx = x.reduce((a, b) => a + b, 0) / x.length;
   const cy = y.reduce((a, b) => a + b, 0) / y.length;
   const rad = M.autoAdj.rot * Math.PI / 180, c = Math.cos(rad), s = Math.sin(rad);
   const out = [];
   for (let i = 0; i < x.length; i++) {
     const rx = x[i] - cx, ry = y[i] - cy;
-    out.push([cx + rx * c - ry * s + M.autoAdj.dx, cy + rx * s + ry * c + M.autoAdj.dy, ok[i]]);
+    out.push([cx + rx * c - ry * s + M.autoAdj.dx, cy + rx * s + ry * c + M.autoAdj.dy]);
   }
   return out;
 }
@@ -247,9 +244,9 @@ async function openMarkOverlay(variant, view) {
   // не хочемо непомітно підмінювати вже збережену ручну розмітку.
   if (!M.manual.length) {
     try {
-      const res = await (await fetch(`/api/mark/detect?variant=${variant}&view=${view}`)).json();
-      if (res && res.x && res.edge_lo) {
-        M.auto = { x: res.x, y: res.edge_lo, ok: res.ok };
+      const res = await (await fetch(`/api/mark/template?view=${view}`)).json();
+      if (res && res.x && res.y) {
+        M.auto = { x: res.x, y: res.y };
         document.getElementById('autoAdjBox').hidden = false;
         mdraw();
       }
