@@ -275,13 +275,33 @@ $m('mclear').addEventListener('click', () => {
 });
 $m('mfit').addEventListener('click', () => { M.touched = false; mresize(true); });
 
-const AD_STEP_PX = 5, AD_STEP_ROT = 0.5;
-$m('ad_xm').addEventListener('click', () => { M.autoAdj.dx -= AD_STEP_PX; mdraw(); });
-$m('ad_xp').addEventListener('click', () => { M.autoAdj.dx += AD_STEP_PX; mdraw(); });
-$m('ad_ym').addEventListener('click', () => { M.autoAdj.dy -= AD_STEP_PX; mdraw(); });
-$m('ad_yp').addEventListener('click', () => { M.autoAdj.dy += AD_STEP_PX; mdraw(); });
-$m('ad_rm').addEventListener('click', () => { M.autoAdj.rot -= AD_STEP_ROT; mdraw(); });
-$m('ad_rp').addEventListener('click', () => { M.autoAdj.rot += AD_STEP_ROT; mdraw(); });
+// Крок - множник до базового (5px зсуву / 0.5° повороту). На вузьких
+// ракурсах (back, шаблон ~2200px завширшки) базового кроку достатньо; на
+// широких (left, ~3500px) той самий кут повороту зсуває кінці лінії значно
+// сильніше (велике плече від центру), і рівно 0.5° буває занадто грубо,
+// щоб влучити в потрібну поправку (виміряно: одному варіанту треба було
+// лише 0.19°) - звідси реальний звіт "то ліва, то права частина вища", бо
+// кожен клік перестрибував потрібне значення в обидва боки. Той самий
+// принцип кроку 0.1/1/5/10, що вже є в груповій правці 3D-в'ювера.
+let AD_MULT = 1;
+const AD_BASE_PX = 5, AD_BASE_ROT = 0.5;
+const adStepsBox = document.getElementById('ad_steps');
+for (const v of [0.1, 1, 5, 10]) {
+  const b = document.createElement('button');
+  b.textContent = v; b.style.flex = '1'; b.style.width = 'auto'; b.style.margin = '0';
+  b.classList.toggle('on', v === AD_MULT);
+  b.onclick = () => {
+    AD_MULT = v;
+    [...adStepsBox.children].forEach(x => x.classList.toggle('on', +x.textContent === AD_MULT));
+  };
+  adStepsBox.appendChild(b);
+}
+$m('ad_xm').addEventListener('click', () => { M.autoAdj.dx -= AD_BASE_PX * AD_MULT; mdraw(); });
+$m('ad_xp').addEventListener('click', () => { M.autoAdj.dx += AD_BASE_PX * AD_MULT; mdraw(); });
+$m('ad_ym').addEventListener('click', () => { M.autoAdj.dy -= AD_BASE_PX * AD_MULT; mdraw(); });
+$m('ad_yp').addEventListener('click', () => { M.autoAdj.dy += AD_BASE_PX * AD_MULT; mdraw(); });
+$m('ad_rm').addEventListener('click', () => { M.autoAdj.rot -= AD_BASE_ROT * AD_MULT; mdraw(); });
+$m('ad_rp').addEventListener('click', () => { M.autoAdj.rot += AD_BASE_ROT * AD_MULT; mdraw(); });
 $m('ad_apply').addEventListener('click', applyAutoAsManual);
 
 // -------------------------------------------------------------- відкрити/закрити
