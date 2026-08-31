@@ -944,6 +944,34 @@ editing works on it unchanged — additive, not a separate code path.
 Saving still goes through `/api/mark/lines/<variant>/<view>`;
 `contour_fit.py` cannot tell where a mark came from either way.
 
+**Found live right after shipping: "Застосувати" produced a jagged line**
+("гори/ривки" — mountains/jerks — the operator's own words), two real bugs
+in the same feature, not one:
+1. `mdraw()` sorted `M.manual` by x before drawing. The fold line is not
+   always x-monotonic — measured on the CAD template itself: up to 32% of
+   consecutive segments go *backward* in x on the `back` view, near the
+   ears. Freehand clicking never exposed this (checked: real operator marks
+   are 0% backward-x, people click in one consistent direction), but it
+   scrambled an applied template wherever it curves back. Fix: never sort;
+   `M.manual` is now always kept in actual path order. Consequence: adding
+   a point by click can no longer just `push()` to the array end (with no
+   sort to fix it up afterward, that would corrupt order whenever a point
+   is added mid-line) — `insertManualPoint()` now inserts at whichever
+   position adds the least path length, and `mUndo()` moved from popping
+   the array's last element to a proper snapshot stack (`pushHistory()`),
+   since the "last added" point is no longer necessarily the array's last
+   element.
+2. The bigger cause: `applyAutoAsManual()` downsampled the template by
+   **index step** (every Nth of ~128 points) to get to ~40. Where the curve
+   moves faster on screen (again, near the ears), an equal index-step
+   produced very unequal on-screen gaps — measured up to 3.6× the median
+   segment length, which is exactly what "mountain" describes. Fixed by
+   resampling at equal **path-length** intervals instead (interpolating
+   along cumulative distance) — the same principle `contour_fit.py`'s own
+   `resample()` already uses server-side, just applied client-side to the
+   2D draft. After the fix, segment lengths across a real applied template
+   are within ~1.0–1.02× of the median on both `back` and `left`.
+
 Not yet done: comparing actual operator time (template+adjust vs.
 draw-from-scratch), and whether rigid-only adjustment is expressive enough
 in practice or a later version needs a small number of independently-
