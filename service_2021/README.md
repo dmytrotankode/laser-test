@@ -816,3 +816,91 @@ helmet shapes. Two things this needs before it's real, not sketched:
   snapshot when the pool changes, per the existing convention in "Versioned
   calibrations/models" above) so a regression can be traced to *which*
   addition caused it, not just "the library" in the abstract.
+
+## Curve-gap warning (2026-08-29)
+
+Direct follow-up to the optional-marking accuracy tradeoff: without marks in
+a poorly-visible region (the ear-fold area is the recurring real example),
+`generate()`'s per-point rim-snap (`on_cad()` in `pipeline/generate.py`) can
+cluster several of the neighbor's points onto nearly the same spot and leave
+one large gap elsewhere on the ring — measured live at up to 59mm vs. a
+~9mm median spacing on an affected variant. That is a real shape defect, not
+a cosmetic accuracy dip: the final `.LS` would drive the robot in a straight
+chord across that gap instead of following the true fold there.
+
+`viewer.js::checkCurveGaps()` (called from `loadScene()`) flags this: it
+measures every consecutive-point segment length around the editable curve
+(respecting `c.closed`), and any segment over `max(3×median, 15mm)` is
+listed in `#curveWarn` — point ids and the jump length, plain text. **This
+is detection only, not a fix** — there's no tool yet that can usefully
+close a gap like this through the UI (the group panel only does rigid
+whole-line transforms; the point panel edits one point at a time, and
+manually rebuilding 15-20 points to approximate the missing arc defeats the
+whole point of skipping marking for speed). Deliberately **not** rendered as
+a color highlight on the 3D points — red is already "touched," reusing it
+for "suspicious" would make both meanings ambiguous at a glance (direct
+user feedback). The practical fix, once a jump is flagged, is targeted
+marking of just that view/region and re-running "Розрахувати" — not manual
+point surgery.
+
+## Semi-automatic marking: an auto-detected draft instead of a blank canvas (2026-08-29)
+
+Manual marking from scratch (8–12 clicks per view) is real operator time
+production can't always spare, but skipping it can produce the curve-gap
+defect above. Middle path: `pipeline/detect.py` (vendored, unchanged;
+dynamic-programming trace of the dark fold-shadow band, four candidate
+lines per call) was already sitting unused after its old 4-candidate
+comparison UI got removed — it's now repurposed as a starting draft the
+operator adjusts rather than draws from nothing.
+
+**Validated against real data before building anything**, per the "don't
+trust a clean baseline blindly" lesson higher up in this file: ran
+`detect.py` against all 48 photos in this project that already have a real
+manual mark (26 variants × back/left) and compared its `edge_lo` candidate
+(the one an earlier 5-photo calibration, referenced in `detect.py`'s own
+docstring, found closest to how the customer actually marks) against each
+manual line, using the same segment-distance math as `service_3030/bench.py`.
+Results:
+- `edge_lo` is still the best candidate at this larger scale too (median
+  disagreement across all 48 photos: 0.54mm; `upper`/`center`/`lower` are
+  all worse). The 5-photo calibration held up.
+- Where `detect.py`'s own confidence flag (`ok`, contrast-based) is high,
+  agreement with the real manual mark is typically sub-1-2mm. Where `ok`
+  drops, disagreement genuinely spikes too (one photo: 6–20% confidence and
+  up to ~200px error in the low-confidence third, then 90–100% confidence
+  and 2–4px error everywhere else) — the confidence signal is not noise,
+  it's usable to tell the operator where to actually look.
+- No evidence, on any of the 48 photos, of the detector locking onto
+  something other than the fold shadow (no localized-but-confident spike
+  pattern anywhere). One photo (`v21_back`) disagreed with its manual mark
+  by a large, *smooth* amount across nearly the whole width at 95–100%
+  confidence — a pattern more consistent with that particular manual
+  reference being off than with the detector tracking the wrong thing, but
+  wasn't independently re-verified against the photo by eye.
+
+**Implementation** (`mark.js`): `openMarkOverlay()` now fetches
+`/api/mark/detect` and stores it as `M.auto` — **but only when the variant
+has no saved manual mark yet** (`M.manual.length === 0`), so an existing
+real marking is never silently touched. The draft draws in yellow,
+continuous, solid where `ok` is true and dashed where false (the
+underlying DP path was always continuous end-to-end; the *old*, removed UI
+broke the polyline rendering at low-confidence columns, which is why it
+used to look discontinuous — that was a rendering choice, not an algorithm
+limit). `autoTransformed()` applies a rigid shift+rotate around the
+draft's own centroid (`M.autoAdj`, plain `−`/`+` buttons, same pattern as
+`buildGroupEditor()`'s controls in the 3D viewer, just in 2D photo pixels
+instead of mm) — deliberately **rigid-only for this first version**, not a
+per-point bend, to keep the interaction to a handful of clicks. "Застосувати
+як лінію" (`applyAutoAsManual()`) downsamples the transformed draft to ~40
+points and drops them into the normal `M.manual` array, after which the
+existing click-to-add/remove editing (`Малювання` mode) works on it
+unchanged — the semi-auto path is additive, not a separate code path from
+manual marking downstream of that point. Saving goes through the same
+`/api/mark/lines/<variant>/<view>` endpoint either way; `contour_fit.py`
+cannot tell where a mark came from.
+
+Not yet done, left for later measurement/iteration: comparing actual
+operator time (auto+adjust vs. draw-from-scratch) and whether rigid-only
+adjustment is expressive enough in practice, or a later version needs a
+small number of independently-draggable anchor points for cases where the
+disagreement isn't a simple shift/rotation.
