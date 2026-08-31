@@ -720,8 +720,45 @@ async function loadScene(name) {
   // правке. НЕ points_original (расчётное) - иначе отмена стёрла бы уже
   // сохранённые ранее правки, а не только текущий несохранённый сдвиг.
   for (const c of scene.curves) if (c.editable) c._saved = c.points.map(p => p.slice());
+  checkCurveGaps();
   buildGroupEditor();
   draw();
+}
+
+// Без розмітки в слабо видимих на фото ділянках (типово - згин біля вух)
+// підгонка пози буває локально неточною, і точки сусіда, "прилипаючи" до
+// моделі, можуть скупчитися в одному місці замість того, щоб рівномірно йти
+// по кільцю - решта відрізка тоді стискається в один різкий стрибок (виміряно
+// наживо: до ~59мм при медіані ~9мм). Це не косметика - фінальний .LS
+// поведе лазер по прямій навпростець замість форми в цьому місці. Тут лише
+// ВИЯВЛЯЄМО такий стрибок і показуємо текстом (навмисно без підсвічування
+// точок на 3D - той самий колір/спосіб вже зайнятий під "тронуті" точки,
+// друге значення тим самим кольором лише плутало б). Не намагаємось
+// автоматично виправити - розтягнути скупчені точки назад по дузі це окрема,
+// значно ризикованіша задача.
+function checkCurveGaps() {
+  const warn = document.getElementById('curveWarn');
+  const c = scene.curves.find(x => x.editable);
+  if (!c || c.points.length < 4) { warn.hidden = true; return; }
+  const n = c.points.length - (c.closed ? 0 : 1);
+  const seg = [];
+  for (let i = 0; i < n; i++) {
+    const a = c.points[i], b = c.points[(i + 1) % c.points.length];
+    seg.push(Math.hypot(a[0]-b[0], a[1]-b[1], a[2]-b[2]));
+  }
+  const sorted = seg.slice().sort((x, y) => x - y);
+  const median = sorted[Math.floor(sorted.length / 2)] || 1;
+  const bad = [];
+  for (let i = 0; i < seg.length; i++) {
+    if (seg[i] > Math.max(3 * median, 15)) bad.push({ i, len: seg[i] });
+  }
+  if (!bad.length) { warn.hidden = true; return; }
+  const id = pi => (c.ids ? c.ids[pi] : pi);
+  warn.hidden = false;
+  warn.innerHTML = `⚠ Підозрілі стрибки на лінії реза (${bad.length}):<br>` + bad
+    .map(b => `#${id(b.i)}→#${id((b.i + 1) % c.points.length)}: ${b.len.toFixed(0)}мм `
+      + `(медіана ${median.toFixed(0)}мм) - розгляньте розмітку для цієї ділянки`)
+    .join('<br>');
 }
 
 // Двоичный STL: 80 байт заголовка, 4 байта числа треугольников, дальше по 50.
