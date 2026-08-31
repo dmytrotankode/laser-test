@@ -9,9 +9,10 @@
 
 const mcv = document.getElementById('markcv'), mctx = mcv.getContext('2d');
 const mprof = document.getElementById('markprof'), mpctx = mprof.getContext('2d');
+const AUTO_ADJ_DEFAULT = { dx: 0, dy: 0, rot: 0, scale: 1, bend: 0, skew: 0 };
 const M = { img: new Image(), scale: 0.25, ox: 0, oy: 0, manual: [],
            drag: null, variant: null, view: null, touched: false, drawing: false,
-           auto: null, autoAdj: { dx: 0, dy: 0, rot: 0 } };
+           auto: null, autoAdj: { ...AUTO_ADJ_DEFAULT } };
 const $m = id => document.getElementById(id);
 
 function mstatus(t) { $m('mstatus').textContent = t || ''; }
@@ -87,21 +88,52 @@ function mdraw() {
   }
 }
 
-// Жорсткий зсув+поворот чернетки навколо її ж центроїда - той самий принцип,
-// що й групова правка в 3D-в'ювері (viewer.js::buildGroupEditor), тільки в
-// 2D-піксельних координатах фото. Повертає [x, y, ok] на точку.
+// Жорсткий зсув+поворот+масштаб чернетки навколо її ж центроїда (той самий
+// принцип, що й групова правка в 3D-в'ювері, тільки в 2D-піксельних
+// координатах фото), а зверху - два ГЛАДКИХ додаткових ступені свободи для
+// випадків, коли самого жорсткого руху не вистачає (реальний звіт: "на left
+// то ліва, то права частина не сходиться" - шаблон там розтягнутий майже
+// вдвічі ширше, ніж на back, і чиста подібність тіла не завжди покриває
+// розбіжність з фото на обох кінцях одночасно):
+//   вигин  - симетрична випуклість вздовж дуги (sin(pi*t), t=0..1 по довжині
+//            кривої) - нуль на обох кінцях, максимум посередині; "трохи
+//            прогнути" середину, не зрушуючи кінці.
+//   перекіс - антисиметричний нахил (2t-1, від -1 до +1) - протилежний знак
+//            на кожному кінці; саме те, що потрібно, коли лівий і правий
+//            кінець розходяться В РІЗНІ боки, а не просто повернуті разом
+//            (поворот рухає кінці по колу навколо центру - це НЕ те саме,
+//            що чистий перпендикулярний перекіс, і для широкої, помітно не
+//            прямої лінії різниця відчутна).
+// Обидва - зміщення ВЗДОВЖ ОДНІЄЇ фіксованої нормалі (до хорди від першої до
+// останньої точки, вже після зсуву/повороту/масштабу) - навмисно не локальна
+// нормаль у кожній точці: локальна гуляла б від найменшого шуму форми, а тут
+// потрібна саме гладка, передбачувана поправка.
 function autoTransformed() {
   if (!M.auto) return null;
   const { x, y } = M.auto;
   const cx = x.reduce((a, b) => a + b, 0) / x.length;
   const cy = y.reduce((a, b) => a + b, 0) / y.length;
-  const rad = M.autoAdj.rot * Math.PI / 180, c = Math.cos(rad), s = Math.sin(rad);
-  const out = [];
+  const { dx, dy, rot, scale, bend, skew } = M.autoAdj;
+  const rad = rot * Math.PI / 180, c = Math.cos(rad), s = Math.sin(rad);
+  const base = [];
   for (let i = 0; i < x.length; i++) {
-    const rx = x[i] - cx, ry = y[i] - cy;
-    out.push([cx + rx * c - ry * s + M.autoAdj.dx, cy + rx * s + ry * c + M.autoAdj.dy]);
+    const rx = (x[i] - cx) * scale, ry = (y[i] - cy) * scale;
+    base.push([cx + rx * c - ry * s + dx, cy + rx * s + ry * c + dy]);
   }
-  return out;
+  if (!bend && !skew) return base;
+  const p0 = base[0], p1 = base[base.length - 1];
+  const chordLen = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) || 1;
+  const nx = -(p1[1] - p0[1]) / chordLen, ny = (p1[0] - p0[0]) / chordLen;
+  const dist = [0];
+  for (let i = 1; i < base.length; i++) {
+    dist.push(dist[i - 1] + Math.hypot(base[i][0] - base[i - 1][0], base[i][1] - base[i - 1][1]));
+  }
+  const total = dist[dist.length - 1] || 1;
+  return base.map((p, i) => {
+    const t = dist[i] / total;
+    const off = bend * Math.sin(Math.PI * t) + skew * (2 * t - 1);
+    return [p[0] + nx * off, p[1] + ny * off];
+  });
 }
 // Перетворює поточну (можливо зсунуту/повернуту) чернетку на звичайні "ваші"
 // точки - розріджено (кожна N-та), щоб далі з нею можна було працювати як із
@@ -302,12 +334,20 @@ $m('ad_ym').addEventListener('click', () => { M.autoAdj.dy -= AD_BASE_PX * AD_MU
 $m('ad_yp').addEventListener('click', () => { M.autoAdj.dy += AD_BASE_PX * AD_MULT; mdraw(); });
 $m('ad_rm').addEventListener('click', () => { M.autoAdj.rot -= AD_BASE_ROT * AD_MULT; mdraw(); });
 $m('ad_rp').addEventListener('click', () => { M.autoAdj.rot += AD_BASE_ROT * AD_MULT; mdraw(); });
+const AD_BASE_SCALE = 0.01;
+$m('ad_sm').addEventListener('click', () => { M.autoAdj.scale = Math.max(0.5, M.autoAdj.scale - AD_BASE_SCALE * AD_MULT); mdraw(); });
+$m('ad_sp').addEventListener('click', () => { M.autoAdj.scale = Math.min(2, M.autoAdj.scale + AD_BASE_SCALE * AD_MULT); mdraw(); });
+$m('ad_bm').addEventListener('click', () => { M.autoAdj.bend -= AD_BASE_PX * AD_MULT; mdraw(); });
+$m('ad_bp').addEventListener('click', () => { M.autoAdj.bend += AD_BASE_PX * AD_MULT; mdraw(); });
+$m('ad_km').addEventListener('click', () => { M.autoAdj.skew -= AD_BASE_PX * AD_MULT; mdraw(); });
+$m('ad_kp').addEventListener('click', () => { M.autoAdj.skew += AD_BASE_PX * AD_MULT; mdraw(); });
+$m('ad_reset').addEventListener('click', () => { M.autoAdj = { ...AUTO_ADJ_DEFAULT }; mdraw(); });
 $m('ad_apply').addEventListener('click', applyAutoAsManual);
 
 // -------------------------------------------------------------- відкрити/закрити
 async function openMarkOverlay(variant, view) {
   M.variant = variant; M.view = view; M.manual = []; M.touched = false; M.history = [];
-  M.auto = null; M.autoAdj = { dx: 0, dy: 0, rot: 0 };
+  M.auto = null; M.autoAdj = { ...AUTO_ADJ_DEFAULT };
   document.getElementById('autoAdjBox').hidden = true;
   document.getElementById('markOverlay').hidden = false;
   mSetDrawing(false);
