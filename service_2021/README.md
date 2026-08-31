@@ -972,8 +972,43 @@ in the same feature, not one:
    2D draft. After the fix, segment lengths across a real applied template
    are within ~1.0–1.02× of the median on both `back` and `left`.
 
+### Step size, then scale + bend/skew: rigid-only wasn't always enough
+
+Two more real reports, same feature, addressed in order:
+
+1. **"На left не виходить підстроїти — то ліва, то права частина вища."**
+   Rotation pivots around the draft's centroid; the `left` template is
+   nearly twice as wide as `back`'s (~3500px vs. ~2200px), so the same
+   angular step moves the ends much further (long lever arm). Measured: one
+   real variant needed only 0.19° of correction, but the fixed step was
+   0.5° — a single click already overshoots it in both directions, which
+   reads exactly like "I can't get both ends right." Fixed by adding the
+   same step-multiplier pattern already used in the 3D viewer's group
+   editor (`0.1`/`1`/`5`/`10`, `#ad_steps`) — a shared multiplier on top of
+   base steps (5px shift, 0.5° rotate), so `0.1` gives 0.5px/0.05° for fine
+   work and `10` gives 50px/5° for coarse corrections.
+2. **Still not enough after that**: rigid transform (translate+rotate) has
+   a real ceiling for a wide, non-trivially-curved template — verified
+   numerically (`scipy.optimize` against real manual marks) before adding
+   anything: the *best possible* rigid+scale fit already leaves several px
+   of residual on `left` in some cases (worse for a helmet shape that
+   deviates more from nominal), and it's not evenly distributed —
+   consistent with the "one end or the other" symptom being real, not just
+   a step-size artifact. Added two more smooth, low-dimensional degrees of
+   freedom (`autoTransformed()` in `mark.js`) rather than free-form point
+   dragging (which would defeat the point of a template at all): **вигин**
+   (bend, `bend·sin(π·t)` along the fixed normal to the chord from the
+   template's first to last point, `t` = fraction of arc length — zero at
+   both ends, max at the middle: "puff out the middle without moving the
+   ends") and **перекіс** (skew, `skew·(2t−1)` along the same normal —
+   opposite sign at each end, which pure rotation cannot produce since
+   rotation moves the ends *around* the centroid, not straight along a
+   perpendicular). Plus a uniform **масштаб** (scale) button pair. "Скинути
+   форму" zeroes all six parameters (dx, dy, rot, scale, bend, skew) at
+   once. Verified against real marks before shipping: adding bend+skew on
+   top of the best rigid+scale fit cut the median error from 11.9px to
+   4.0px on one real `left` sample (v9) — a real, not marginal, improvement
+   for exactly this failure mode.
+
 Not yet done: comparing actual operator time (template+adjust vs.
-draw-from-scratch), and whether rigid-only adjustment is expressive enough
-in practice or a later version needs a small number of independently-
-draggable anchor points for cases where the disagreement isn't a simple
-shift/rotation.
+draw-from-scratch) now that the adjustment toolset is closer to complete.
