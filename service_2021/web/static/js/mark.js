@@ -64,7 +64,14 @@ function mdraw() {
   }
 
   if (M.manual.length) {
-    const pts = [...M.manual].sort((a, b) => a[0] - b[0]);
+    // НЕ сортувати по x - лінія згину не завжди монотонна по x (виміряно на
+    // шаблоні з CAD: до 32% сегментів "назад" по x на ракурсі back, біля
+    // країв/вух). Сортування по x там перемішувало правильно впорядковані
+    // точки і давало ті самі "гори"/ривки, про які повідомив користувач.
+    // M.manual зберігається вже у правильному порядку вздовж лінії
+    // (insertManualPoint вставляє нову точку в найкраще місце вздовж шляху,
+    // не в кінець і не за x).
+    const pts = M.manual;
     mctx.strokeStyle = '#ef4444'; mctx.lineWidth = 2;
     mctx.beginPath();
     pts.forEach(([x, y], i) => {
@@ -102,10 +109,31 @@ function autoTransformed() {
 function applyAutoAsManual() {
   const pts = autoTransformed();
   if (!pts) return;
+  pushHistory();
+  // Рівномірно по ДОВЖИНІ ШЛЯХУ, не по індексу - однаковий крок по індексу
+  // лишав нерівні, іноді дуже помітні розриви ("гори/ривки", реальний звіт
+  // користувача) там, де крива йде "швидше" на екрані (типово - ближче до
+  // країв видимої дуги, біля вух). Той самий принцип, що вже використовує
+  // contour_fit.py::resample() на бекенді - параметризація по кумулятивній
+  // довжині, не по порядковому номеру точки.
   const target = 40;
-  const step = Math.max(1, Math.floor(pts.length / target));
+  const dist = [0];
+  for (let i = 1; i < pts.length; i++) {
+    dist.push(dist[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  }
+  const total = dist[dist.length - 1];
   M.manual = [];
-  for (let i = 0; i < pts.length; i += step) M.manual.push([Math.round(pts[i][0]), Math.round(pts[i][1])]);
+  for (let k = 0; k < target; k++) {
+    const want = total * k / (target - 1);
+    let i = 0;
+    while (i < dist.length - 2 && dist[i + 1] < want) i++;
+    const segLen = dist[i + 1] - dist[i] || 1;
+    const t = (want - dist[i]) / segLen;
+    M.manual.push([
+      Math.round(pts[i][0] + t * (pts[i + 1][0] - pts[i][0])),
+      Math.round(pts[i][1] + t * (pts[i + 1][1] - pts[i][1])),
+    ]);
+  }
   document.getElementById('autoAdjBox').hidden = true;
   mRefreshManual();
   mdraw();
@@ -137,17 +165,45 @@ mcv.addEventListener('mousedown', e => {
   }
   const [ix, iy] = mToImage(e.offsetX, e.offsetY);
   const near = M.manual.findIndex(([x, y]) => Math.hypot(x - ix, y - iy) * M.scale < 8);
+  pushHistory();
   if (near >= 0) M.manual.splice(near, 1);
-  else M.manual.push([Math.round(ix), Math.round(iy)]);
+  else insertManualPoint([Math.round(ix), Math.round(iy)]);
   if (M.manual.length) document.getElementById('autoAdjBox').hidden = true;
   mRefreshManual();
   mdraw();
 });
+// Вставляє нову точку в НАЙКРАЩЕ місце вздовж поточної лінії (мінімальний
+// приріст довжини шляху), а не в кінець масиву і не за сортуванням по x -
+// лінія згину не завжди монотонна по x (див. коментар у mdraw()). Лінія
+// вважається розімкненою (не кільцем) - додавання в самий початок теж
+// перевіряється окремо.
+function insertManualPoint(pt) {
+  const n = M.manual.length;
+  if (n < 2) { M.manual.push(pt); return; }
+  const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  let bestIdx = n, bestCost = dist(M.manual[n - 1], pt);
+  for (let i = 0; i < n - 1; i++) {
+    const cost = dist(M.manual[i], pt) + dist(pt, M.manual[i + 1]) - dist(M.manual[i], M.manual[i + 1]);
+    if (cost < bestCost) { bestCost = cost; bestIdx = i + 1; }
+  }
+  const prependCost = dist(pt, M.manual[0]);
+  if (prependCost < bestCost) bestIdx = 0;
+  M.manual.splice(bestIdx, 0, pt);
+}
 $m('mdraw').addEventListener('click', () => mSetDrawing(!M.drawing));
 
+// Стек знімків ДО кожної правки - потрібен, бо insertManualPoint() вставляє
+// нову точку в середину масиву (найкраще місце вздовж лінії), не завжди в
+// кінець, тож просте "прибрати останній елемент масиву" (як було раніше)
+// прибирало б не ту точку, що клацнули останньою.
+M.history = [];
+function pushHistory() {
+  M.history.push(M.manual.map(p => p.slice()));
+  if (M.history.length > 50) M.history.shift();
+}
 function mUndo() {
-  if (!M.manual.length) return;
-  M.manual.pop();
+  if (!M.history.length) return;
+  M.manual = M.history.pop();
   mRefreshManual();
   mdraw();
 }
@@ -211,6 +267,7 @@ async function mSave() {
 
 $m('msave').addEventListener('click', mSave);
 $m('mclear').addEventListener('click', () => {
+  pushHistory();
   M.manual = []; mRefreshManual();
   if (M.auto) document.getElementById('autoAdjBox').hidden = false;
   mdraw();
@@ -229,7 +286,7 @@ $m('ad_apply').addEventListener('click', applyAutoAsManual);
 
 // -------------------------------------------------------------- відкрити/закрити
 async function openMarkOverlay(variant, view) {
-  M.variant = variant; M.view = view; M.manual = []; M.touched = false;
+  M.variant = variant; M.view = view; M.manual = []; M.touched = false; M.history = [];
   M.auto = null; M.autoAdj = { dx: 0, dy: 0, rot: 0 };
   document.getElementById('autoAdjBox').hidden = true;
   document.getElementById('markOverlay').hidden = false;
