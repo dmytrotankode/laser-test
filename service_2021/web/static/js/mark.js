@@ -10,7 +10,8 @@
 const mcv = document.getElementById('markcv'), mctx = mcv.getContext('2d');
 const mprof = document.getElementById('markprof'), mpctx = mprof.getContext('2d');
 const M = { img: new Image(), scale: 0.25, ox: 0, oy: 0, manual: [],
-           drag: null, variant: null, view: null, touched: false, drawing: false };
+           drag: null, variant: null, view: null, touched: false, drawing: false,
+           auto: null, autoAdj: { dx: 0, dy: 0, rot: 0 } };
 const $m = id => document.getElementById(id);
 
 function mstatus(t) { $m('mstatus').textContent = t || ''; }
@@ -45,6 +46,26 @@ function mdraw() {
   mctx.imageSmoothingEnabled = M.scale < 1;
   mctx.drawImage(M.img, M.ox, M.oy, M.img.width * M.scale, M.img.height * M.scale);
 
+  // Жовта чернетка від автодетектора (pipeline/detect.py) - показується ЛИШЕ
+  // поки в M.manual ще нема жодної точки (щойно оператор застосував її або
+  // намалював свою - чернетка ховається, плутати з чимось уже готовим не
+  // повинна). Суцільна там, де контраст на краю впевнений (res.ok), пунктир -
+  // де ні (див. checkCurveGaps/README: сама лінія в алгоритмі БЕЗПЕРЕРВНА
+  // навіть у місцях низької впевненості - раніше тут її помилково рвали при
+  // малюванні, хоча под капотом розрив нема).
+  if (M.auto && !M.manual.length) {
+    const pts = autoTransformed();
+    mctx.lineWidth = 2; mctx.strokeStyle = '#facc15';
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const a = pts[i], b = pts[i + 1];
+      const [sx1, sy1] = mToScreen(a[0], a[1]);
+      const [sx2, sy2] = mToScreen(b[0], b[1]);
+      mctx.setLineDash(a[2] && b[2] ? [] : [7, 5]);
+      mctx.beginPath(); mctx.moveTo(sx1, sy1); mctx.lineTo(sx2, sy2); mctx.stroke();
+    }
+    mctx.setLineDash([]);
+  }
+
   if (M.manual.length) {
     const pts = [...M.manual].sort((a, b) => a[0] - b[0]);
     mctx.strokeStyle = '#ef4444'; mctx.lineWidth = 2;
@@ -60,6 +81,37 @@ function mdraw() {
       mctx.beginPath(); mctx.arc(sx, sy, 4, 0, 7); mctx.fill();
     });
   }
+}
+
+// Жорсткий зсув+поворот чернетки навколо її ж центроїда - той самий принцип,
+// що й групова правка в 3D-в'ювері (viewer.js::buildGroupEditor), тільки в
+// 2D-піксельних координатах фото. Повертає [x, y, ok] на точку.
+function autoTransformed() {
+  if (!M.auto) return null;
+  const { x, y, ok } = M.auto;
+  const cx = x.reduce((a, b) => a + b, 0) / x.length;
+  const cy = y.reduce((a, b) => a + b, 0) / y.length;
+  const rad = M.autoAdj.rot * Math.PI / 180, c = Math.cos(rad), s = Math.sin(rad);
+  const out = [];
+  for (let i = 0; i < x.length; i++) {
+    const rx = x[i] - cx, ry = y[i] - cy;
+    out.push([cx + rx * c - ry * s + M.autoAdj.dx, cy + rx * s + ry * c + M.autoAdj.dy, ok[i]]);
+  }
+  return out;
+}
+// Перетворює поточну (можливо зсунуту/повернуту) чернетку на звичайні "ваші"
+// точки - розріджено (кожна N-та), щоб далі з нею можна було працювати як із
+// будь-якою ручною лінією (klik по точці - прибрати, клік деінде - додати).
+function applyAutoAsManual() {
+  const pts = autoTransformed();
+  if (!pts) return;
+  const target = 40;
+  const step = Math.max(1, Math.floor(pts.length / target));
+  M.manual = [];
+  for (let i = 0; i < pts.length; i += step) M.manual.push([Math.round(pts[i][0]), Math.round(pts[i][1])]);
+  document.getElementById('autoAdjBox').hidden = true;
+  mRefreshManual();
+  mdraw();
 }
 
 mcv.addEventListener('wheel', e => {
@@ -90,6 +142,7 @@ mcv.addEventListener('mousedown', e => {
   const near = M.manual.findIndex(([x, y]) => Math.hypot(x - ix, y - iy) * M.scale < 8);
   if (near >= 0) M.manual.splice(near, 1);
   else M.manual.push([Math.round(ix), Math.round(iy)]);
+  if (M.manual.length) document.getElementById('autoAdjBox').hidden = true;
   mRefreshManual();
   mdraw();
 });
@@ -161,14 +214,27 @@ async function mSave() {
 
 $m('msave').addEventListener('click', mSave);
 $m('mclear').addEventListener('click', () => {
-  M.manual = []; mRefreshManual(); mdraw();
+  M.manual = []; mRefreshManual();
+  if (M.auto) document.getElementById('autoAdjBox').hidden = false;
+  mdraw();
   mstatus('вашу лінію очищено (на диску лишилась, доки не збережете)');
 });
 $m('mfit').addEventListener('click', () => { M.touched = false; mresize(true); });
 
+const AD_STEP_PX = 5, AD_STEP_ROT = 0.5;
+$m('ad_xm').addEventListener('click', () => { M.autoAdj.dx -= AD_STEP_PX; mdraw(); });
+$m('ad_xp').addEventListener('click', () => { M.autoAdj.dx += AD_STEP_PX; mdraw(); });
+$m('ad_ym').addEventListener('click', () => { M.autoAdj.dy -= AD_STEP_PX; mdraw(); });
+$m('ad_yp').addEventListener('click', () => { M.autoAdj.dy += AD_STEP_PX; mdraw(); });
+$m('ad_rm').addEventListener('click', () => { M.autoAdj.rot -= AD_STEP_ROT; mdraw(); });
+$m('ad_rp').addEventListener('click', () => { M.autoAdj.rot += AD_STEP_ROT; mdraw(); });
+$m('ad_apply').addEventListener('click', applyAutoAsManual);
+
 // -------------------------------------------------------------- відкрити/закрити
 async function openMarkOverlay(variant, view) {
   M.variant = variant; M.view = view; M.manual = []; M.touched = false;
+  M.auto = null; M.autoAdj = { dx: 0, dy: 0, rot: 0 };
+  document.getElementById('autoAdjBox').hidden = true;
   document.getElementById('markOverlay').hidden = false;
   mSetDrawing(false);
   const saved = await (await fetch(`/api/mark/lines/${variant}/${view}`)).json();
@@ -177,6 +243,18 @@ async function openMarkOverlay(variant, view) {
   M.img.onload = () => { mresize(true); requestAnimationFrame(() => mresize(true)); };
   M.img.src = `/mark/img/${variant}/${view}.jpg?t=${Date.now()}`;
   mRefreshManual();
+  // Чернетку з автодетектора пропонуємо ЛИШЕ якщо своєї лінії ще нема -
+  // не хочемо непомітно підмінювати вже збережену ручну розмітку.
+  if (!M.manual.length) {
+    try {
+      const res = await (await fetch(`/api/mark/detect?variant=${variant}&view=${view}`)).json();
+      if (res && res.x && res.edge_lo) {
+        M.auto = { x: res.x, y: res.edge_lo, ok: res.ok };
+        document.getElementById('autoAdjBox').hidden = false;
+        mdraw();
+      }
+    } catch (e) { /* деталь не знайдена на фото - просто без чернетки */ }
+  }
 }
 $m('mclose').addEventListener('click', () => {
   document.getElementById('markOverlay').hidden = true;

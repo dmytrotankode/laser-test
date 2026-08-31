@@ -295,6 +295,16 @@
       Щоб ставити точки своєї лінії, увімкніть <b>Малювання</b> (клавіша D):
       тоді клік ставить точку, клік по точці прибирає, а зсув — Shift+тягнути.</p>
     <button id="mfit">Вписати у вікно</button>
+    <div id="autoAdjBox" hidden>
+      <h2>Автолінія (чернетка)</h2>
+      <p class="muted" style="margin:0 0 8px">Жовта - здогадка алгоритму (пунктир - де він не
+        впевнений). Підправте зсувом/поворотом і натисніть "Застосувати", або малюйте свою лінію
+        нижче як завжди.</p>
+      <div class="prow"><b style="width:auto">зсув X</b><button id="ad_xm">−</button><button id="ad_xp">+</button></div>
+      <div class="prow"><b style="width:auto">зсув Y</b><button id="ad_ym">−</button><button id="ad_yp">+</button></div>
+      <div class="prow"><b style="width:auto">поворот</b><button id="ad_rm">−</button><button id="ad_rp">+</button></div>
+      <button id="ad_apply">Застосувати як лінію</button>
+    </div>
     <button id="mdraw">✏️ Малювання: вимк</button>
     <h2>Ваша лінія</h2>
     <div class="prow"><b style="width:auto">точок</b><span id="mcount" style="margin-left:auto;font-family:monospace">0</span></div>
