@@ -997,10 +997,13 @@ Two more real reports, same feature, addressed in order:
    a step-size artifact. Added two more smooth, low-dimensional degrees of
    freedom (`autoTransformed()` in `mark.js`) rather than free-form point
    dragging (which would defeat the point of a template at all): **вигин**
-   (bend, `bend·sin(π·t)` along the fixed normal to the chord from the
-   template's first to last point, `t` = fraction of arc length — zero at
-   both ends, max at the middle: "puff out the middle without moving the
-   ends") and **перекіс** (skew, `skew·(2t−1)` along the same normal —
+   (bend, `bend·(2t−1)²` along the fixed normal to the chord from the
+   template's first to last point, `t` = fraction of arc length — a
+   parabola: both ends move together by the same amount, the middle stays
+   put. First shipped mirrored — zero at the ends, max at the middle,
+   `sin(π·t)` — corrected same day per direct user feedback: "should move
+   together on both sides, opposite to bend the other way") and **перекіс**
+   (skew, `skew·(2t−1)` along the same normal —
    opposite sign at each end, which pure rotation cannot produce since
    rotation moves the ends *around* the centroid, not straight along a
    perpendicular). Plus a uniform **масштаб** (scale) button pair. "Скинути
