@@ -18,8 +18,21 @@ const mcv = document.getElementById('markcv'), mctx = mcv.getContext('2d');
 function freshTplTotals() { return { rot: [0, 0, 0], t: [0, 0, 0], scale: 100 }; }
 const M = { img: new Image(), scale: 0.25, ox: 0, oy: 0, manual: [],
            drag: null, variant: null, view: null, touched: false, drawing: false,
-           auto: null, tplTotals: freshTplTotals(), refFull: null };
+           auto: null, tplTotals: freshTplTotals(), refFull: null,
+           startTotals: freshTplTotals(), lastAppliedTotals: null };
 const $m = id => document.getElementById(id);
+
+// Середні totals з попередніх розміток цього ракурсу (/api/mark/avg_totals) -
+// стартова поза замість номінальних нулів, реальний запит користувача:
+// фізична установка з разу в раз схожа, тож хороший старт має суттєво
+// скоротити ручне підганяння. M.startTotals - те, куди повертає "Скинути"
+// (не обов'язково нулі).
+async function fetchStartTotals(view) {
+  try {
+    const r = await (await fetch(`/api/mark/avg_totals?view=${view}`)).json();
+    return { rot: r.rot, t: r.t, scale: r.scale };
+  } catch (e) { return freshTplTotals(); }
+}
 
 function mstatus(t) { $m('mstatus').textContent = t || ''; }
 
@@ -58,13 +71,47 @@ function mdraw() {
   // суцільна, поки в M.manual ще нема жодної точки (тут нема поняття
   // "невпевненості", як у детектора, форма не залежить від конкретного фото).
   if (M.auto && !M.manual.length) {
-    mctx.lineWidth = 2; mctx.strokeStyle = '#facc15';
+    // У режимі PnP-кліку жовта лінія - лише приблизна підказка "де шукати",
+    // не мета для точного обведення (на відміну від звичайного режиму) -
+    // тьмяніша, щоб не плуталась із номерними мітками поверх неї.
+    mctx.lineWidth = 2; mctx.strokeStyle = M.pnpMode ? 'rgba(250,204,21,0.3)' : '#facc15';
     mctx.beginPath();
     M.auto.x.forEach((x, i) => {
       const [sx, sy] = mToScreen(x, M.auto.y[i]);
       i ? mctx.lineTo(sx, sy) : mctx.moveTo(sx, sy);
     });
     mctx.stroke();
+  }
+
+  // ТЕСТ: PnP-клік-режим. Кружечки НЕ позначають "клікни рівно тут" - це
+  // лише номери 6 наперед обраних точок ШАБЛОНУ (в його поточному, можливо
+  // неточному, положенні). Клікати треба на ФОТО - там, де ця ж сама точка
+  // реально видно на шоломі, навіть якщо це помітно осторонь від кружечка.
+  if (M.pnpMode) {
+    // Банер зверху - без нього незрозуміло, що кружечки не є ціллю кліку.
+    const bw = Math.min(560, mcv.width - 20);
+    mctx.fillStyle = 'rgba(15,23,42,.92)';
+    mctx.fillRect((mcv.width - bw) / 2, 10, bw, 34);
+    mctx.fillStyle = '#dbe3ef'; mctx.font = '13px sans-serif'; mctx.textAlign = 'center';
+    const next = M.pnpClicks.length + 1;
+    mctx.fillText(`Клацніть на ФОТО справжнє місце точки №${next} з ${M.pnpTargets.length}`
+      + ` (кружечок - лише підказка, де вона зараз у шаблоні)`, mcv.width / 2, 31);
+    mctx.textAlign = 'left';
+
+    M.pnpTargets.forEach((t, i) => {
+      const [sx, sy] = mToScreen(t.img[0], t.img[1]);
+      const clicked = i < M.pnpClicks.length;
+      mctx.beginPath(); mctx.arc(sx, sy, 10, 0, 7);
+      mctx.strokeStyle = clicked ? '#22c55e' : (i === M.pnpClicks.length ? '#38bdf8' : '#64748b');
+      mctx.lineWidth = 2; mctx.stroke();
+      mctx.fillStyle = mctx.strokeStyle; mctx.font = '13px sans-serif';
+      mctx.fillText(String(i + 1), sx + 13, sy + 5);
+    });
+    M.pnpClicks.forEach(([x, y]) => {
+      const [sx, sy] = mToScreen(x, y);
+      mctx.fillStyle = '#22c55e';
+      mctx.beginPath(); mctx.arc(sx, sy, 4, 0, 7); mctx.fill();
+    });
   }
 
   // Щойно оператор натиснув "Застосувати як лінію" - ПОВНИЙ ЗАМКНЕНИЙ контур
@@ -116,6 +163,11 @@ function mdraw() {
 async function applyAutoAsManual() {
   if (!M.auto) return;
   const pts = M.auto.x.map((x, i) => [x, M.auto.y[i]]);
+  // Запам'ятовуємо totals САМЕ цього застосування - підуть у /api/mark/lines
+  // разом зі збереженням (mSave), щоб накопичувати статистику для стартової
+  // пози наступних розміток (не самé по собі "точка виправлень" - лише
+  // остання застосована поза, якщо оператор кілька разів перегенерував).
+  M.lastAppliedTotals = { rot: M.tplTotals.rot.slice(), t: M.tplTotals.t.slice(), scale: M.tplTotals.scale };
   // Знімок ПОВНОГО контуру на момент застосування, з тими самими totals -
   // для тьмяної лінії-довідки, що лишається позаду (див. mdraw()).
   M.refFull = await projectFullRim(M.view, M.tplTotals);
@@ -176,6 +228,11 @@ function mSetDrawing(on) {
   mcv.style.cursor = on ? 'crosshair' : 'grab';
 }
 mcv.addEventListener('mousedown', e => {
+  if (M.pnpMode) {
+    const [ix, iy] = mToImage(e.offsetX, e.offsetY);
+    pnpClick(Math.round(ix), Math.round(iy));
+    return;
+  }
   const panning = !M.drawing || e.button === 1 || e.shiftKey;
   if (panning) {
     M.drag = [e.offsetX - M.ox, e.offsetY - M.oy];
@@ -240,6 +297,9 @@ function mRefreshManual() {
   const n = M.manual.length;
   $m('mcount').textContent = n;
   mstatus(`${M.variant} / ${M.view}` + (n ? `, вашa лінія: ${n} точок` : ', вашої лінії ще немає'));
+  // Зберігати нічого, поки чернетку не перетворено на точки (M.manual
+  // порожній) - інакше "Зберегти" писало б порожню лінію.
+  $m('msave').disabled = !n;
 }
 mcv.addEventListener('mousemove', e => {
   if (M.drag) { M.ox = e.offsetX - M.drag[0]; M.oy = e.offsetY - M.drag[1]; M.touched = true; mdraw(); }
@@ -255,9 +315,11 @@ window.addEventListener('mouseup', () => {
 const MARK_SEQUENCE = ['left', 'back'];
 
 async function mSave() {
+  const body = { points: M.manual };
+  if (M.lastAppliedTotals) body.totals = M.lastAppliedTotals;
   await fetch(`/api/mark/lines/${M.variant}/${M.view}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ points: M.manual })
+    body: JSON.stringify(body)
   });
   const next = MARK_SEQUENCE[MARK_SEQUENCE.indexOf(M.view) + 1];
   if (next) {
@@ -297,7 +359,7 @@ async function fetchAutoTemplate(view, totals) {
     const q = `?view=${view}&rx=${t.rot[0]}&ry=${t.rot[1]}&rz=${t.rot[2]}`
       + `&dx=${t.t[0]}&dy=${t.t[1]}&dz=${t.t[2]}&scale=${t.scale}`;
     const res = await (await fetch(`/api/mark/template${q}`)).json();
-    return (res && res.x && res.y) ? { x: res.x, y: res.y } : null;
+    return (res && res.x && res.y) ? { x: res.x, y: res.y, pts3d: res.pts3d } : null;
   } catch (e) { return null; }
 }
 
@@ -308,6 +370,120 @@ async function adjustMark(mutate) {
   const a = await fetchAutoTemplate(M.view, M.tplTotals);
   if (a) { M.auto = a; mdraw(); }
 }
+
+// ---------------------------------------------------- ТЕСТ: PnP по кількох точках
+// Оператор клацає N впізнаваних точок на фото замість гортання панелі
+// зсуву/повороту - поза рахується сервером через PnP (/api/mark/solve_pnp:
+// відомі 3D-точки шаблону + клацнуті 2D-пікселі + відома камера -> поза).
+// Геть ОКРЕМИЙ, додатковий шлях - панель і "Застосувати" лишаються
+// недоторканими, щоб порівняти на практиці, чи це реально швидше, перш ніж
+// щось замінювати (реальний запит користувача: розмітка панеллю займає
+// ~6 хвилин).
+// 6, не 4-5 - cv2.solvePnP (DLT) вимагає мінімум 6 точок для непланарних
+// об'єктних точок (перевірено: з 5-ма падає "count >= 6").
+const PNP_N = 6;
+M.pnpMode = false;
+M.pnpTargets = [];   // [{img:[x,y] - номінальна позиція-підказка, obj:[x,y,z]}]
+M.pnpClicks = [];    // те, що реально клацнув оператор, той самий порядок
+
+// Точки для кліку - вздовж ДОВЖИНИ поточної чернетки. Ближче до самих країв
+// видимої дуги (5%/95%), не лише середина - масштаб і нахил визначаються
+// набагато чутливіше по точках БІЛЯ КРАЮ силуету (довге плече), ніж по
+// купці точок в центрі (реальний звіт користувача: "трохи не підходить по
+// масштабу"). Це трохи ближче до вух, ніж раніше (15%/85%) - там розмітка
+// найменш надійна, але для масштабу критичніше мати розмах, ніж уникнути
+// цієї ділянки повністю.
+function pnpBuildTargets() {
+  if (!M.auto || !M.auto.pts3d) return [];
+  const { x, y, pts3d } = M.auto;
+  const dist = [0];
+  for (let i = 1; i < x.length; i++) {
+    dist.push(dist[i - 1] + Math.hypot(x[i] - x[i - 1], y[i] - y[i - 1]));
+  }
+  const total = dist[dist.length - 1];
+  const fracs = [0.02, 0.18, 0.4, 0.6, 0.82, 0.98].slice(0, PNP_N);
+  return fracs.map(fr => {
+    const want = total * fr;
+    let i = 0;
+    while (i < dist.length - 2 && dist[i + 1] < want) i++;
+    const segLen = dist[i + 1] - dist[i] || 1;
+    const t = (want - dist[i]) / segLen;
+    return {
+      img: [x[i] + t * (x[i + 1] - x[i]), y[i] + t * (y[i + 1] - y[i])],
+      obj: [0, 1, 2].map(k => pts3d[i][k] + t * (pts3d[i + 1][k] - pts3d[i][k])),
+    };
+  });
+}
+
+function pnpStart() {
+  if (!M.auto || !M.auto.pts3d) {
+    mstatus('спершу "Згенерувати шаблон" (потрібні 3D-точки для PnP)');
+    return;
+  }
+  M.pnpTargets = pnpBuildTargets();
+  M.pnpClicks = [];
+  M.pnpMode = true;
+  $m('ad_pnp').textContent = 'Скасувати клік-режим';
+  $m('ad_pnp_undo').hidden = true;
+  mstatus(`PnP (тест): клацніть на фото точку №1 з ${M.pnpTargets.length} (там, де підказка "1")`);
+  mdraw();
+}
+function pnpStop() {
+  M.pnpMode = false; M.pnpTargets = []; M.pnpClicks = [];
+  $m('ad_pnp').textContent = 'Тест: клік по точках';
+  $m('ad_pnp_undo').hidden = true;
+}
+// Прибрати останній клік - не виходячи з режиму, бо натиснути повз ціль
+// легко, а починати заново всі 6 точок через одну помилку недоречно.
+function pnpUndo() {
+  if (!M.pnpMode || !M.pnpClicks.length) return;
+  M.pnpClicks.pop();
+  $m('ad_pnp_undo').hidden = !M.pnpClicks.length;
+  mstatus(`PnP (тест): клацніть точку №${M.pnpClicks.length + 1} з ${M.pnpTargets.length}`);
+  mdraw();
+}
+$m('ad_pnp_undo').addEventListener('click', pnpUndo);
+async function pnpClick(ix, iy) {
+  M.pnpClicks.push([ix, iy]);
+  const done = M.pnpClicks.length;
+  $m('ad_pnp_undo').hidden = false;
+  if (done < M.pnpTargets.length) {
+    mstatus(`PnP (тест): клацніть точку №${done + 1} з ${M.pnpTargets.length}`);
+    mdraw();
+    return;
+  }
+  mstatus('PnP (тест): рахую позу...');
+  const correspondences = M.pnpTargets.map((t, i) => ({ obj: t.obj, img: M.pnpClicks[i] }));
+  const targets = M.pnpTargets, view = M.view;
+  pnpStop();
+  try {
+    const res = await (await fetch('/api/mark/solve_pnp', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ view, correspondences }),
+    })).json();
+    if (res && res.x && res.y) {
+      if (res.totals) {
+        // PnP-розв'язок, переведений у ті самі зсув/поворот/масштаб, що й
+        // панель - інакше перший клік по панелі тягнув би totals=0 і
+        // чернетка "стрибала" назад до нуля (реальний звіт користувача).
+        // Перезапитуємо звичайним шляхом (той самий totals) - той самий
+        // результат, але заразом і pts3d для можливого повторного PnP.
+        M.tplTotals = { rot: res.totals.rot, t: res.totals.t, scale: res.totals.scale };
+        const a = await fetchAutoTemplate(view, M.tplTotals);
+        M.auto = a || { x: res.x, y: res.y, pts3d: null };
+      } else {
+        M.auto = { x: res.x, y: res.y, pts3d: null };
+      }
+      mstatus('PnP (тест): готово - гляньте чернетку, за потреби підправте панеллю');
+    } else {
+      mstatus('PnP (тест): не вийшло (' + ((res && res.error) || '?') + ')');
+    }
+  } catch (e) {
+    mstatus('PnP (тест): помилка запиту');
+  }
+  mdraw();
+}
+$m('ad_pnp').addEventListener('click', () => { M.pnpMode ? pnpStop() : pnpStart(); mdraw(); });
 
 // Калібрування камер back/left - НЕ з scene.cameras основного в'ювера: для
 // щойно завантаженого набору (ще не порахованого через "Розрахувати")
@@ -426,7 +602,11 @@ async function buildMarkPad() {
 
   const resetRow = document.getElementById('mkReset'); resetRow.innerHTML = '';
   const bReset = document.createElement('button'); bReset.textContent = 'Скинути';
-  bReset.onclick = () => adjustMark(t => { t.rot = [0, 0, 0]; t.t = [0, 0, 0]; t.scale = 100; });
+  // До СТАРТОВОЇ пози (середнє з попередніх розміток), не обов'язково до
+  // нулів - "скинути" повинно повертати туди, звідки почали саме зараз.
+  bReset.onclick = () => adjustMark(t => {
+    t.rot = M.startTotals.rot.slice(); t.t = M.startTotals.t.slice(); t.scale = M.startTotals.scale;
+  });
   resetRow.appendChild(bReset);
 }
 $m('ad_apply').addEventListener('click', applyAutoAsManual);
@@ -440,9 +620,11 @@ async function regenerateTemplate() {
       !confirm(`Поточна розмітка (${M.manual.length} точок) буде скинута. Продовжити?`)) {
     return;
   }
+  pnpStop();
   pushHistory();
   M.manual = [];
-  M.tplTotals = freshTplTotals();
+  M.startTotals = await fetchStartTotals(M.view);
+  M.tplTotals = { rot: M.startTotals.rot.slice(), t: M.startTotals.t.slice(), scale: M.startTotals.scale };
   M.refFull = null;
   M.auto = await fetchAutoTemplate(M.view, M.tplTotals);
   if (M.auto) await buildMarkPad();
@@ -454,8 +636,10 @@ $m('mregen').addEventListener('click', regenerateTemplate);
 
 // -------------------------------------------------------------- відкрити/закрити
 async function openMarkOverlay(variant, view) {
+  pnpStop();
   M.variant = variant; M.view = view; M.manual = []; M.touched = false; M.history = [];
-  M.auto = null; M.tplTotals = freshTplTotals(); M.refFull = null;
+  M.auto = null; M.refFull = null; M.lastAppliedTotals = null;
+  M.startTotals = freshTplTotals(); M.tplTotals = freshTplTotals();
   showChernetkaUI(false);
   document.getElementById('markOverlay').hidden = false;
   mSetDrawing(false);
@@ -469,6 +653,8 @@ async function openMarkOverlay(variant, view) {
   // не хочемо непомітно підмінювати вже збережену ручну розмітку. Якщо вона
   // вже є - "Згенерувати шаблон" завжди доступна поруч, з попередженням.
   if (!M.manual.length) {
+    M.startTotals = await fetchStartTotals(view);
+    M.tplTotals = { rot: M.startTotals.rot.slice(), t: M.startTotals.t.slice(), scale: M.startTotals.scale };
     M.auto = await fetchAutoTemplate(view, M.tplTotals);
     if (M.auto) { await buildMarkPad(); showChernetkaUI(true); mdraw(); }
   }

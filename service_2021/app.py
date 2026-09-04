@@ -153,15 +153,67 @@ def mark_lines(variant, view):
     p = os.path.join(line_marks.LINES, f'{variant}_{view}.json')
     if request.method == 'POST':
         data = request.get_json(force=True) or {}
+        # totals - зсув/поворот/масштаб, яким чернетку довели до вигляду, що
+        # оператор зберіг (не сама розмітка - вона в points) - записуємо
+        # ОКРЕМО від points, щоб надалі пропонувати кращий СТАРТ (не з нуля),
+        # див. _record_mark_totals/  /api/mark/avg_totals.
+        totals = data.pop('totals', None)
         data['variant'], data['view'] = variant, view
         os.makedirs(line_marks.LINES, exist_ok=True)
         with open(p, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=1)
+        if totals:
+            _record_mark_totals(view, totals)
         return jsonify(status='saved')
     if not os.path.exists(p):
         return jsonify(points=[])
     with open(p, encoding='utf-8') as f:
         return jsonify(json.load(f))
+
+
+MARK_TOTALS_PATH = os.path.join(BASE, 'data', 'mark_totals.json')
+
+
+def _load_mark_totals():
+    if not os.path.exists(MARK_TOTALS_PATH):
+        return {}
+    with open(MARK_TOTALS_PATH, encoding='utf-8') as f:
+        return json.load(f)
+
+
+def _record_mark_totals(view, totals):
+    """Накопичує totals (зсув/поворот/масштаб чернетки) з КОЖНОЇ збереженої
+    розмітки - ОКРЕМИЙ файл, не прив'язаний до чекбоксу "запам'ятати цей
+    набір" (той керує списком "в процесі" на кроці 1, оператор часто його не
+    ставить, а дані для усереднення потрібні незалежно від цього). Просте
+    арифметичне середнє - для НЕВЕЛИКИХ поправочних кутів (реально - одиниці/
+    десятки градусів, не будь-яке обертання) цього достатньо, кватерніонне
+    усереднення тут зайве."""
+    if view not in ('back', 'left'):
+        return
+    data = _load_mark_totals()
+    data.setdefault(view, []).append(totals)
+    data[view] = data[view][-200:]
+    os.makedirs(os.path.dirname(MARK_TOTALS_PATH), exist_ok=True)
+    with open(MARK_TOTALS_PATH, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False)
+
+
+@app.route('/api/mark/avg_totals')
+def mark_avg_totals():
+    """Середні зсув/поворот/масштаб з попередніх розміток цього ракурсу - як
+    СТАРТОВА поза для нової розмітки замість номінальних нулів (реальний
+    запит: розмітка займає хвилини, а фізична установка з разу в раз схожа,
+    тож хороший старт має суттєво скоротити ручне підганяння)."""
+    view = request.args.get('view')
+    data = _load_mark_totals().get(view, [])
+    if not data:
+        return jsonify(rot=[0.0, 0.0, 0.0], t=[0.0, 0.0, 0.0], scale=100.0, n=0)
+    n = len(data)
+    rot = [sum(d['rot'][i] for d in data) / n for i in range(3)]
+    t = [sum(d['t'][i] for d in data) / n for i in range(3)]
+    scale = sum(d['scale'] for d in data) / n
+    return jsonify(rot=rot, t=t, scale=scale, n=n)
 
 
 @app.route('/api/mark/compare')
@@ -297,10 +349,159 @@ def mark_template():
     pc, f = cams[view]
     uv, z = CM.project(fold_world, pc[:3], pc[3:6], f)
     vis = CM.near_arc(uv, z)
-    result = dict(x=vis[:, 0].tolist(), y=vis[:, 1].tolist())
+    # Ті самі індекси, що обрав near_arc (сама функція повертає лише вибрані
+    # uv, без індексів) - продубльовано тут (НЕ змінюючи camera_model.py),
+    # щоб віддати ще й відповідні 3D-точки поточного (можливо, повернутого/
+    # зсунутого) контуру: потрібні лише для тестового PnP-режиму розмітки
+    # (клік по кількох точках на фото), самого near_arc не стосується.
+    idx = np.asarray(_near_arc_idx(z))
+    keep = _trim_kinks(vis)
+    vis, idx = vis[keep], idx[keep]
+    result = dict(x=vis[:, 0].tolist(), y=vis[:, 1].tolist(),
+                  pts3d=fold_world[idx].tolist())
     if identity:
         _TEMPLATE_LINE_CACHE[view] = result
     return jsonify(result)
+
+
+def _near_arc_idx(z):
+    """Ті самі індекси, які camera_model.near_arc() обирає з z - продубльовано
+    (а не змінено camera_model.py), бо near_arc там навмисно віддає лише
+    вибрані точки, без індексів, а тут вони потрібні окремо для pts3d."""
+    m = z < np.median(z)
+    n = len(m)
+    best = cur = start = bs = 0
+    for i in range(2 * n):
+        if m[i % n]:
+            if cur == 0:
+                start = i
+            cur += 1
+            if cur > best:
+                best, bs = cur, start
+        else:
+            cur = 0
+    return [(bs + i) % n for i in range(min(best, n))]
+
+
+def _trim_kinks(P, angle_thresh=45.0, guard=30):
+    """Обрізає гострі "вусики" на кінцях near_arc-вибірки - ЛИШЕ для цього
+    допоміжного шаблону розмітки, camera_model.near_arc() не чіпає.
+
+    near_arc ріже видиму дугу по МЕДІАННІЙ ГЛИБИНІ, а не за формою контуру -
+    час від часу кілька точок одразу за межею справжнього видимого краю ще
+    проходять поріг і дають різкий одиничний злам ("усики, що йдуть різко
+    вгору" - реальний звіт користувача, ракурс back). Перевірено на
+    реальних даних: медіанний кут повороту вздовж усієї 128-точкової кривої
+    ~1°, а на зламі - 88-97°, ІЗОЛЬОВАНО (сусідні кути повертаються до норми
+    за 1-2 точки) - фізичний згин так не заломлюється, до країв справжньої
+    видимої дуги кут наростає плавно. Тому шукає перший ізольований різкий
+    злам (>45°) в межах перших/останніх `guard` точок і обрізає до нього
+    включно; якщо зламу нема - нічого не чіпає (більшість випадків).
+    """
+    n = len(P)
+    if n < 2 * guard + 10:
+        return np.arange(n)
+
+    def turn_angle(i):
+        a, b = P[i] - P[i - 1], P[i + 1] - P[i]
+        na, nb = np.linalg.norm(a), np.linalg.norm(b)
+        if na < 1e-9 or nb < 1e-9:
+            return 0.0
+        return np.degrees(np.arccos(np.clip(np.dot(a, b) / (na * nb), -1, 1)))
+
+    start = 0
+    for i in range(1, guard + 1):
+        if turn_angle(i) > angle_thresh:
+            start = i
+    end = n - 1
+    for i in range(n - 2, n - guard - 2, -1):
+        if turn_angle(i) > angle_thresh:
+            end = i
+    return np.arange(start, end + 1)
+
+
+@app.route('/api/mark/solve_pnp', methods=['POST'])
+def mark_solve_pnp():
+    """ТЕСТОВИЙ, додатковий спосіб позиціювати чернетку: замість ручного
+    зсуву/повороту/масштабу панеллю - оператор клацає 4-6 впізнаваних точок
+    на фото (їм заздалегідь відомі відповідні 3D-точки на ободі), а поза
+    рахується напряму через PnP (Perspective-n-Point, класична задача:
+    відомі 3D-точки об'єкта + їхні 2D-пікселі + відома камера -> поза
+    об'єкта). Не чіпає існуючий шлях (/api/mark/template з totals) - геть
+    окрема кнопка в mark.js, для порівняння, чи це реально швидше.
+
+    На відміну від totals-шляху, тут НЕ обмежено рухом навколо центроїда
+    номінального контуру - PnP дає повну довільну позу (rvec/tvec), тому
+    список кореспонденцій має містити РІЗНОМАНІТНІ (не майже колінеарні)
+    точки, інакше розв'язок буде нестійким - це відповідальність клієнта
+    (обирає точки вздовж дуги, не купкою в одному місці).
+    """
+    d = request.get_json(force=True) or {}
+    view = d.get('view')
+    corr = d.get('correspondences') or []
+    if view not in ('back', 'left'):
+        return jsonify(error="view має бути 'back' або 'left'"), 400
+    if len(corr) < 6:
+        # cv2.solvePnP (DLT, дефолтний метод) сам вимагає >=6 точок для
+        # непланарних об'єктних точок - перевірено емпірично (з 5-ма падає
+        # з "count >= 6"), тому тут те саме число, а не "класичні" 4.
+        return jsonify(error='потрібно мінімум 6 точок'), 400
+    obj = np.array([c['obj'] for c in corr], dtype=float)
+    img = np.array([c['img'] for c in corr], dtype=float)
+    from pipeline import generate as gen, contour_fit, mesh_rim, cad_placement, camera_model as CM, geometry
+    recipe = gen.load_recipe('production_2026-08-27')
+    calib_dir = os.path.join(gen.CALIB, 'cameras', recipe['camera_calibration'])
+    cams = contour_fit.marker_cams(calib_dir)
+    pc, f = cams[view]
+    K = np.array([[f, 0.0, CM.IMG_W / 2], [0.0, f, CM.IMG_H / 2], [0.0, 0.0, 1.0]])
+    # Початкове наближення - НОМІНАЛЬНА поза камери (rvec/tvec, за яких obj-точки
+    # й так лежать там, де їх намальовано у шаблоні), а не "з нуля" (за
+    # замовчуванням solvePnP рахує лінійним DLT без жодного зв'язку з тим, де
+    # ми ЗНАЄМО, що деталь приблизно є - звідси і скарга "вилітає по масштабу/
+    # нахилу/зсуву": DLT на шумних ручних кліках може знайти математично
+    # коректний, але фізично абсурдний розв'язок). useExtrinsicGuess вмикає
+    # ітеративне уточнення (Левенберг-Марквардт) ВІД цього старту, а не пошук
+    # заново - тому результат лишається в розумних межах від номіналу.
+    # np.array(...), НЕ np.asarray(...) - cv2.solvePnP з useExtrinsicGuess=True
+    # пише уточнений результат НАЗАД у передані rvec0/tvec0 (перевірено
+    # емпірично); np.asarray на вже-ndarray не копіює, тож rvec0 був би
+    # ТИМ САМИМ шматком пам'яті, що й pc (зріз cams[view]) - виклик solvePnP
+    # тихо псував би калібрування камери для решти цього запиту (саме це й
+    # спричиняло "рахує якось дивно, вилітає": Rc нижче використовувала вже
+    # зіпсовані дані). np.array() завжди копіює.
+    rvec0 = np.array(pc[:3], dtype=float).reshape(3, 1)
+    Rc0 = cv2.Rodrigues(rvec0)[0]
+    tvec0 = (-Rc0 @ np.array(pc[3:6], dtype=float)).reshape(3, 1)
+    ok, rvec, tvec = cv2.solvePnP(obj, img, K, None, rvec0, tvec0,
+                                  useExtrinsicGuess=True, flags=cv2.SOLVEPNP_ITERATIVE)
+    if not ok:
+        return jsonify(error="не вдалося розв'язати позу за цими точками"), 400
+    rim = mesh_rim.mesh_rim(gen.MODEL_3D)
+    R0, t0 = cad_placement.load(recipe['cad_placement'])
+    off = recipe['constants']['fold_radial_mm'] * contour_fit.radial(rim)
+    off[:, 2] += recipe['constants']['fold_up_mm']
+    fold_world = (rim + off) @ R0.T + t0
+    Rm = cv2.Rodrigues(rvec)[0]
+    tv = tvec.reshape(3)
+    Xc = fold_world @ Rm.T + tv
+    z = np.maximum(Xc[:, 2], 1e-6)
+    uv = np.c_[f * Xc[:, 0] / z + CM.IMG_W / 2, f * Xc[:, 1] / z + CM.IMG_H / 2]
+    vis = CM.near_arc(uv, Xc[:, 2])
+    # Той самий розв'язок, але переведений у зсув/поворот/масштаб НАВКОЛО
+    # ЦЕНТРОЇДА fold_world - той самий формат, що приймає /api/mark/template
+    # (totals) - щоб панель зсуву/повороту/масштабу могла продовжити рух
+    # ЗВІДСИ, а не почати знову з нуля (інакше перший же клік по панелі тягнув
+    # totals=0 і чернетка "стрибала" назад до нуля - реальний звіт користувача).
+    # R_total - те саме обертання, але БЕЗ camera-екстринсиків (Rc, C):
+    # Rc @ R_total = Rm  =>  R_total = Rc^-1 @ Rm = Rc.T @ Rm (Rc - ортогональна).
+    center = fold_world.mean(0)
+    Rc = cv2.Rodrigues(np.asarray(pc[:3], dtype=float))[0]
+    C = np.asarray(pc[3:6], dtype=float)
+    R_total = Rc.T @ Rm
+    yaw, pitch, roll = geometry.ypr_from_rot(R_total)
+    shift = Rc.T @ (Rm @ center + tv - Rc @ center + Rc @ C)
+    totals = dict(rot=[roll, pitch, yaw], t=shift.tolist(), scale=100.0)
+    return jsonify(x=vis[:, 0].tolist(), y=vis[:, 1].tolist(), totals=totals)
 
 
 _TEMPLATE_LINE_3D_CACHE = {}
@@ -636,4 +837,7 @@ if __name__ == '__main__':
         pass
     print('Сервис 2021: доводка траектории реза руками')
     print(f'сцены: {scene.SCENES}')
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 2021)), debug=False)
+    # 127.0.0.1, не 0.0.0.0 - робоче місце оператора одне, доступ по мережі
+    # не потрібен (навпаки, зайвий ризик), сервіс не повинен бути видний
+    # нікому іншому в локальній мережі.
+    app.run(host='127.0.0.1', port=int(os.environ.get('PORT', 2021)), debug=False)

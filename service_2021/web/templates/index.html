@@ -87,7 +87,7 @@
              background:rgba(15,23,42,.85); border:1px solid #2b3648; border-radius:10px;
              padding:8px 10px; }
   #markPad[hidden] { display:none; }
-  #markPad button { width:auto; margin:0; padding:7px 9px; font-size:16px; line-height:1;
+  #markPad button { width:auto; margin:0; padding:7px 9px; font-size:19px; line-height:1;
                      color:#dbe3ef; display:flex; align-items:center; justify-content:center; }
   #markPad button svg { display:block; }
   #mkStep button.on { background:#1d4ed8; border-color:#3b6cf6; }
@@ -103,6 +103,7 @@
     background:#fff; color:#1e293b; border:1px solid #cbd5e1; }
   #side button:hover, #markSide button:hover { background:#eef1f5; }
   #side button.on, #markSide button.on { background:#1d4ed8; color:#fff; border-color:#3b6cf6; }
+  #side button:disabled, #markSide button:disabled { opacity:.45; cursor:not-allowed; background:#f1f5f9; }
   #side label, #markSide label { color:#1e293b; }
   #side .prow b, #markSide .prow b { color:#475569; }
   #side .prow input, #markSide .prow input { background:#fff; color:#1e293b; border:1px solid #cbd5e1; }
@@ -137,7 +138,7 @@
   .padSection { display:flex; align-items:center; gap:2px; }
   .padDivider { width:1px; align-self:stretch; background:#2b3648; margin:0 9px; }
   .padGroup { display:flex; align-items:center; gap:2px; }
-  #axisPad button { width:auto; margin:0; padding:7px 9px; font-size:16px; line-height:1;
+  #axisPad button { width:auto; margin:0; padding:7px 9px; font-size:19px; line-height:1;
                      color:#dbe3ef; display:flex; align-items:center; justify-content:center; }
   #axisPad button svg { display:block; }
   #padSave button { font-size:12.5px; padding:7px 10px; }
@@ -157,7 +158,7 @@
              background:rgba(15,23,42,.85); border:1px solid #2b3648; border-radius:10px;
              padding:8px 10px; }
   #tplPad[hidden] { display:none; }
-  #tplPad button { width:auto; margin:0; padding:7px 9px; font-size:16px; line-height:1;
+  #tplPad button { width:auto; margin:0; padding:7px 9px; font-size:19px; line-height:1;
                      color:#dbe3ef; display:flex; align-items:center; justify-content:center; }
   #tplPad button svg { display:block; }
   #tplStepSec button.on { background:#1d4ed8; border-color:#3b6cf6; }
@@ -190,7 +191,7 @@
         </div>
       </div>
       <div class="wstep" id="wstep-3">
-        <button class="whead" data-step="3">3. Вхідні дані <span class="wmark" id="w2mark"></span></button>
+        <button class="whead" data-step="3">3. Розрахунок <span class="wmark" id="w2mark"></span></button>
         <div class="wbody">
           <div id="inputcheck" style="font-size:12px;color:#9fb0c7"></div>
           <button id="dogenerate">Розрахувати</button>
@@ -302,7 +303,7 @@
     <div class="ns_row"><b>еталон .LS</b><input type="file" id="ns_ref"></div>
     <p style="color:#7c8aa0;font-size:11px;margin:2px 0 10px">* обов'язкові для розрахунку; еталон - необов'язково,
       якщо є записана раніше програма для цих самих фото.</p>
-    <label><input type="checkbox" id="ns_pending" checked> запам'ятати цей набір у списку</label>
+    <label><input type="checkbox" id="ns_pending"> запам'ятати цей набір у списку</label>
     <div id="ns_msg" style="color:#7c8aa0;font-size:12px;min-height:32px;margin-top:4px"></div>
     <div style="display:flex;gap:6px">
       <button id="ns_upload" style="flex:1">Завантажити</button>
@@ -322,6 +323,9 @@
         фото). Підправте панеллю над фото і натисніть "Застосувати", або малюйте свою лінію
         нижче як завжди.</p>
       <button id="ad_apply">Застосувати як лінію</button>
+      <button id="ad_pnp" style="border:1px dashed #3b6cf6;background:transparent">
+        Тест: клік по точках</button>
+      <button id="ad_pnp_undo" hidden>◀ Скасувати останній клік</button>
     </div>
     <button id="mdraw">✏️ Малювання: вимк</button>
     <h2>Ваша лінія</h2>

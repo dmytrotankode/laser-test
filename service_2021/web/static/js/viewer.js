@@ -144,17 +144,25 @@ function rotIconSVG(u, v, sign, camRot) {
   const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
   if (sign < 0) { tx = -tx; ty = -ty; }
   const apex = scr[fi];
-  const tipx = apex[0] + tx * 3.5, tipy = apex[1] + ty * 3.5;
-  const bx = apex[0] - tx * 5.5, by = apex[1] - ty * 5.5;
-  const px = -ty, py = tx, wing = 3.8;
+  // Тільки стрілка-хвостик більша (реальний запит: лише жовті стрілочки,
+  // решту іконки не чіпати) - 5/8/5.6 замість 3.5/5.5/3.8.
+  // Форма-шеврон (спроба за скріншотом) виявилась гіршою за практикою -
+  // повернуто на залиту трикутну голівку, лише зі збільшеним розміром.
+  const tipx = apex[0] + tx * 5, tipy = apex[1] + ty * 5;
+  const bx = apex[0] - tx * 8, by = apex[1] - ty * 8;
+  const px = -ty, py = tx, wing = 5.6;
   const w1x = bx + px*wing, w1y = by + py*wing, w2x = bx - px*wing, w2y = by - py*wing;
   // Ближня половина кільця - яскрава й товста (currentColor, як текст кнопки),
-  // дальня - тонший розріджений пунктир СВОГО, приглушеного кольору (не та
-  // сама фарба з opacity - різницю near/far було ледь видно на 18px).
-  return `<svg viewBox="0 0 36 36" width="24" height="24">
-    <path d="${dashed}" stroke="#5b6b85" stroke-width="1.4" stroke-linecap="round" stroke-dasharray="1,2.6" fill="none"/>
-    <path d="${solid}" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" fill="none"/>
-    <path d="M${tipx.toFixed(1)},${tipy.toFixed(1)} L${w1x.toFixed(1)},${w1y.toFixed(1)} L${w2x.toFixed(1)},${w2y.toFixed(1)} Z" fill="currentColor"/>
+  // дальня - тонший розріджений пунктир СВОГО, приглушеного кольору. 27x27 -
+  // щось середнє між початковими 24 і пробними 30 (реальний звіт: 30 забагато).
+  // Стрілка-хвостик - ОКРЕМИЙ, яскравий колір (не currentColor, як кільце) -
+  // тим самим кольором, що й вона зливалася з кільцем на однаковому кольорі
+  // (реальний звіт: "стрілочки всередині іконки зливаються із загальною
+  // білою лінією").
+  return `<svg viewBox="0 0 36 36" width="27" height="27">
+    <path d="${dashed}" stroke="#5b6b85" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="1,2.6" fill="none"/>
+    <path d="${solid}" stroke="currentColor" stroke-width="2.7" stroke-linecap="round" fill="none"/>
+    <path d="M${tipx.toFixed(1)},${tipy.toFixed(1)} L${w1x.toFixed(1)},${w1y.toFixed(1)} L${w2x.toFixed(1)},${w2y.toFixed(1)} Z" fill="#fbbf24"/>
   </svg>`;
 }
 // Наскільки вісь лежить У ПЛОЩИНІ екрана (0 - дивиться вздовж променя камери,
