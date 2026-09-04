@@ -8,11 +8,17 @@
 'use strict';
 
 const mcv = document.getElementById('markcv'), mctx = mcv.getContext('2d');
-const mprof = document.getElementById('markprof'), mpctx = mprof.getContext('2d');
-const AUTO_ADJ_DEFAULT = { dx: 0, dy: 0, rot: 0, scale: 1, bend: 0, skew: 0 };
+// tplTotals - точно той самий підсумок "зсув X/Y/Z, поворот X/Y/Z, масштаб %",
+// що й totals у buildGroupEditor() (viewer.js) для лінії різу - тут лише
+// застосовується на сервері (rim + off) до проекції в камеру, а не локально
+// до вже готових точок (тому й totals, а не одноразова дельта).
+// Функція, не спільний об'єкт зі спред-копією - rot/t це масиви, поверхнева
+// копія {...x} лишила б їх СПІЛЬНИМИ між M.tplTotals і "дефолтом" (реальний
+// ризик: правка одного мовчки псувала б інший).
+function freshTplTotals() { return { rot: [0, 0, 0], t: [0, 0, 0], scale: 100 }; }
 const M = { img: new Image(), scale: 0.25, ox: 0, oy: 0, manual: [],
            drag: null, variant: null, view: null, touched: false, drawing: false,
-           auto: null, autoAdj: { ...AUTO_ADJ_DEFAULT } };
+           auto: null, tplTotals: freshTplTotals(), refFull: null };
 const $m = id => document.getElementById(id);
 
 function mstatus(t) { $m('mstatus').textContent = t || ''; }
@@ -48,20 +54,36 @@ function mdraw() {
   mctx.drawImage(M.img, M.ox, M.oy, M.img.width * M.scale, M.img.height * M.scale);
 
   // Жовта чернетка - гладкий контур CAD-обода на номінальній позі (без
-  // підгонки, /api/mark/template), а не шумна піксельна трасування. Завжди
-  // суцільна - тут нема поняття "невпевненості", як у детектора, форма не
-  // залежить від конкретного фото. Показується ЛИШЕ поки в M.manual ще нема
-  // жодної точки (щойно оператор застосував її або намалював свою - чернетка
-  // ховається, плутати з чимось уже готовим не повинна).
+  // підгонки, /api/mark/template), а не шумна піксельна трасування. Яскрава
+  // суцільна, поки в M.manual ще нема жодної точки (тут нема поняття
+  // "невпевненості", як у детектора, форма не залежить від конкретного фото).
   if (M.auto && !M.manual.length) {
-    const pts = autoTransformed();
     mctx.lineWidth = 2; mctx.strokeStyle = '#facc15';
     mctx.beginPath();
-    pts.forEach(([x, y], i) => {
-      const [sx, sy] = mToScreen(x, y);
+    M.auto.x.forEach((x, i) => {
+      const [sx, sy] = mToScreen(x, M.auto.y[i]);
       i ? mctx.lineTo(sx, sy) : mctx.moveTo(sx, sy);
     });
     mctx.stroke();
+  }
+
+  // Щойно оператор натиснув "Застосувати як лінію" - ПОВНИЙ ЗАМКНЕНИЙ контур
+  // (не лише видима near_arc-половина) лишається тьмяним пунктиром позаду:
+  // не для правки, а щоб бачити "як воно йде" цілком, включно з частиною,
+  // що йде за фото - той самий принцип, що й еталонна лінія в основному
+  // 3D-перегляді. Знімок стану НА МОМЕНТ застосування (M.refFull), тому не
+  // рухається, коли оператор потім тягає окремі точки вручну.
+  if (M.refFull && M.manual.length) {
+    mctx.lineWidth = 1.5; mctx.strokeStyle = 'rgba(250,204,21,0.35)';
+    mctx.setLineDash([7, 6]);
+    mctx.beginPath();
+    M.refFull.forEach(([x, y], i) => {
+      const [sx, sy] = mToScreen(x, y);
+      i ? mctx.lineTo(sx, sy) : mctx.moveTo(sx, sy);
+    });
+    mctx.closePath();
+    mctx.stroke();
+    mctx.setLineDash([]);
   }
 
   if (M.manual.length) {
@@ -88,62 +110,15 @@ function mdraw() {
   }
 }
 
-// Жорсткий зсув+поворот+масштаб чернетки навколо її ж центроїда (той самий
-// принцип, що й групова правка в 3D-в'ювері, тільки в 2D-піксельних
-// координатах фото), а зверху - два ГЛАДКИХ додаткових ступені свободи для
-// випадків, коли самого жорсткого руху не вистачає (реальний звіт: "на left
-// то ліва, то права частина не сходиться" - шаблон там розтягнутий майже
-// вдвічі ширше, ніж на back, і чиста подібність тіла не завжди покриває
-// розбіжність з фото на обох кінцях одночасно):
-//   вигин  - симетричний прогин: ОБИДВА кінці рухаються РАЗОМ в один бік
-//            ((2t-1)^2, t=0..1 по довжині кривої - парабола: 1 на обох
-//            кінцях, 0 посередині), середина лишається на місці. Навпаки
-//            рухає в протилежний бік. (Уточнення користувача: спочатку було
-//            зроблено дзеркально - нуль на кінцях, рух посередині - не те,
-//            що малось на увазі під "гнути".)
-//   перекіс - антисиметричний нахил (2t-1, від -1 до +1) - протилежний знак
-//            на кожному кінці; саме те, що потрібно, коли лівий і правий
-//            кінець розходяться В РІЗНІ боки, а не просто повернуті разом
-//            (поворот рухає кінці по колу навколо центру - це НЕ те саме,
-//            що чистий перпендикулярний перекіс, і для широкої, помітно не
-//            прямої лінії різниця відчутна).
-// Обидва - зміщення ВЗДОВЖ ОДНІЄЇ фіксованої нормалі (до хорди від першої до
-// останньої точки, вже після зсуву/повороту/масштабу) - навмисно не локальна
-// нормаль у кожній точці: локальна гуляла б від найменшого шуму форми, а тут
-// потрібна саме гладка, передбачувана поправка.
-function autoTransformed() {
-  if (!M.auto) return null;
-  const { x, y } = M.auto;
-  const cx = x.reduce((a, b) => a + b, 0) / x.length;
-  const cy = y.reduce((a, b) => a + b, 0) / y.length;
-  const { dx, dy, rot, scale, bend, skew } = M.autoAdj;
-  const rad = rot * Math.PI / 180, c = Math.cos(rad), s = Math.sin(rad);
-  const base = [];
-  for (let i = 0; i < x.length; i++) {
-    const rx = (x[i] - cx) * scale, ry = (y[i] - cy) * scale;
-    base.push([cx + rx * c - ry * s + dx, cy + rx * s + ry * c + dy]);
-  }
-  if (!bend && !skew) return base;
-  const p0 = base[0], p1 = base[base.length - 1];
-  const chordLen = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) || 1;
-  const nx = -(p1[1] - p0[1]) / chordLen, ny = (p1[0] - p0[0]) / chordLen;
-  const dist = [0];
-  for (let i = 1; i < base.length; i++) {
-    dist.push(dist[i - 1] + Math.hypot(base[i][0] - base[i - 1][0], base[i][1] - base[i - 1][1]));
-  }
-  const total = dist[dist.length - 1] || 1;
-  return base.map((p, i) => {
-    const t = dist[i] / total;
-    const off = bend * (2 * t - 1) ** 2 + skew * (2 * t - 1);
-    return [p[0] + nx * off, p[1] + ny * off];
-  });
-}
 // Перетворює поточну (можливо зсунуту/повернуту) чернетку на звичайні "ваші"
 // точки - розріджено (кожна N-та), щоб далі з нею можна було працювати як із
 // будь-якою ручною лінією (klik по точці - прибрати, клік деінде - додати).
-function applyAutoAsManual() {
-  const pts = autoTransformed();
-  if (!pts) return;
+async function applyAutoAsManual() {
+  if (!M.auto) return;
+  const pts = M.auto.x.map((x, i) => [x, M.auto.y[i]]);
+  // Знімок ПОВНОГО контуру на момент застосування, з тими самими totals -
+  // для тьмяної лінії-довідки, що лишається позаду (див. mdraw()).
+  M.refFull = await projectFullRim(M.view, M.tplTotals);
   pushHistory();
   // Рівномірно по ДОВЖИНІ ШЛЯХУ, не по індексу - однаковий крок по індексу
   // лишав нерівні, іноді дуже помітні розриви ("гори/ривки", реальний звіт
@@ -169,9 +144,18 @@ function applyAutoAsManual() {
       Math.round(pts[i][1] + t * (pts[i + 1][1] - pts[i][1])),
     ]);
   }
-  document.getElementById('autoAdjBox').hidden = true;
+  showChernetkaUI(false);
   mRefreshManual();
   mdraw();
+}
+
+// Сайдбар-блок (опис + "Застосувати") і плаваюча панель зсув/поворот/масштаб
+// над фото завжди показуються/ховаються РАЗОМ - панель без пояснення й кнопки
+// "Застосувати" поруч була б незрозумілою, а показ панелі без активної
+// чернетки (M.auto === null) не має сенсу.
+function showChernetkaUI(show) {
+  document.getElementById('autoAdjBox').hidden = !show;
+  document.getElementById('markPad').hidden = !show;
 }
 
 mcv.addEventListener('wheel', e => {
@@ -203,7 +187,7 @@ mcv.addEventListener('mousedown', e => {
   pushHistory();
   if (near >= 0) M.manual.splice(near, 1);
   else insertManualPoint([Math.round(ix), Math.round(iy)]);
-  if (M.manual.length) document.getElementById('autoAdjBox').hidden = true;
+  if (M.manual.length) showChernetkaUI(false);
   mRefreshManual();
   mdraw();
 });
@@ -258,100 +242,221 @@ function mRefreshManual() {
   mstatus(`${M.variant} / ${M.view}` + (n ? `, вашa лінія: ${n} точок` : ', вашої лінії ще немає'));
 }
 mcv.addEventListener('mousemove', e => {
-  if (M.drag) { M.ox = e.offsetX - M.drag[0]; M.oy = e.offsetY - M.drag[1]; M.touched = true; mdraw(); return; }
-  const [ix, iy] = mToImage(e.offsetX, e.offsetY);
-  $m('markhud').textContent = `x ${Math.round(ix)}  y ${Math.round(iy)}   масштаб ${M.scale.toFixed(2)}`;
-  clearTimeout(M.pt);
-  M.pt = setTimeout(() => mProfile(ix, iy), 120);
+  if (M.drag) { M.ox = e.offsetX - M.drag[0]; M.oy = e.offsetY - M.drag[1]; M.touched = true; mdraw(); }
 });
 window.addEventListener('mouseup', () => {
   M.drag = null;
   mcv.style.cursor = M.drawing ? 'crosshair' : 'grab';
 });
 
-async function mProfile(x, y) {
-  if (!M.variant) return;
-  const r = await fetch(`/api/mark/profile?variant=${M.variant}&view=${M.view}&x=${Math.round(x)}&y=${Math.round(y)}`);
-  const d = await r.json();
-  if (!d.values) return;
-  const v = d.values, W = mprof.width, H = mprof.height;
-  mpctx.clearRect(0, 0, W, H);
-  mpctx.fillStyle = 'rgba(15,23,42,.9)'; mpctx.fillRect(0, 0, W, H);
-  const lo = Math.min(...v), hi = Math.max(...v) || 1;
-  mpctx.strokeStyle = '#e2e8f0'; mpctx.lineWidth = 1; mpctx.beginPath();
-  v.forEach((val, i) => {
-    const px = i / (v.length - 1) * W, py = H - (val - lo) / (hi - lo + 1e-6) * (H - 14) - 7;
-    i ? mpctx.lineTo(px, py) : mpctx.moveTo(px, py);
-  });
-  mpctx.stroke();
-  const mid = (y - d.y0) / v.length * W;
-  mpctx.strokeStyle = '#ef4444'; mpctx.beginPath();
-  mpctx.moveTo(mid, 0); mpctx.lineTo(mid, H); mpctx.stroke();
-  mpctx.fillStyle = '#94a3b8'; mpctx.font = '10px monospace';
-  mpctx.fillText('яскравість поперек лінії', 6, 11);
-}
+// Розмітка йде по черзі: спочатку left, потім back - підганяти лінію одразу
+// під два фото складніше, ніж по одному (реальний запит користувача), а
+// оператору й не треба вибирати вид заздалегідь - "Зберегти" сам веде далі.
+const MARK_SEQUENCE = ['left', 'back'];
 
 async function mSave() {
   await fetch(`/api/mark/lines/${M.variant}/${M.view}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ points: M.manual })
   });
-  mstatus(`вашу лінію збережено (${M.manual.length} точок)`);
-  if (window.refreshWizard) refreshWizard();
+  const next = MARK_SEQUENCE[MARK_SEQUENCE.indexOf(M.view) + 1];
+  if (next) {
+    mstatus(`${M.view} збережено (${M.manual.length} точок) - переходжу до ${next}...`);
+    openMarkOverlay(M.variant, next);
+  } else {
+    mstatus(`вашу лінію збережено (${M.manual.length} точок)`);
+    document.getElementById('markOverlay').hidden = true;
+    if (window.refreshWizard) refreshWizard();
+  }
 }
 
 $m('msave').addEventListener('click', mSave);
 $m('mclear').addEventListener('click', () => {
   pushHistory();
   M.manual = []; mRefreshManual();
-  if (M.auto) document.getElementById('autoAdjBox').hidden = false;
+  if (M.auto) showChernetkaUI(true);
   mdraw();
   mstatus('вашу лінію очищено (на диску лишилась, доки не збережете)');
 });
 $m('mfit').addEventListener('click', () => { M.touched = false; mresize(true); });
 
-// Крок - множник до базового (5px зсуву / 0.5° повороту). На вузьких
-// ракурсах (back, шаблон ~2200px завширшки) базового кроку достатньо; на
-// широких (left, ~3500px) той самий кут повороту зсуває кінці лінії значно
-// сильніше (велике плече від центру), і рівно 0.5° буває занадто грубо,
-// щоб влучити в потрібну поправку (виміряно: одному варіанту треба було
-// лише 0.19°) - звідси реальний звіт "то ліва, то права частина вища", бо
-// кожен клік перестрибував потрібне значення в обидва боки. Той самий
-// принцип кроку 0.1/1/5/10, що вже є в груповій правці 3D-в'ювера.
+// Крок - той самий 0.1/1/5/10, що й у груповій правці лінії різу (viewer.js),
+// використовується напряму як мм (зсув), градуси (поворот) чи % (масштаб) -
+// без окремих "базових" констант, щоб не плутати з їхнім змістом.
 let AD_MULT = 1;
-const AD_BASE_PX = 5, AD_BASE_ROT = 0.5;
-const adStepsBox = document.getElementById('ad_steps');
-for (const v of [0.1, 1, 5, 10]) {
-  const b = document.createElement('button');
-  b.textContent = v; b.style.flex = '1'; b.style.width = 'auto'; b.style.margin = '0';
-  b.classList.toggle('on', v === AD_MULT);
-  b.onclick = () => {
-    AD_MULT = v;
-    [...adStepsBox.children].forEach(x => x.classList.toggle('on', +x.textContent === AD_MULT));
-  };
-  adStepsBox.appendChild(b);
+
+// Шаблон (M.auto) - завжди РЕЗУЛЬТАТ проекції з сервера для ПОТОЧНИХ totals
+// (rim+off повернутий/зсунутий/масштабований навколо власного центроїда в
+// світових координатах, ДО проекції в камеру near_arc) - жодної локальної
+// піксельної правки на клієнті, той самий принцип, що й у templateTranslate/
+// templateRotate/templateScaleTo для жовтої лінії на кроці 4, лише порахований
+// на сервері (бо тут потрібен ще й near_arc - видима половина кільця).
+async function fetchAutoTemplate(view, totals) {
+  const t = totals || freshTplTotals();
+  try {
+    const q = `?view=${view}&rx=${t.rot[0]}&ry=${t.rot[1]}&rz=${t.rot[2]}`
+      + `&dx=${t.t[0]}&dy=${t.t[1]}&dz=${t.t[2]}&scale=${t.scale}`;
+    const res = await (await fetch(`/api/mark/template${q}`)).json();
+    return (res && res.x && res.y) ? { x: res.x, y: res.y } : null;
+  } catch (e) { return null; }
 }
-$m('ad_xm').addEventListener('click', () => { M.autoAdj.dx -= AD_BASE_PX * AD_MULT; mdraw(); });
-$m('ad_xp').addEventListener('click', () => { M.autoAdj.dx += AD_BASE_PX * AD_MULT; mdraw(); });
-$m('ad_ym').addEventListener('click', () => { M.autoAdj.dy -= AD_BASE_PX * AD_MULT; mdraw(); });
-$m('ad_yp').addEventListener('click', () => { M.autoAdj.dy += AD_BASE_PX * AD_MULT; mdraw(); });
-$m('ad_rm').addEventListener('click', () => { M.autoAdj.rot -= AD_BASE_ROT * AD_MULT; mdraw(); });
-$m('ad_rp').addEventListener('click', () => { M.autoAdj.rot += AD_BASE_ROT * AD_MULT; mdraw(); });
-const AD_BASE_SCALE = 0.01;
-$m('ad_sm').addEventListener('click', () => { M.autoAdj.scale = Math.max(0.5, M.autoAdj.scale - AD_BASE_SCALE * AD_MULT); mdraw(); });
-$m('ad_sp').addEventListener('click', () => { M.autoAdj.scale = Math.min(2, M.autoAdj.scale + AD_BASE_SCALE * AD_MULT); mdraw(); });
-$m('ad_bm').addEventListener('click', () => { M.autoAdj.bend -= AD_BASE_PX * AD_MULT; mdraw(); });
-$m('ad_bp').addEventListener('click', () => { M.autoAdj.bend += AD_BASE_PX * AD_MULT; mdraw(); });
-$m('ad_km').addEventListener('click', () => { M.autoAdj.skew -= AD_BASE_PX * AD_MULT; mdraw(); });
-$m('ad_kp').addEventListener('click', () => { M.autoAdj.skew += AD_BASE_PX * AD_MULT; mdraw(); });
-$m('ad_reset').addEventListener('click', () => { M.autoAdj = { ...AUTO_ADJ_DEFAULT }; mdraw(); });
+
+// Змінити totals і перевантажити чернетку з сервера - спільний шлях для всіх
+// кнопок панелі.
+async function adjustMark(mutate) {
+  mutate(M.tplTotals);
+  const a = await fetchAutoTemplate(M.view, M.tplTotals);
+  if (a) { M.auto = a; mdraw(); }
+}
+
+// Калібрування камер back/left - НЕ з scene.cameras основного в'ювера: для
+// щойно завантаженого набору (ще не порахованого через "Розрахувати")
+// scene.json не існує, а без нього в'ювер нічого не завантажив (scene===null
+// або лишилась чужа сцена з попереднього сеансу) - саме тому іконки панелі
+// зривались на дефолтні -/+ лише для НОВИХ наборів, а для вже порахованих
+// працювали (реальний звіт користувача). /api/mark/cameras віддає ту саму
+// калібровку стенду незалежно від того, яка сцена (якщо взагалі якась)
+// зараз завантажена у в'ювері.
+let markCamerasCache = null;
+async function ensureMarkCameras() {
+  if (!markCamerasCache) {
+    try { markCamerasCache = await (await fetch('/api/mark/cameras')).json(); }
+    catch (e) { markCamerasCache = {}; }
+  }
+  return markCamerasCache;
+}
+
+// Повний (не near_arc-відсічений) контур - лінія згину насправді ЗАМКНЕНА,
+// просто камера бачить лише її ближню половину; та частина, що "йде за
+// фото" (дальня половина кільця), теж належить до тієї ж лінії. Той самий
+// /api/mark/template3d, що й жовта лінія на кроці 4 (той самий контур,
+// нічого нового не вигадуємо) - лише спроєцьований у пікселі ЦІЄЇ камери
+// розмітки з ТИМИ САМИМИ totals, що й поточна (near_arc-відсічена) чернетка,
+// щоб обидві лягали одна на одну там, де співпадають.
+const IMG_W = 4096, IMG_H = 3000;   // camera_model.IMG_W/IMG_H (фіксовані для всіх камер)
+let fullRimBase = null;
+async function ensureFullRimBase() {
+  if (!fullRimBase) {
+    try {
+      const res = await (await fetch('/api/mark/template3d')).json();
+      if (res && res.points) fullRimBase = res.points;
+    } catch (e) { /* немає - просто без повного контуру */ }
+  }
+  return fullRimBase;
+}
+async function projectFullRim(view, totals) {
+  const [base, cams] = await Promise.all([ensureFullRimBase(), ensureMarkCameras()]);
+  const cam = cams[view];
+  if (!base || !cam) return null;
+  const R = rotFromDeg(totals.rot);
+  const c0 = base.reduce((a, p) => [a[0] + p[0], a[1] + p[1], a[2] + p[2]], [0, 0, 0])
+    .map(v => v / base.length);
+  const s = totals.scale / 100;
+  const Rc = rodrigues(cam.rotation), C = cam.position, f = cam.focal_px;
+  return base.map(p => {
+    const rel = [p[0] - c0[0], p[1] - c0[1], p[2] - c0[2]];
+    const rot = mulv(R, rel);
+    const world = [c0[0] + rot[0] * s + totals.t[0], c0[1] + rot[1] * s + totals.t[1],
+                    c0[2] + rot[2] * s + totals.t[2]];
+    const v = mulv(Rc, sub(world, C));
+    return [f * v[0] / v[2] + IMG_W / 2, f * v[1] / v[2] + IMG_H / 2];
+  });
+}
+
+// Панель зсув/поворот/масштаб - буквально та сама структура і ті самі
+// функції (screenPlanar/shiftGlyphs/rotIconSVG), що й axisPad/tplPad для
+// лінії різу в основному 3D-перегляді (viewer.js), лише з ротацією камери
+// ФІКСОВАНОЇ камери розмітки (M.view) замість поточного camIndex - будується
+// ОДИН РАЗ на відкриття/перегенерацію (напрямок камери під час розмітки не
+// змінюється), а не на кожен клік.
+async function buildMarkPad() {
+  const cams = await ensureMarkCameras();
+  const camRot = cams[M.view] ? cams[M.view].rotation : null;
+
+  const shiftRow = document.getElementById('mkShift'); shiftRow.innerHTML = '';
+  const shiftDefs = [['зсв X', [1, 0, 0]], ['зсв Y', [0, 1, 0]], ['зсв Z', [0, 0, 1]]];
+  shiftDefs.forEach(([label, axis], i) => {
+    if (screenPlanar(axis, camRot) < 0.35) return;
+    const [g1, g2] = shiftGlyphs(axis, camRot);
+    const g = document.createElement('div'); g.className = 'padGroup'; g.title = label;
+    const bMinus = document.createElement('button'); bMinus.textContent = g1;
+    bMinus.onclick = () => adjustMark(t => { t.t[i] -= AD_MULT; });
+    const bPlus = document.createElement('button'); bPlus.textContent = g2;
+    bPlus.onclick = () => adjustMark(t => { t.t[i] += AD_MULT; });
+    g.append(bMinus, bPlus);
+    shiftRow.appendChild(g);
+  });
+
+  const rotRow = document.getElementById('mkRotate'); rotRow.innerHTML = '';
+  const rotDefs = [
+    ['пов X', [0, 1, 0], [0, 0, 1]],
+    ['пов Y', [0, 0, 1], [1, 0, 0]],
+    ['пов Z', [1, 0, 0], [0, 1, 0]],
+  ];
+  rotDefs.forEach(([label, u, v], i) => {
+    const g = document.createElement('div'); g.className = 'padGroup'; g.title = label;
+    const bMinus = document.createElement('button'); bMinus.innerHTML = rotIconSVG(u, v, -1, camRot) || '⟲';
+    bMinus.onclick = () => adjustMark(t => { t.rot[i] -= AD_MULT; });
+    const bPlus = document.createElement('button'); bPlus.innerHTML = rotIconSVG(u, v, 1, camRot) || '⟳';
+    bPlus.onclick = () => adjustMark(t => { t.rot[i] += AD_MULT; });
+    g.append(bMinus, bPlus);
+    rotRow.appendChild(g);
+  });
+
+  const scaleRow = document.getElementById('mkScale'); scaleRow.innerHTML = '';
+  {
+    const g = document.createElement('div'); g.className = 'padGroup'; g.title = 'масштаб';
+    const bMinus = document.createElement('button'); bMinus.textContent = '−';
+    bMinus.onclick = () => adjustMark(t => { t.scale = Math.max(50, t.scale - AD_MULT); });
+    const bPlus = document.createElement('button'); bPlus.textContent = '+';
+    bPlus.onclick = () => adjustMark(t => { t.scale = Math.min(200, t.scale + AD_MULT); });
+    g.append(bMinus, bPlus);
+    scaleRow.appendChild(g);
+  }
+
+  const stepRow = document.getElementById('mkStep'); stepRow.innerHTML = '';
+  const stepGroup = document.createElement('div'); stepGroup.className = 'padGroup'; stepGroup.title = 'крок';
+  for (const v of [0.1, 1, 5, 10]) {
+    const b = document.createElement('button'); b.textContent = v;
+    b.classList.toggle('on', v === AD_MULT);
+    b.onclick = () => { AD_MULT = v; [...stepGroup.children].forEach(x => x.classList.toggle('on', +x.textContent === AD_MULT)); };
+    stepGroup.appendChild(b);
+  }
+  stepRow.appendChild(stepGroup);
+
+  const resetRow = document.getElementById('mkReset'); resetRow.innerHTML = '';
+  const bReset = document.createElement('button'); bReset.textContent = 'Скинути';
+  bReset.onclick = () => adjustMark(t => { t.rot = [0, 0, 0]; t.t = [0, 0, 0]; t.scale = 100; });
+  resetRow.appendChild(bReset);
+}
 $m('ad_apply').addEventListener('click', applyAutoAsManual);
+
+// Перегенерувати чернетку в БУДЬ-ЯКИЙ момент (не лише на порожній лінії, як
+// раніше) - реальний запит користувача: іноді простіше почати з чистого
+// номінального контуру, ніж вручну повертати вже застосовану/збережену
+// розмітку назад. Якщо є що втрачати - явне попередження перед скиданням.
+async function regenerateTemplate() {
+  if (M.manual.length &&
+      !confirm(`Поточна розмітка (${M.manual.length} точок) буде скинута. Продовжити?`)) {
+    return;
+  }
+  pushHistory();
+  M.manual = [];
+  M.tplTotals = freshTplTotals();
+  M.refFull = null;
+  M.auto = await fetchAutoTemplate(M.view, M.tplTotals);
+  if (M.auto) await buildMarkPad();
+  showChernetkaUI(!!M.auto);
+  mRefreshManual();
+  mdraw();
+}
+$m('mregen').addEventListener('click', regenerateTemplate);
 
 // -------------------------------------------------------------- відкрити/закрити
 async function openMarkOverlay(variant, view) {
   M.variant = variant; M.view = view; M.manual = []; M.touched = false; M.history = [];
-  M.auto = null; M.autoAdj = { ...AUTO_ADJ_DEFAULT };
-  document.getElementById('autoAdjBox').hidden = true;
+  M.auto = null; M.tplTotals = freshTplTotals(); M.refFull = null;
+  showChernetkaUI(false);
   document.getElementById('markOverlay').hidden = false;
   mSetDrawing(false);
   const saved = await (await fetch(`/api/mark/lines/${variant}/${view}`)).json();
@@ -361,16 +466,11 @@ async function openMarkOverlay(variant, view) {
   M.img.src = `/mark/img/${variant}/${view}.jpg?t=${Date.now()}`;
   mRefreshManual();
   // Чернетку з автодетектора пропонуємо ЛИШЕ якщо своєї лінії ще нема -
-  // не хочемо непомітно підмінювати вже збережену ручну розмітку.
+  // не хочемо непомітно підмінювати вже збережену ручну розмітку. Якщо вона
+  // вже є - "Згенерувати шаблон" завжди доступна поруч, з попередженням.
   if (!M.manual.length) {
-    try {
-      const res = await (await fetch(`/api/mark/template?view=${view}`)).json();
-      if (res && res.x && res.y) {
-        M.auto = { x: res.x, y: res.y };
-        document.getElementById('autoAdjBox').hidden = false;
-        mdraw();
-      }
-    } catch (e) { /* деталь не знайдена на фото - просто без чернетки */ }
+    M.auto = await fetchAutoTemplate(view, M.tplTotals);
+    if (M.auto) { await buildMarkPad(); showChernetkaUI(true); mdraw(); }
   }
 }
 $m('mclose').addEventListener('click', () => {
@@ -381,5 +481,5 @@ $m('mclose').addEventListener('click', () => {
 document.getElementById('markopen').addEventListener('click', () => {
   const name = window.currentTargetName ? currentTargetName() : null;
   if (!name) { alert('спершу оберіть або введіть ім\'я набору в кроці 1'); return; }
-  openMarkOverlay(name, document.getElementById('markview').value);
+  openMarkOverlay(name, MARK_SEQUENCE[0]);
 });

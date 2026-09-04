@@ -147,16 +147,6 @@ def mark_detect():
     return jsonify(res)
 
 
-@app.route('/api/mark/profile')
-def mark_profile():
-    from pipeline import detect
-    img = _mark_load(request.args.get('variant'), request.args.get('view'))
-    if img is None:
-        return jsonify(error='немає такого знімку'), 404
-    return jsonify(detect.profile_at(img, float(request.args.get('x', 0)),
-                                     float(request.args.get('y', 0))))
-
-
 @app.route('/api/mark/lines/<variant>/<view>', methods=['GET', 'POST'])
 def mark_lines(variant, view):
     from pipeline import line_marks
@@ -222,6 +212,33 @@ def mark_compare():
 
 
 _TEMPLATE_LINE_CACHE = {}
+_MARK_CAMERAS_CACHE = None
+
+
+@app.route('/api/mark/cameras')
+def mark_cameras():
+    """Rotation/position/фокус камер back/left - НЕ з завантаженої сцени
+    основного в'ювера (scene.cameras), а напряму з калібрування рецепту.
+
+    Панель розмітки (buildMarkPad у mark.js) використовує це, щоб малювати
+    3D-піктограми повороту/зсуву незалежно від того, чи взагалі є в'ювер уже
+    щось завантажений - для щойно завантаженого (ще не порахованого через
+    /api/generate) набору scene.json просто не існує, а /api/scene/<name>
+    (і отже scene.cameras) поверне 404. Калібрування камер - властивість
+    самого стенду, однакова для всіх варіантів цього рецепту, тому її можна
+    віддавати без прив'язки до конкретної сцени.
+    """
+    global _MARK_CAMERAS_CACHE
+    if _MARK_CAMERAS_CACHE is None:
+        from pipeline import generate as gen, contour_fit
+        recipe = gen.load_recipe('production_2026-08-27')
+        calib_dir = os.path.join(gen.CALIB, 'cameras', recipe['camera_calibration'])
+        cams = contour_fit.marker_cams(calib_dir)
+        _MARK_CAMERAS_CACHE = {
+            v: dict(rotation=pc[:3].tolist(), position=pc[3:6].tolist(), focal_px=float(f))
+            for v, (pc, f) in cams.items()
+        }
+    return jsonify(_MARK_CAMERAS_CACHE)
 
 
 @app.route('/api/mark/template')
@@ -241,7 +258,20 @@ def mark_template():
     view = request.args.get('view')
     if view not in ('back', 'left'):
         return jsonify(error="view має бути 'back' або 'left'"), 400
-    if view in _TEMPLATE_LINE_CACHE:
+    # Зсув/поворот/масштаб КОНТУРУ навколо його ж центроїда, ДО проекції в
+    # камеру - той самий принцип (і та сама формула повороту Rz*Ry*Rx з
+    # градусів), що й панель "лінія різу" в основному 3D-перегляді
+    # (viewer.js::rotFromDeg) - навмисно не окремий, вигаданий тут набір
+    # ступенів свободи. Totals (не дельти) - клієнт шле накопичену суму,
+    # тому кожен запит рахується наново від номінальної пози, без стану на
+    # сервері. Кешується лише "все нулі/100%" (найчастіший випадок).
+    def arg(name, default=0.0):
+        return float(request.args.get(name, default) or default)
+    rx, ry, rz = arg('rx'), arg('ry'), arg('rz')
+    dx, dy, dz = arg('dx'), arg('dy'), arg('dz')
+    scale = arg('scale', 100.0)
+    identity = not (rx or ry or rz or dx or dy or dz) and scale == 100.0
+    if identity and view in _TEMPLATE_LINE_CACHE:
         return jsonify(_TEMPLATE_LINE_CACHE[view])
     from pipeline import generate as gen, contour_fit, mesh_rim, cad_placement, camera_model as CM
     recipe = gen.load_recipe('production_2026-08-27')
@@ -252,11 +282,51 @@ def mark_template():
     off = recipe['constants']['fold_radial_mm'] * contour_fit.radial(rim)
     off[:, 2] += recipe['constants']['fold_up_mm']
     fold_world = (rim + off) @ R0.T + t0
+    if not identity:
+        rxr, ryr, rzr = np.radians([rx, ry, rz])
+        cx, sx = np.cos(rxr), np.sin(rxr)
+        cy, sy = np.cos(ryr), np.sin(ryr)
+        cz, sz = np.cos(rzr), np.sin(rzr)
+        R = np.array([
+            [cz * cy, cz * sy * sx - sz * cx, cz * sy * cx + sz * sx],
+            [sz * cy, sz * sy * sx + cz * cx, sz * sy * cx - cz * sx],
+            [-sy,     cy * sx,                cy * cx],
+        ])
+        center = fold_world.mean(0)
+        fold_world = (fold_world - center) @ R.T * (scale / 100.0) + center + [dx, dy, dz]
     pc, f = cams[view]
     uv, z = CM.project(fold_world, pc[:3], pc[3:6], f)
     vis = CM.near_arc(uv, z)
     result = dict(x=vis[:, 0].tolist(), y=vis[:, 1].tolist())
-    _TEMPLATE_LINE_CACHE[view] = result
+    if identity:
+        _TEMPLATE_LINE_CACHE[view] = result
+    return jsonify(result)
+
+
+_TEMPLATE_LINE_3D_CACHE = {}
+
+
+@app.route('/api/mark/template3d')
+def mark_template_3d():
+    """Той самий контур лінії згину (rim + fold_radial/fold_up, номінальна поза),
+    але ПОВНИЙ ЗАМКНЕНИЙ і в світових координатах верстата - без проекції в
+    конкретну камеру і без near_arc-відсікання видимої дуги. Аналог "лінії
+    різу" для головного 3D-перегляду (viewer.js): один спільний контур, який
+    можна посунути/повернути ОДИН РАЗ і бачити однаково під будь-яким ракурсом
+    і у вільному огляді - на відміну від /api/mark/template, прив'язаного до
+    пікселів одного конкретного фото.
+    """
+    if 'points' in _TEMPLATE_LINE_3D_CACHE:
+        return jsonify(_TEMPLATE_LINE_3D_CACHE['points'])
+    from pipeline import generate as gen, contour_fit, mesh_rim, cad_placement
+    recipe = gen.load_recipe('production_2026-08-27')
+    R0, t0 = cad_placement.load(recipe['cad_placement'])
+    rim = mesh_rim.mesh_rim(gen.MODEL_3D)
+    off = recipe['constants']['fold_radial_mm'] * contour_fit.radial(rim)
+    off[:, 2] += recipe['constants']['fold_up_mm']
+    fold_world = (rim + off) @ R0.T + t0
+    result = dict(points=fold_world.tolist())
+    _TEMPLATE_LINE_3D_CACHE['points'] = result
     return jsonify(result)
 
 

@@ -78,17 +78,19 @@
               background:#111827; border-right:1px solid #1f2937; }
   #markMain { flex:1; position:relative; overflow:hidden; background:#000; }
   #markcv { position:absolute; inset:0; cursor:grab; width:100%; height:100%; }
-  #markhud { position:absolute; left:10px; bottom:10px; background:rgba(15,23,42,.85);
-             border:1px solid #2b3648; border-radius:6px; padding:6px 9px;
-             font:12px/1.4 monospace; pointer-events:none; color:#dbe3ef; }
-  /* без явних width/height тут канва наслідує загальне правило "canvas { width:100%;
-     height:100% }" вище і роздувається на весь #markMain - саме це, а не щось інше,
-     і було причиною "фото ніби перекрите синім" та "малювання не працює" (цей
-     розтягнутий прозорий шар лежав НАД markcv і перехоплював усі кліки). */
-  #markprof { position:absolute; right:10px; bottom:10px; width:220px; height:110px;
-              background:rgba(15,23,42,.92);
-              border:1px solid #2b3648; border-radius:6px; opacity:.9; }
   #mdraw.on { background:#1d4ed8; border-color:#3b6cf6; }
+  /* Плаваюча панель зсув/поворот/масштаб чернетки - той самий стиль, що й
+     axisPad/tplPad у 3D-в'ювері, знизу (яскравість-профіль і x/y-підказку
+     прибрали - нічого не заважає). */
+  #markPad { position:absolute; left:50%; bottom:16px; transform:translateX(-50%);
+             z-index:20; display:flex; flex-direction:row; align-items:center;
+             background:rgba(15,23,42,.85); border:1px solid #2b3648; border-radius:10px;
+             padding:8px 10px; }
+  #markPad[hidden] { display:none; }
+  #markPad button { width:auto; margin:0; padding:7px 9px; font-size:16px; line-height:1;
+                     color:#dbe3ef; display:flex; align-items:center; justify-content:center; }
+  #markPad button svg { display:block; }
+  #mkStep button.on { background:#1d4ed8; border-color:#3b6cf6; }
 
   /* Світла тема - для основного сайдбара #side і сайдбара розмітки #markSide;
      #view/#markMain (канва/фото) навмисно лишаються темними - фото й лінії
@@ -147,6 +149,18 @@
   #padUndoBtn.dirty { border-color:#dbe3ef; color:#fff; }
   #padSave button:not(.dirty):not(:disabled) { opacity:.5; }
   #padStep button.on { background:#1d4ed8; border-color:#3b6cf6; }
+  /* Пробна "шаблонна лінія" (проекція CAD-обода) - суто для візуальної перевірки
+     на кількох ракурсах одразу, ніде не зберігається. Той самий стиль панелі,
+     що й axisPad, але зверху - щоб не перекривались, якщо обидві на екрані. */
+  #tplPad { position:absolute; left:50%; top:16px; transform:translateX(-50%);
+             z-index:20; display:flex; flex-direction:row; align-items:center;
+             background:rgba(15,23,42,.85); border:1px solid #2b3648; border-radius:10px;
+             padding:8px 10px; }
+  #tplPad[hidden] { display:none; }
+  #tplPad button { width:auto; margin:0; padding:7px 9px; font-size:16px; line-height:1;
+                     color:#dbe3ef; display:flex; align-items:center; justify-content:center; }
+  #tplPad button svg { display:block; }
+  #tplStepSec button.on { background:#1d4ed8; border-color:#3b6cf6; }
 </style>
 </head>
 <body>
@@ -170,12 +184,8 @@
         <button class="whead" data-step="2">2. Розмітка лінії згину <span class="wmark" id="w3mark"></span></button>
         <div class="wbody">
           <div id="markstatus" style="font-size:12px;color:#9fb0c7"></div>
-          <div style="display:flex;gap:6px;margin-top:8px">
-            <select id="markview" style="flex:1">
-              <option value="back">back</option>
-              <option value="left">left</option>
-            </select>
-            <button id="markopen" style="flex:1">Відкрити розмітку</button>
+          <div style="margin-top:8px">
+            <button id="markopen" style="width:100%">Відкрити розмітку</button>
           </div>
         </div>
       </div>
@@ -253,9 +263,22 @@
       <div class="padDivider"></div>
       <div class="padSection" id="padRotate"></div>
       <div class="padDivider"></div>
+      <div class="padSection" id="padScale"></div>
+      <div class="padDivider"></div>
       <div class="padSection" id="padStep"></div>
       <div class="padDivider"></div>
       <div class="padSection" id="padSave"></div>
+    </div>
+    <div id="tplPad" hidden>
+      <div class="padSection" id="tplShift"></div>
+      <div class="padDivider"></div>
+      <div class="padSection" id="tplRotate"></div>
+      <div class="padDivider"></div>
+      <div class="padSection" id="tplScale"></div>
+      <div class="padDivider"></div>
+      <div class="padSection" id="tplStepSec"></div>
+      <div class="padDivider"></div>
+      <div class="padSection" id="tplResetSec"></div>
     </div>
     <div id="calcOverlay" hidden>
       <div class="spinner"></div>
@@ -291,24 +314,13 @@
 <div id="markOverlay" hidden>
   <div id="markSide">
     <h1>Розмітка лінії згину</h1>
-    <p class="muted" style="margin:0 0 12px">Коліщатко — масштаб, тягнути — зсув.
-      Щоб ставити точки своєї лінії, увімкніть <b>Малювання</b> (клавіша D):
-      тоді клік ставить точку, клік по точці прибирає, а зсув — Shift+тягнути.</p>
     <button id="mfit">Вписати у вікно</button>
+    <button id="mregen">Згенерувати шаблон</button>
     <div id="autoAdjBox" hidden>
       <h2>Автолінія (чернетка)</h2>
       <p class="muted" style="margin:0 0 8px">Жовта - шаблонна форма моделі (не підганяється під
-        фото). Підправте зсувом/поворотом і натисніть "Застосувати", або малюйте свою лінію
+        фото). Підправте панеллю над фото і натисніть "Застосувати", або малюйте свою лінію
         нижче як завжди.</p>
-      <div style="color:#64748b;font-size:11px;margin:0 0 2px">крок</div>
-      <div id="ad_steps" style="display:flex;gap:4px;margin:0 0 6px"></div>
-      <div class="prow"><b style="width:auto">зсув X</b><button id="ad_xm">−</button><button id="ad_xp">+</button></div>
-      <div class="prow"><b style="width:auto">зсув Y</b><button id="ad_ym">−</button><button id="ad_yp">+</button></div>
-      <div class="prow"><b style="width:auto">поворот</b><button id="ad_rm">−</button><button id="ad_rp">+</button></div>
-      <div class="prow"><b style="width:auto">масштаб</b><button id="ad_sm">−</button><button id="ad_sp">+</button></div>
-      <div class="prow"><b style="width:auto">вигин</b><button id="ad_bm">−</button><button id="ad_bp">+</button></div>
-      <div class="prow"><b style="width:auto">перекіс країв</b><button id="ad_km">−</button><button id="ad_kp">+</button></div>
-      <button id="ad_reset" style="margin-bottom:6px">Скинути форму</button>
       <button id="ad_apply">Застосувати як лінію</button>
     </div>
     <button id="mdraw">✏️ Малювання: вимк</button>
@@ -324,8 +336,17 @@
   </div>
   <div id="markMain">
     <canvas id="markcv"></canvas>
-    <div id="markhud">—</div>
-    <canvas id="markprof" width="220" height="110"></canvas>
+    <div id="markPad" hidden>
+      <div class="padSection" id="mkShift"></div>
+      <div class="padDivider"></div>
+      <div class="padSection" id="mkRotate"></div>
+      <div class="padDivider"></div>
+      <div class="padSection" id="mkScale"></div>
+      <div class="padDivider"></div>
+      <div class="padSection" id="mkStep"></div>
+      <div class="padDivider"></div>
+      <div class="padSection" id="mkReset"></div>
+    </div>
   </div>
 </div>
 

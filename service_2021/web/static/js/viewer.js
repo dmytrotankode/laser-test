@@ -32,6 +32,16 @@ const photos = {};          // имя камеры -> Image
 // камерою, з якого його малювали - на back-фото ліва розмітка беззмістовна.
 const markLines = { back: [], left: [] };
 const meshes = {};          // имя меша -> {tris:Float32Array}
+// Пробна "шаблонна лінія" - той самий контур rim+off, що й у розмітці, але
+// ПОВНИЙ ЗАМКНЕНИЙ і в світових координатах (/api/mark/template3d), не
+// прив'язаний до пікселів одного фото - тому рухається ОДИН РАЗ (як лінія
+// різу - зсув/поворот/масштаб навколо центроїда) і однаково видний під
+// будь-яким ракурсом і у вільному огляді. Суто "пісочниця" для очей: ніде не
+// зберігається, скидається на кожне завантаження сцени.
+let templateBase = null;   // [[x,y,z],...] як прийшло з сервера, для "Скинути"
+let templatePts = null;    // робоча (посунута) копія, що й малюється
+const tplTotals = { rot: [0, 0, 0], t: [0, 0, 0], scale: 100 };
+let tplStep = 1;
 
 // ---------------------------------------------------------------- математика
 function rodrigues(r) {
@@ -59,7 +69,12 @@ const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 // щоб підписати кнопки стрілками за реальним рухом на фото. У вільному
 // огляді (camIndex<0) сенсу нема - там саму камеру крутить миша, лишаємо
 // звичайні -/+.
-function camDir(vec) {
+// camRotOverride - опційний rotation-вектор конкретної камери (як
+// scene.cameras[i].rotation), в обхід поточного camIndex. Потрібен розмітці
+// (mark.js): вона завжди дивиться з ФІКСОВАНОЇ камери view (back/left), не
+// пов'язаної з тим, який ракурс зараз обраний в основному 3D-перегляді.
+function camDir(vec, camRotOverride) {
+  if (camRotOverride) return mulv(rodrigues(camRotOverride), vec);
   if (camIndex < 0 || !scene) return null;
   return mulv(rodrigues(scene.cameras[camIndex].rotation), vec);
 }
@@ -73,8 +88,8 @@ function arrow8(dx, dy) {
 // (+ у бік осі, - у протилежний). Якщо вісь дивиться переважно ВЗДОВЖ
 // погляду камери (на глядача чи від нього) - стрілка була б непомітною і
 // оманливою на майже нерухомій картинці, лишаємо звичайні -/+.
-function shiftGlyphs(axis) {
-  const d = camDir(axis);
+function shiftGlyphs(axis, camRot) {
+  const d = camDir(axis, camRot);
   if (!d) return ['−', '+'];
   if (Math.hypot(d[0], d[1]) < 0.35) return ['−', '+'];
   return [arrow8(-d[0], -d[1]), arrow8(d[0], d[1])];
@@ -85,8 +100,8 @@ function shiftGlyphs(axis) {
 // у який бік на екрані (за/проти годинникової) рух від u до v - це і є
 // напрямок ДОДАТНОГО повороту. Екран має вісь Y вниз, тому знак навпаки, ніж
 // у звичній математичній площині (y вгору) - враховано у виборі '↻'/'↺' нижче.
-function rotGlyphs(u, v) {
-  const du = camDir(u), dv = camDir(v);
+function rotGlyphs(u, v, camRot) {
+  const du = camDir(u, camRot), dv = camDir(v, camRot);
   if (!du) return ['−', '+'];
   const cross = du[0] * dv[1] - du[1] * dv[0];
   const plus = cross > 0 ? '↻' : '↺';       // ↻ ↺
@@ -104,8 +119,8 @@ function rotGlyphs(u, v) {
 // гізмо-кільцях CAD-редакторів), стрілка - на найближчій до глядача точці,
 // напрямок хвостика показує бік ЦІЄЇ конкретної кнопки (sign=+1 - у бік u->v,
 // sign=-1 - назад).
-function rotIconSVG(u, v, sign) {
-  const du = camDir(u), dv = camDir(v);
+function rotIconSVG(u, v, sign, camRot) {
+  const du = camDir(u, camRot), dv = camDir(v, camRot);
   if (!du) return null;
   const N = 28, R = 13, CX = 18, CY = 18;
   const pts = [];
@@ -147,8 +162,8 @@ function rotIconSVG(u, v, sign) {
 // -/+ в shiftGlyphs(). Тут ним же вирішуємо, чи показувати кнопки зсуву
 // вздовж цієї осі на плаваючій панелі взагалі: якщо на екрані майже не
 // видно руху, налаштовувати цю вісь із цього ракурсу все одно не варто.
-function screenPlanar(axis) {
-  const d = camDir(axis);
+function screenPlanar(axis, camRot) {
+  const d = camDir(axis, camRot);
   if (!d) return 1;
   return Math.hypot(d[0], d[1]);
 }
@@ -342,6 +357,7 @@ function draw() {
   if (!scene) return;
   ctx.font = `${12 * devicePixelRatio}px sans-serif`;
   const pr = projector();
+  buildTplPad();
 
   // фотография под режимом "взгляд камерой"
   if (camIndex >= 0 && document.getElementById('photo').checked) {
@@ -402,6 +418,13 @@ function draw() {
     if (!shown[c.name]) continue;
     ctx.strokeStyle = c.color; ctx.lineWidth = (c.width || 2) * devicePixelRatio * 0.8;
     polyline(c.points, c.closed, pr);
+  }
+  // Шаблонна лінія (проба) - замкнений контур rim+off у світових координатах,
+  // рухомий вручну (панель зверху) виключно для очей: той самий контур одразу
+  // під будь-яким ракурсом і у вільному огляді, без прив'язки до однієї камери.
+  if (templatePts && shown['template']) {
+    ctx.strokeStyle = '#eab308'; ctx.lineWidth = 2 * devicePixelRatio * 0.8;
+    polyline(templatePts, true, pr);
   }
   // Путь сопла нашей (редактируемой) линии - НЕ хранится, считается на лету из
   // текущих точек + их осей (сопло = рез + 10*ось), иначе после правки он бы
@@ -684,6 +707,16 @@ async function loadScene(name) {
     }).catch(() => {});
   }
 
+  // "Шаблонна лінія" - один замкнений 3D-контур на всю сцену одразу (не
+  // прив'язаний до конкретної камери), тому підвантажується один раз.
+  templateBase = null; templatePts = null;
+  tplTotals.rot = [0, 0, 0]; tplTotals.t = [0, 0, 0]; tplTotals.scale = 100;
+  layers.appendChild(layerRow('шаблонна лінія (CAD, проба)', '#eab308', 'template', false));
+  fetch('/api/mark/template3d').then(r => r.json()).then(d => {
+    if (d.points) { templateBase = d.points; templatePts = templateBase.map(p => p.slice()); }
+    draw();
+  }).catch(() => {});
+
   const cams = document.getElementById('cams'); cams.innerHTML = '';
   scene.cameras.forEach((cam, i) => {
     const b = document.createElement('button');
@@ -922,6 +955,25 @@ function buildAxisPad() {
     bPlus.onclick = () => row.children[3].click();
     g.append(bMinus, bPlus);
     rotRow.appendChild(g);
+  }
+
+  // Масштаб - той самий проксі-прийом, що й зсув/поворот вище: клікаємо
+  // справжні кнопки прихованого рядка "масштаб" у #groupctl, підсумок (%)
+  // рахує і показує сам сайдбар, тут лишень великі кнопки під ракурс.
+  const scaleRow = document.getElementById('padScale'); scaleRow.innerHTML = '';
+  {
+    const row = findRow('масштаб');
+    if (row) {
+      const g = document.createElement('div'); g.className = 'padGroup'; g.title = 'масштаб';
+      const bMinus = document.createElement('button'); bMinus.textContent = row.children[1].textContent;
+      bMinus.title = 'масштаб ' + row.children[1].textContent;
+      bMinus.onclick = () => row.children[1].click();
+      const bPlus = document.createElement('button'); bPlus.textContent = row.children[3].textContent;
+      bPlus.title = 'масштаб ' + row.children[3].textContent;
+      bPlus.onclick = () => row.children[3].click();
+      g.append(bMinus, bPlus);
+      scaleRow.appendChild(g);
+    }
   }
 
   // Крок (0.1/1/5/10) - проксі на ті самі кнопки #gsteps у сайдбарі, щоб не
@@ -1180,6 +1232,108 @@ function setPhotoAdjust(bright, contrast) {
 document.getElementById('pa_bright').oninput = e => setPhotoAdjust(+e.target.value, photoContrast);
 document.getElementById('pa_contrast').oninput = e => setPhotoAdjust(photoBrightness, +e.target.value);
 document.getElementById('pa_reset').onclick = () => setPhotoAdjust(100, 100);
+
+// ------------------------------------------------- шаблонна лінія (проба)
+// Той самий зсув/поворот/масштаб навколо центроїда, що й у buildGroupEditor
+// для справжньої лінії різу (translate/rotate/scaleBy) - тут лише застосований
+// до templatePts замість c.points, і крок tplStep НЕ ділить змінну "step" з
+// реальною правкою (щоб одне не плуталось з іншим).
+function templateCentroid() {
+  return templatePts.reduce((a, p) => [0, 1, 2].map(k => a[k] + p[k]), [0, 0, 0])
+    .map(v => v / templatePts.length);
+}
+function templateTranslate(delta) {
+  for (let i = 0; i < templatePts.length; i++)
+    templatePts[i] = [0, 1, 2].map(k => templatePts[i][k] + delta[k]);
+}
+function templateRotate(rotDeg) {
+  const R = rotFromDeg(rotDeg), cen = templateCentroid();
+  for (let i = 0; i < templatePts.length; i++) {
+    const p = templatePts[i];
+    const rel = [0, 1, 2].map(k => p[k] - cen[k]);
+    const rot = [0, 1, 2].map(k => R[k][0] * rel[0] + R[k][1] * rel[1] + R[k][2] * rel[2]);
+    templatePts[i] = [0, 1, 2].map(k => cen[k] + rot[k]);
+  }
+}
+function templateScaleTo(target) {
+  if (target <= 0) return;
+  const factor = target / tplTotals.scale, cen = templateCentroid();
+  for (let i = 0; i < templatePts.length; i++) {
+    const p = templatePts[i];
+    templatePts[i] = [0, 1, 2].map(k => cen[k] + (p[k] - cen[k]) * factor);
+  }
+  tplTotals.scale = target;
+}
+function templateReset() {
+  templatePts = templateBase.map(p => p.slice());
+  tplTotals.rot = [0, 0, 0]; tplTotals.t = [0, 0, 0]; tplTotals.scale = 100;
+}
+
+// Панель зверху - лише для ракурсу з камери (у вільному огляді осі верстата
+// нічим не прив'язані до екрана, підказка була б безглуздою - та сама логіка,
+// що й у buildAxisPad). Показує лише ті осі зсуву, які реально видно рухомими
+// з поточного ракурсу (screenPlanar), поворот - всі три завжди.
+function buildTplPad() {
+  const pad = document.getElementById('tplPad');
+  if (camIndex < 0 || !shown['template'] || !templatePts) { pad.hidden = true; return; }
+  pad.hidden = false;
+
+  const shiftRow = document.getElementById('tplShift'); shiftRow.innerHTML = '';
+  const shiftDefs = [['зсв X', [1, 0, 0]], ['зсв Y', [0, 1, 0]], ['зсв Z', [0, 0, 1]]];
+  shiftDefs.forEach(([label, axis], i) => {
+    if (screenPlanar(axis) < 0.35) return;
+    const [g1, g2] = shiftGlyphs(axis);
+    const g = document.createElement('div'); g.className = 'padGroup'; g.title = label;
+    const bMinus = document.createElement('button'); bMinus.textContent = g1;
+    bMinus.onclick = () => { templateTranslate(axis.map(a => -a * tplStep)); tplTotals.t[i] -= tplStep; draw(); };
+    const bPlus = document.createElement('button'); bPlus.textContent = g2;
+    bPlus.onclick = () => { templateTranslate(axis.map(a => a * tplStep)); tplTotals.t[i] += tplStep; draw(); };
+    g.append(bMinus, bPlus);
+    shiftRow.appendChild(g);
+  });
+
+  const rotRow = document.getElementById('tplRotate'); rotRow.innerHTML = '';
+  const rotDefs = [
+    ['пов X', [1, 0, 0], [0, 1, 0], [0, 0, 1]],
+    ['пов Y', [0, 1, 0], [0, 0, 1], [1, 0, 0]],
+    ['пов Z', [0, 0, 1], [1, 0, 0], [0, 1, 0]],
+  ];
+  rotDefs.forEach(([label, axis, u, v], i) => {
+    const g = document.createElement('div'); g.className = 'padGroup'; g.title = label;
+    const bMinus = document.createElement('button'); bMinus.innerHTML = rotIconSVG(u, v, -1) || '⟲';
+    bMinus.onclick = () => { templateRotate(axis.map(a => -a * tplStep)); tplTotals.rot[i] -= tplStep; draw(); };
+    const bPlus = document.createElement('button'); bPlus.innerHTML = rotIconSVG(u, v, 1) || '⟳';
+    bPlus.onclick = () => { templateRotate(axis.map(a => a * tplStep)); tplTotals.rot[i] += tplStep; draw(); };
+    g.append(bMinus, bPlus);
+    rotRow.appendChild(g);
+  });
+
+  const scaleRow = document.getElementById('tplScale'); scaleRow.innerHTML = '';
+  {
+    const g = document.createElement('div'); g.className = 'padGroup'; g.title = 'масштаб';
+    const bMinus = document.createElement('button'); bMinus.textContent = '−';
+    bMinus.onclick = () => { templateScaleTo(tplTotals.scale - tplStep); draw(); };
+    const bPlus = document.createElement('button'); bPlus.textContent = '+';
+    bPlus.onclick = () => { templateScaleTo(tplTotals.scale + tplStep); draw(); };
+    g.append(bMinus, bPlus);
+    scaleRow.appendChild(g);
+  }
+
+  const stepRow = document.getElementById('tplStepSec'); stepRow.innerHTML = '';
+  const stepGroup = document.createElement('div'); stepGroup.className = 'padGroup'; stepGroup.title = 'крок';
+  for (const v of [0.1, 1, 5, 10]) {
+    const b = document.createElement('button'); b.textContent = v;
+    b.classList.toggle('on', v === tplStep);
+    b.onclick = () => { tplStep = v; [...stepGroup.children].forEach(x => x.classList.toggle('on', +x.textContent === tplStep)); };
+    stepGroup.appendChild(b);
+  }
+  stepRow.appendChild(stepGroup);
+
+  const resetRow = document.getElementById('tplResetSec'); resetRow.innerHTML = '';
+  const bReset = document.createElement('button'); bReset.textContent = 'Скинути';
+  bReset.onclick = () => { templateReset(); draw(); };
+  resetRow.appendChild(bReset);
+}
 
 // ---------------------------------------------------------------- майстер (кроки)
 // Розгорнутий лише один крок одразу - як в акордеоні. Крок сам по собі нічого
