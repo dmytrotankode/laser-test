@@ -506,31 +506,42 @@ def mark_solve_pnp():
 
 @app.route('/api/scene/<name>/curve/<int:cidx>/auto_pose', methods=['POST'])
 def auto_pose(name, cidx):
-    """ЕКСПЕРИМЕНТАЛЬНО (варіант 3 з обговорення 2026-09-07, "авто-доведення") -
-    оператор клацає кілька точок одразу на back І на left (з двох ракурсів split-
-    режиму), кожен клік означає "оцю точку лінії реально видно ТУТ", і замість
-    ручного пересування панеллю рахується ОДНА жорстка поза (поворот+зсув+
-    масштаб), що найкраще узгоджує ВСІ клацання одразу - scipy.least_squares по
-    репроекції, той самий принцип, що contour_fit.resid_of, тільки на вже
-    ПОТОЧНИХ точках лінії (з їхніми ручними правками), а не на CAD-ободі.
+    """ЕКСПЕРИМЕНТАЛЬНО (варіант 3 з обговорення 2026-09-07, "авто-доведення"),
+    ПЕРЕРОБЛЕНО 2026-09-07 за реальним зауваженням користувача - раніше клік
+    означав "оця КОНКРЕТНА (наперед обрана за індексом) точка насправді тут",
+    а оператору важко точно знати, яка саме з ~90 майже однакових точок
+    мається на увазі ("точно узнать где должна стоять именно эта точка,
+    сложно"). Тепер клік означає простіше - "лінія повинна проходити ТУТ",
+    без прив'язки до конкретного індексу: та сама ідея, що вже добре працює
+    в /fit_marks (відстань до НАЙБЛИЖЧОЇ точки лінії, не до заданої), лише
+    джерело - кілька кліків оператора замість уже намальованої розмітки.
 
-    Масштаб параметризовано як exp(p[6]) (завжди додатний, стартує з 1.0) -
-    множник, а не зсув, тому голий p[6]=0 без exp дав би лінійну, а не
-    мультиплікативну поведінку навколо 1.0.
+    Одна жорстка поза (поворот+зсув+масштаб), що мінімізує сумарну відстань
+    від кожного кліку до найближчої (near_arc-видимої) точки лінії з ТОГО Ж
+    ракурсу - scipy.least_squares, той самий принцип, що contour_fit.resid_of
+    і /fit_marks, тільки в один бік (клік->лінія, не навпаки): кліків мало
+    (не суцільна розмітка), тому карати лінію за те, що вона десь ДАЛЕКО від
+    жодного кліку, немає сенсу - кліки відзначають лише окремі місця, не
+    вимагають покриття всієї дуги.
 
     Навмисно ІЗОЛЬОВАНО від pipeline/contour_fit.py: не змінює оптимізатор
-    підгонки, не викликається з generate(), нічого не пише на диск сама (як і
-    /api/mark/solve_pnp - лише рахує й повертає). Повертає totals (rot/t/scale)
-    у ТОМУ САМОМУ форматі, що й /api/mark/solve_pnp - клієнт застосовує їх тим
-    самим поворотом/зсувом навколо центроїда, що й ручні кнопки групової
-    панелі, тому "Скасувати"/"Зберегти" продовжують працювати без жодних змін.
-    Якщо ідея виявиться нестабільною - видалити цей маршрут і відповідний
-    блок у mark.js/viewer.js можна незалежно від решти застосунку.
+    підгонки, не викликається з generate(), нічого не пише на диск сама.
+    Повертає totals (rot/t/scale) у ТОМУ САМОМУ форматі, що й /fit_marks -
+    клієнт застосовує їх тим самим поворотом/зсувом навколо центроїда, що й
+    ручні кнопки групової панелі, тому "Скасувати"/"Зберегти" продовжують
+    працювати без жодних змін.
     """
     d = request.get_json(force=True) or {}
     corr = d.get('corr') or []
-    if len(corr) < 4:
-        return jsonify(error='потрібно мінімум 4 точки (бажано з обох ракурсів)'), 400
+    by_view = {'back': [], 'left': []}
+    for item in corr:
+        if item.get('view') not in ('back', 'left'):
+            return jsonify(error='некоректні дані кліку'), 400
+        by_view[item['view']].append(item['img'])
+    # Як і /fit_marks - розмітка/кліки лише З ОДНОГО ракурсу не визначають
+    # позу однозначно (один 2D-контур - недостатньо обмежень).
+    if len(by_view['back']) < 2 or len(by_view['left']) < 2:
+        return jsonify(error='потрібно мінімум 2 кліки на КОЖНОМУ ракурсі (back і left)'), 400
 
     p = os.path.join(scene.SCENES, name, 'scene.json')
     if not os.path.exists(p):
@@ -541,44 +552,45 @@ def auto_pose(name, cidx):
         abort(404)
     c = doc['curves'][cidx]
     P0 = np.array(c['points'], dtype=float)
-    n = len(P0)
-    for item in corr:
-        if item.get('view') not in ('back', 'left') or not (0 <= item.get('idx', -1) < n):
-            return jsonify(error='некоректні дані кореспонденції'), 400
 
     from scipy.optimize import least_squares
     from pipeline import generate as gen, contour_fit, camera_model as CM, geometry
     recipe = gen.load_recipe('production_2026-08-27')
     calib_dir = os.path.join(gen.CALIB, 'cameras', recipe['camera_calibration'])
     cams = contour_fit.marker_cams(calib_dir)
-
     center = P0.mean(0)
-    views = [item['view'] for item in corr]
-    img = np.array([item['img'] for item in corr], dtype=float)
-    obj0 = P0[[item['idx'] for item in corr]]
+    clicks = {w: np.array(by_view[w], dtype=float) for w in ('back', 'left')}
+
+    def click_dist_mm(P):
+        out = []
+        for w in ('back', 'left'):
+            pc, f = cams[w]
+            uv, z = CM.project(P, pc[:3], pc[3:6], f)
+            vis = CM.near_arc(uv, z)
+            d = np.abs(CM.dist_to_polyline(clicks[w], vis))
+            out.append(d * float(np.median(z)) / f)
+        return np.concatenate(out)
 
     def resid(p7):
         R = cv2.Rodrigues(p7[:3])[0]
         s = np.exp(p7[6])
-        obj = (obj0 - center) @ R.T * s + center + p7[3:6]
-        out = []
-        for i, view in enumerate(views):
-            pc, f = cams[view]
-            uv, _ = CM.project(obj[i:i + 1], pc[:3], pc[3:6], f)
-            out.append(uv[0] - img[i])
-        return np.concatenate(out)
+        P = (P0 - center) @ R.T * s + center + p7[3:6]
+        return click_dist_mm(P)
 
-    # Ті самі межі, що й fit_marks нижче (±35°/±100мм/74-135%) - вибрані там
-    # проти виродженого розв'язку конкретно для симетричної polyline-відстані,
-    # тут (звичайна точкова репроекція) такого ризику нема, але межі не
-    # заважають реальним правкам і однаково безпечніше мати їх скрізь, де є
-    # цей самий 7-параметричний least_squares.
+    before_mm = float(click_dist_mm(P0).mean())
+    # Ті самі межі, що й /fit_marks - проти виродженого розв'язку (лінія, що
+    # "схлопнулась" у точку десь біля кліків, теж тривіально мінімізує цю
+    # відстань, як і симетричну в /fit_marks - перевірено на реальних даних).
     bounds = (np.r_[[-0.6]*3, [-100.0]*3, -0.3], np.r_[[0.6]*3, [100.0]*3, 0.3])
     r = least_squares(resid, np.r_[np.zeros(6), 0.0], method='trf', bounds=bounds, max_nfev=800)
     R = cv2.Rodrigues(r.x[:3])[0]
+    s = float(np.exp(r.x[6]))
+    P1 = (P0 - center) @ R.T * s + center + r.x[3:6]
+    after_mm = float(click_dist_mm(P1).mean())
+
     yaw, pitch, roll = geometry.ypr_from_rot(R)
-    totals = dict(rot=[roll, pitch, yaw], t=r.x[3:6].tolist(), scale=float(np.exp(r.x[6]) * 100.0))
-    return jsonify(totals=totals, cost=float(r.cost), n=len(corr))
+    totals = dict(rot=[roll, pitch, yaw], t=r.x[3:6].tolist(), scale=s * 100.0)
+    return jsonify(totals=totals, before_mm=before_mm, after_mm=after_mm, n=len(corr))
 
 
 @app.route('/api/scene/<name>/curve/<int:cidx>/fit_marks', methods=['POST'])
