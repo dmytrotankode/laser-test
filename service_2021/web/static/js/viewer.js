@@ -281,7 +281,11 @@ function autoPoseTargets(camIdx) {
   camIndex = savedIdx;
   const idxs = near.map((v, i) => v ? i : -1).filter(i => i >= 0);
   if (!idxs.length) return [];
-  return [0.15, 0.5, 0.85].map(f => idxs[Math.min(idxs.length - 1, Math.floor(f * idxs.length))]);
+  // Ближче до країв видимої дуги (не 3 в середині) - та сама причина, що й
+  // для PnP-точок розмітки: точки близько до країв краще тримають масштаб і
+  // нахил, середина сама по собі мало каже про це (реальний звіт: "не
+  // достатньо точно"). 4 замість 3 - трохи щільніше покриття на ракурс.
+  return [0.04, 0.34, 0.66, 0.96].map(f => idxs[Math.min(idxs.length - 1, Math.floor(f * idxs.length))]);
 }
 
 function setAutoPoseMode(on) {
@@ -306,10 +310,11 @@ function refreshAutoPosePanel() {
   const msg = document.getElementById('autoPoseMsg');
   const back = autoPoseCorr.filter(c => c.view === 'back').length;
   const left = autoPoseCorr.filter(c => c.view === 'left').length;
+  const totalBack = back + autoPoseQueue.back.length, totalLeft = left + autoPoseQueue.left.length;
   const done = !autoPoseQueue.back.length && !autoPoseQueue.left.length;
   msg.textContent = done
-    ? `клацнуто back:${back}/3 left:${left}/3 - можна розв'язувати`
-    : `клацни жовті кружечки по черзі - back:${back}/3 left:${left}/3`;
+    ? `клацнуто back:${back}/${totalBack} left:${left}/${totalLeft} - можна розв'язувати`
+    : `клацни жовті кружечки по черзі - back:${back}/${totalBack} left:${left}/${totalLeft}`;
   document.getElementById('autoPoseSolve').disabled = !done;
 }
 
