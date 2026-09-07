@@ -575,6 +575,72 @@ def auto_pose(name, cidx):
     return jsonify(totals=totals, cost=float(r.cost), n=len(corr))
 
 
+@app.route('/api/scene/<name>/curve/<int:cidx>/fit_marks', methods=['POST'])
+def fit_marks(name, cidx):
+    """ОДНА кнопка, БЕЗ кліків (обговорено 2026-09-07) - підганяє ПОТОЧНУ лінію
+    (з ручними правками, вже застосованим auto_pose - байдуже) під уже
+    збережену ручну розмітку лінії згину (крок 2/3), тим самим членом
+    невязки, що вже реально працює в generate() (contour_fit.resid_of, member
+    "back/left fold-line marks" - E.dist_to_polyline проти near_arc-видимих
+    точок), лише тут - на живих точках сцени, а не на CAD-ободі, і без
+    решти членів (силует/контур top), бо мета тут - узгодити з розміткою САМЕ
+    ту лінію, що вже є, а не перерахувати позу з нуля.
+
+    Незалежно від /auto_pose (окрема кнопка, окрема функція застосування на
+    клієнті) - навмисно, щоб ідеї можна було прибирати чи лишати кожну
+    окремо, як і просив користувач. Так само не чіпає pipeline/contour_fit.py
+    і generate(), нічого не пише на диск сама.
+    """
+    p = os.path.join(scene.SCENES, name, 'scene.json')
+    if not os.path.exists(p):
+        abort(404)
+    with open(p, encoding='utf-8') as f:
+        doc = json.load(f)
+    if not (0 <= cidx < len(doc['curves'])):
+        abort(404)
+    c = doc['curves'][cidx]
+    P0 = np.array(c['points'], dtype=float)
+
+    from scipy.optimize import least_squares
+    from pipeline import generate as gen, contour_fit, camera_model as CM, geometry, line_marks
+    var_marks = line_marks.load_marks().get(name, {})
+    used = [w for w in ('back', 'left') if w in var_marks]
+    if not used:
+        return jsonify(error='для цього набору немає збереженої розмітки лінії згину'), 400
+
+    recipe = gen.load_recipe('production_2026-08-27')
+    calib_dir = os.path.join(gen.CALIB, 'cameras', recipe['camera_calibration'])
+    cams = contour_fit.marker_cams(calib_dir)
+    center = P0.mean(0)
+
+    def mark_dist_mm(P):
+        out = []
+        for w in used:
+            pc, f = cams[w]
+            uv, z = CM.project(P, pc[:3], pc[3:6], f)
+            vis = CM.near_arc(uv, z)
+            d = np.abs(CM.dist_to_polyline(contour_fit.resample(var_marks[w]), vis))
+            out.append(d * float(np.median(z)) / f)
+        return np.concatenate(out)
+
+    def resid(p7):
+        R = cv2.Rodrigues(p7[:3])[0]
+        s = np.exp(p7[6])
+        P = (P0 - center) @ R.T * s + center + p7[3:6]
+        return mark_dist_mm(P)
+
+    before_mm = float(mark_dist_mm(P0).mean())
+    r = least_squares(resid, np.r_[np.zeros(6), 0.0], method='lm', max_nfev=400)
+    R = cv2.Rodrigues(r.x[:3])[0]
+    s = float(np.exp(r.x[6]))
+    P1 = (P0 - center) @ R.T * s + center + r.x[3:6]
+    after_mm = float(mark_dist_mm(P1).mean())
+
+    yaw, pitch, roll = geometry.ypr_from_rot(R)
+    totals = dict(rot=[roll, pitch, yaw], t=r.x[3:6].tolist(), scale=s * 100.0)
+    return jsonify(totals=totals, before_mm=before_mm, after_mm=after_mm, used=used)
+
+
 _TEMPLATE_LINE_3D_CACHE = {}
 
 

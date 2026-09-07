@@ -379,6 +379,52 @@ document.getElementById('autoPoseSolve').onclick = async () => {
   }
 };
 
+// ------------------------------------------------ ЕКСПЕРИМЕНТ: підгонка за розміткою
+// Незалежно від авто-доведення вище (окрема кнопка, окрема функція застосування,
+// окремий маршрут на сервері) - навмисно, щоб можна було прибрати кожну ідею
+// окремо, якщо виявиться нестабільною, не займаючи іншу.
+function updateFitMarksVisibility() {
+  const has = (markLines.back && markLines.back.length >= 2) || (markLines.left && markLines.left.length >= 2);
+  document.getElementById('fitMarksBtn').hidden = !has;
+  if (!has) document.getElementById('fitMarksMsg').textContent = '';
+}
+
+// Той самий поворот+зсув+масштаб навколо центроїда, що й applyAutoPoseTotals,
+// але НЕ та сама функція - навмисне дублювання невеликого шматка коду заради
+// незалежності цих двох ідей (реальна вимога користувача).
+function applyFitMarksTotals(ci, totals) {
+  const c = scene.curves[ci];
+  const cen = c.points.reduce((a, p) => [0,1,2].map(k => a[k] + p[k]), [0,0,0])
+    .map(v => v / c.points.length);
+  const R = rotFromDeg(totals.rot);
+  const s = totals.scale / 100;
+  for (let i = 0; i < c.points.length; i++) {
+    const p = c.points[i];
+    const rel = [0,1,2].map(k => p[k] - cen[k]);
+    const rot = [0,1,2].map(k => R[k][0]*rel[0] + R[k][1]*rel[1] + R[k][2]*rel[2]);
+    c.points[i] = [0,1,2].map(k => cen[k] + rot[k] * s + totals.t[k]);
+  }
+}
+
+document.getElementById('fitMarksBtn').onclick = async () => {
+  const ci = activeCurveIndex();
+  if (ci < 0 || !sceneName) return;
+  const btn = document.getElementById('fitMarksBtn');
+  const msg = document.getElementById('fitMarksMsg');
+  btn.disabled = true; btn.textContent = 'рахую...';
+  try {
+    const r = await fetch(`/api/scene/${sceneName}/curve/${ci}/fit_marks`, { method: 'POST' });
+    const j = await r.json();
+    if (!r.ok) { msg.textContent = 'помилка: ' + (j.error || r.status); return; }
+    applyFitMarksTotals(ci, j.totals);
+    msg.textContent = `було ${j.before_mm.toFixed(2)} мм → стало ${j.after_mm.toFixed(2)} мм (${j.used.join('+')})`;
+    buildGroupEditor();
+    draw();
+  } finally {
+    btn.disabled = false; btn.textContent = 'Підігнати за розміткою';
+  }
+};
+
 // Свободная камера: смотрит на target, ось Y кадра вниз - как у настоящих.
 function orbitPose() {
   const cp = Math.cos(view.pitch), sp = Math.sin(view.pitch);
@@ -1029,6 +1075,7 @@ async function loadScene(name) {
   // лише якщо камера з такою назвою є в цій сцені (без неї немає pr.fit,
   // яким малюються точки в пікселях фото).
   markLines.back = []; markLines.left = [];
+  updateFitMarksVisibility();
   for (const view of ['back', 'left']) {
     if (!scene.cameras.some(c => c.name === view)) continue;
     fetch(`/api/mark/lines/${name}/${view}`).then(r => r.json()).then(d => {
@@ -1036,6 +1083,7 @@ async function loadScene(name) {
       if (markLines[view].length >= 2) {
         layers.appendChild(layerRow(`розмітка ${view} (від руки)`, '#f472b6', 'markline:' + view));
       }
+      updateFitMarksVisibility();
       draw();
     }).catch(() => {});
   }
@@ -1718,6 +1766,7 @@ function clearViewer(placeholderName) {
   Object.keys(photos).forEach(k => delete photos[k]);
   Object.keys(meshes).forEach(k => delete meshes[k]);
   markLines.back = []; markLines.left = [];
+  updateFitMarksVisibility();
   document.getElementById('cams').innerHTML = '';
   document.getElementById('layers').innerHTML = '';
   document.getElementById('photoAdjust').hidden = true;
