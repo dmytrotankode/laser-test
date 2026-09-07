@@ -6,9 +6,26 @@
 // движок, режим "взгляд камерой" показывал бы похожую картинку, а не ту, что
 // видит настоящая камера, и сверять с фотографией стало бы нельзя.
 
-const cv = document.getElementById('c');
-const ctx = cv.getContext('2d');
+// cv/ctx - НЕ const: у режимі "2 ракурси" (split) вони на час рендеру/кліку
+// однієї з панелей тимчасово підміняються на cv2/ctx2 (див. withPane2 нижче),
+// щоб уся наявна логіка малювання й вибору точки (яка звертається до cv/ctx/
+// camIndex/camZoom/camPanX/camPanY як до вільних змінних) працювала для ДРУГОЇ
+// панелі без дублювання коду. Поза підміною cv/ctx завжди вказують на #c -
+// саме тому одноракурсний режим і "back"-панель у split-режимі не потребують
+// жодних змін у своїй логіці.
+let cv = document.getElementById('c');
+let ctx = cv.getContext('2d');
+const cv2 = document.getElementById('c2');
+const ctx2 = cv2.getContext('2d');
 const HUD = document.getElementById('hud');
+
+// Стан другої панелі (завжди камера "left"). Перша панель ("back") - це
+// просто звичайні camIndex/camZoom/camPanX/camPanY, як у одноракурсному
+// режимі, зафіксовані на камері back на час split-режиму.
+let splitMode = false;
+let activePane = 'back';    // яка панель востаннє була активна - куди дивиться плаваюча панель
+const pane2 = { camIdx: -1, zoom: 1, panX: 0, panY: 0 };
+let preSplit = null;        // збережений одноракурсний стан (camIndex/zoom/pan) - повернутись при виході
 
 let scene = null;           // документ сцены
 let sceneName = null;
@@ -174,6 +191,60 @@ function screenPlanar(axis, camRot) {
   const d = camDir(axis, camRot);
   if (!d) return 1;
   return Math.hypot(d[0], d[1]);
+}
+
+// ------------------------------------------------ режим "2 ракурси" (split)
+// Друга панель (завжди камера "left") використовує ті самі функції малювання
+// й вибору точки, що й перша (cv/ctx/camIndex/camZoom/camPanX/camPanY) - але
+// не власні, а ТИМЧАСОВО підмінені на cv2/ctx2/pane2.*. Після виконання fn()
+// підсумковий зум/зсув зберігається назад у pane2, а глобальний стан
+// повертається до того, яким був "back"-панелі - інакше кожен виклик у
+// pane2-контексті непомітно зіпсував би стан першої панелі.
+function withPane2(fn) {
+  const sCv = cv, sCtx = ctx, sIdx = camIndex, sZ = camZoom, sPX = camPanX, sPY = camPanY;
+  cv = cv2; ctx = ctx2; camIndex = pane2.camIdx;
+  camZoom = pane2.zoom; camPanX = pane2.panX; camPanY = pane2.panY;
+  try { return fn(); }
+  finally {
+    pane2.zoom = camZoom; pane2.panX = camPanX; pane2.panY = camPanY;
+    cv = sCv; ctx = sCtx; camIndex = sIdx; camZoom = sZ; camPanX = sPX; camPanY = sPY;
+  }
+}
+
+function findCamIdx(name) {
+  return scene ? scene.cameras.findIndex(c => c.name === name) : -1;
+}
+
+// Увімкнути/вимкнути режим "2 ракурси". Обидві камери фіксовані (back/left) -
+// вільного огляду в цьому режимі нема, але кнопки "Ракурс" (Загальний/back/
+// left/top) лишаються видимими й клікабельними - клік по будь-якій одразу
+// виходить із split (див. їхні onclick вище/нижче).
+function setSplitMode(on) {
+  if (on === splitMode) return;
+  if (on) {
+    const backIdx = findCamIdx('back'), leftIdx = findCamIdx('left');
+    if (backIdx < 0 || leftIdx < 0) return;      // немає обох камер у сцені - нема сенсу
+    preSplit = { camIndex, camZoom, camPanX, camPanY };
+    camIndex = backIdx; camZoom = 1; camPanX = 0; camPanY = 0;
+    pane2.camIdx = leftIdx; pane2.zoom = 1; pane2.panX = 0; pane2.panY = 0;
+    activePane = 'back';
+    splitMode = true;
+  } else {
+    splitMode = false;
+    if (preSplit) ({ camIndex, camZoom, camPanX, camPanY } = preSplit);
+  }
+  document.getElementById('splitToggle').classList.toggle('on', splitMode);
+  document.getElementById('paneLeftWrap').hidden = !splitMode;
+  document.getElementById('paneBackLabel').hidden = !splitMode;
+  // camIndex у split-режимі технічно дорівнює камері "back" (щоб уся наявна
+  // логіка малювання/вибору точки працювала для першої панелі без змін), але
+  // візуально це не "обрано одноракурсний back" - тому в split жодна з кнопок
+  // Загальний/back/left/top підсвічуватись не повинна (реальний звіт: плутало).
+  [...document.getElementById('cams').children].forEach((x, j) => x.classList.toggle('on', !splitMode && j === camIndex));
+  document.getElementById('reset').classList.toggle('on', !splitMode && camIndex < 0);
+  document.getElementById('photoAdjust').hidden = camIndex < 0 || splitMode;
+  buildGroupEditor(); buildPointEditor();
+  draw();
 }
 
 // Свободная камера: смотрит на target, ось Y кадра вниз - как у настоящих.
@@ -353,7 +424,34 @@ function drawMesh(m, pr) {
   ctx.globalAlpha = 1;
 }
 
+// draw() - точка входу: в одноракурсному режимі просто малює #c (як і
+// раніше), в split-режимі малює ОБИДВІ панелі (drawSingle викликається двічі,
+// вдруге - через withPane2, щоб код усередині нічого не знав про друге вікно)
+// і після цього оновлює спільну плаваючу панель під активну панель.
 function draw() {
+  if (splitMode) { drawSplitPanes(); return; }
+  drawSingle(true);
+}
+function drawSplitPanes() {
+  drawSingle(false);
+  withPane2(() => drawSingle(false));
+  refreshSharedPanels();
+}
+// tplPad/axisPad/point - спільні на весь #view, тому в split-режимі
+// перебудовуються ОДИН раз (не з кожної панелі), під камеру activePane.
+function refreshSharedPanels() {
+  if (!splitMode) { buildTplPad(); updatePadSaveButtons(); return; }
+  const idx = activePane === 'left' ? pane2.camIdx : camIndex;
+  const camRot = (scene && idx >= 0) ? scene.cameras[idx].rotation : null;
+  buildTplPad(camRot);
+  buildAxisPad(camRot);
+  buildPointEditor(camRot);
+  updatePadSaveButtons();
+  document.getElementById('paneBackLabel').classList.toggle('active', activePane === 'back');
+  document.getElementById('paneLeftLabel').classList.toggle('active', activePane === 'left');
+}
+
+function drawSingle(updatePanels = true) {
   // Если вкладка ещё не разложена по местам, clientWidth равен нулю, холст
   // получает нулевой размер и остаётся пустым навсегда - первый вызов приходит
   // раньше вёрстки. Ждём следующего кадра.
@@ -365,7 +463,7 @@ function draw() {
   if (!scene) return;
   ctx.font = `${12 * devicePixelRatio}px sans-serif`;
   const pr = projector();
-  buildTplPad();
+  if (updatePanels) buildTplPad();
 
   // фотография под режимом "взгляд камерой"
   if (camIndex >= 0 && document.getElementById('photo').checked) {
@@ -494,6 +592,7 @@ function draw() {
   // підсвічених кнопок у "Ракурс", окремий текст в кутку робочої зони був
   // зайвим (звіт користувача). HUD тепер показує лише "проти еталона",
   // коли є з чим порівнювати - і нічого, коли нема.
+  if (!updatePanels) return;
   let hud = '';
   const rs = refStats();
   if (rs) hud += (hud ? '\n\n' : '') + `проти еталона:\nсереднє ${rs.mean.toFixed(2)} мм, макс ${rs.max.toFixed(2)} мм\nв допуску 2мм: ${rs.pct.toFixed(0)}%`;
@@ -526,6 +625,7 @@ function refStats() {
 let drag = null;
 cv.addEventListener('mousedown', e => {
   drag = { x: e.clientX, y: e.clientY, sh: e.shiftKey, x0: e.clientX, y0: e.clientY };
+  if (splitMode) { activePane = 'back'; refreshSharedPanels(); }
 });
 addEventListener('mouseup', e => {
   // Клик почти без движения мыши - выбор точки, а не вращение обзора.
@@ -534,6 +634,43 @@ addEventListener('mouseup', e => {
   }
   drag = null;
 });
+
+// Друга панель (left) у split-режимі - окремий drag/клік, бо перший canvas
+// (cv/#c) вже займає власний mousedown/mouseup вище. Сама дія (панорама/вибір
+// точки) - та сама логіка, просто виконана через withPane2 (cv/ctx/camIndex/
+// camZoom/camPanX/camPanY на час виклику вказують на pane2/cv2).
+let drag2 = null;
+cv2.addEventListener('mousedown', e => {
+  drag2 = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY };
+  activePane = 'left'; refreshSharedPanels();
+});
+addEventListener('mouseup', e => {
+  // НЕ trySelectPoint(e) напряму - вона сама викликає draw(), а той у
+  // split-режимі перемальовує ОБИДВІ панелі; зробити це, поки ми ще
+  // всередині withPane2 (тобто cv/camIndex підмінені на ліву панель), означає
+  // рендерити "задню" панель туди ж, куди й ліву. Тому тут лишень підміняємо
+  // на час пошуку точки під курсором, а draw() кличемо вже ПІСЛЯ, коли
+  // withPane2 встиг повернути глобальний стан на місце.
+  if (drag2 && Math.hypot(e.clientX - drag2.x0, e.clientY - drag2.y0) < 4) {
+    activePane = 'left';
+    withPane2(() => { sel_point = findPointAt(e); });
+    draw();
+  }
+  drag2 = null;
+});
+addEventListener('mousemove', e => {
+  if (!drag2) return;
+  const dx = e.clientX - drag2.x, dy = e.clientY - drag2.y;
+  drag2.x = e.clientX; drag2.y = e.clientY;
+  pane2.panX += dx; pane2.panY += dy;
+  withPane2(() => drawSingle(false));
+});
+cv2.addEventListener('wheel', e => {
+  e.preventDefault();
+  activePane = 'left';
+  withPane2(() => { zoomAtPoint(e); drawSingle(false); });
+  refreshSharedPanels();
+}, { passive: false });
 
 function findPointAt(e) {
   const rect = cv.getBoundingClientRect();
@@ -566,7 +703,7 @@ function trySelectPoint(e) {
   draw();
 }
 
-function buildPointEditor() {
+function buildPointEditor(camRotOverride) {
   const box = document.getElementById('point');
   if (!sel_point) { box.hidden = true; return; }
   box.hidden = false;
@@ -574,15 +711,22 @@ function buildPointEditor() {
   const id = c.ids ? c.ids[pi] : pi;
   const touched = c.touched && c.touched[pi];
   document.getElementById('ptitle').textContent =
-    `#${id}${touched ? ' (торкнута)' : ' (розрахункова)'}`;
+    `#${id}${touched ? '' : ' (розрахункова)'}`;
   const ctl = document.getElementById('pointctl');
   ctl.innerHTML = '';
   const labels = ['X', 'Y', 'Z'];
   const axes3 = [[1,0,0], [0,1,0], [0,0,1]];
+  // На фіксованому одноракурсному фото (back/left/top, НЕ вільний огляд і НЕ
+  // split) вісь, що дивиться вздовж променя камери, рухається на екрані
+  // непомітно - показувати для неї кнопки (хай навіть як звичайні -/+) лише
+  // плутає (реальний звіт користувача). У split-режимі лишаємо всі три - там
+  // разом обидва ракурси зазвичай перекривають будь-яку вісь.
+  const hideInvisible = !splitMode && camIndex >= 0;
   for (let i = 0; i < 3; i++) {
+    if (hideInvisible && screenPlanar(axes3[i], camRotOverride) < 0.35) continue;
     const row = document.createElement('div');
     row.className = 'prow';
-    const [g1, g2] = shiftGlyphs(axes3[i]);
+    const [g1, g2] = shiftGlyphs(axes3[i], camRotOverride);
     row.innerHTML = `<b>${labels[i]}</b><button>${g1}</button><input><button>${g2}</button>`;
     const inp = row.querySelector('input');
     const sync = () => { inp.value = c.points[pi][i].toFixed(2); draw(); };
@@ -631,27 +775,34 @@ addEventListener('mousemove', e => {
   }
   draw();
 });
+// Зум коліщатком навколо точки під курсором (тримає ту саму точку кадра під
+// мишею) - винесено окремою функцією, щоб друга панель (cv2, через withPane2)
+// використовувала ЦЮ Ж математику, а не копію, яка могла б розійтися з нею.
+function zoomAtPoint(e) {
+  const rect = cv.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) * devicePixelRatio;
+  const my = (e.clientY - rect.top) * devicePixelRatio;
+  const cam = scene.cameras[camIndex];
+  const [iw, ih] = cam.size;
+  const W = cv.width, H = cv.height;
+  const kBase = Math.min(W / iw, H / ih);
+  const kBefore = kBase * camZoom;
+  const oxBefore = (W - iw * kBefore) / 2 + camPanX;
+  const oyBefore = (H - ih * kBefore) / 2 + camPanY;
+  // точка кадра (в исходных, неотмасштабированных пикселях фото) под курсором
+  const ux = (mx - oxBefore) / kBefore, uy = (my - oyBefore) / kBefore;
+  camZoom *= Math.exp(-e.deltaY * 0.0012);
+  camZoom = Math.max(0.2, Math.min(camZoom, 20));
+  const kAfter = kBase * camZoom;
+  // сдвигаем pan так, чтобы та же точка кадра снова оказалась под курсором
+  camPanX = mx - kAfter * ux - (W - iw * kAfter) / 2;
+  camPanY = my - kAfter * uy - (H - ih * kAfter) / 2;
+}
 cv.addEventListener('wheel', e => {
   e.preventDefault();
   if (camIndex >= 0) {
-    const rect = cv.getBoundingClientRect();
-    const mx = (e.clientX - rect.left) * devicePixelRatio;
-    const my = (e.clientY - rect.top) * devicePixelRatio;
-    const cam = scene.cameras[camIndex];
-    const [iw, ih] = cam.size;
-    const W = cv.width, H = cv.height;
-    const kBase = Math.min(W / iw, H / ih);
-    const kBefore = kBase * camZoom;
-    const oxBefore = (W - iw * kBefore) / 2 + camPanX;
-    const oyBefore = (H - ih * kBefore) / 2 + camPanY;
-    // точка кадра (в исходных, неотмасштабированных пикселях фото) под курсором
-    const ux = (mx - oxBefore) / kBefore, uy = (my - oyBefore) / kBefore;
-    camZoom *= Math.exp(-e.deltaY * 0.0012);
-    camZoom = Math.max(0.2, Math.min(camZoom, 20));
-    const kAfter = kBase * camZoom;
-    // сдвигаем pan так, чтобы та же точка кадра снова оказалась под курсором
-    camPanX = mx - kAfter * ux - (W - iw * kAfter) / 2;
-    camPanY = my - kAfter * uy - (H - ih * kAfter) / 2;
+    if (splitMode) { activePane = 'back'; refreshSharedPanels(); }
+    zoomAtPoint(e);
     draw();
     return;
   }
@@ -670,10 +821,15 @@ function layerRow(name, color, key, defaultOn = true) {
 }
 
 async function loadScene(name) {
+  setSplitMode(false);   // нова сцена - інші індекси камер, pane2.camIdx з попередньої більше не діє
   scene = await (await fetch('/api/scene/' + name)).json();
   sceneName = name;
   scene.curves = scene.curves || []; scene.points = scene.points || [];
   scene.meshes = scene.meshes || []; scene.cameras = scene.cameras || [];
+  const splitBtn = document.getElementById('splitToggle');
+  const hasBoth = findCamIdx('back') >= 0 && findCamIdx('left') >= 0;
+  splitBtn.disabled = !hasBoth;
+  splitBtn.title = hasBoth ? '' : 'потрібні обидві камери: back і left';
 
   const all = [];
   for (const c of scene.curves) all.push(...c.points);
@@ -732,6 +888,11 @@ async function loadScene(name) {
     b.title = 'Погляд камерою ' + cam.name;
     b.style.width = 'auto'; b.style.flex = '1';
     b.onclick = () => {
+      // Кнопки одноракурсного режиму лишаються видимими й у split-режимі
+      // (щоб можна було в будь-яку мить переключитись назад однією камерою) -
+      // клік по будь-якій з них спершу виходить із split, а вже тоді показує
+      // саме ту камеру, яку натиснули.
+      if (splitMode) setSplitMode(false);
       camIndex = camIndex === i ? -1 : i;
       camZoom = 1; camPanX = 0; camPanY = 0;
       [...cams.children].forEach((x, j) => x.classList.toggle('on', j === camIndex));
@@ -915,10 +1076,11 @@ function activePoints() {
 // Лишень для вигляду з камери - у вільному огляді осі верстата й так не
 // прив'язані до жодного постійного напрямку на екрані (сама камера крутиться
 // мишею), тому підказка була б безглуздою.
-function buildAxisPad() {
+function buildAxisPad(camRotOverride) {
   const pad = document.getElementById('axisPad');
   const groupBox = document.getElementById('group');
-  if (camIndex < 0 || groupBox.hidden) { pad.hidden = true; return; }
+  const haveCam = camRotOverride || camIndex >= 0;
+  if (!haveCam || groupBox.hidden) { pad.hidden = true; return; }
   pad.hidden = false;
   const rows = [...document.getElementById('groupctl').querySelectorAll('.prow')];
   const findRow = label => rows.find(r => { const b = r.querySelector('b'); return b && b.textContent === label; });
@@ -936,16 +1098,23 @@ function buildAxisPad() {
   // сайдбарі вона лишається (там завжди всі три, з тим самим -/+).
   const shiftRow = document.getElementById('padShift'); shiftRow.innerHTML = '';
   for (const [label, axis] of shiftDefs) {
-    if (screenPlanar(axis) < 0.35) continue;
+    if (screenPlanar(axis, camRotOverride) < 0.35) continue;
     const row = findRow(label);
     if (!row) continue;
+    // Стрілки рахуємо ЗАНОВО під camRotOverride (не з row.children[].textContent
+    // сайдбарного рядка - той стрілки/значки має зафіксовані під АМБІЄНТНУ
+    // camIndex, яка в split-режимі завжди дорівнює камері "back"; для панелі
+    // "left" вони були б неправильні - реальний звіт користувача). Клік і далі
+    // проксується у прихований рядок groupctl - сам рух точок не залежить від
+    // того, під яким ракурсом підписані кнопки.
+    const [g1, g2] = shiftGlyphs(axis, camRotOverride);
     const g = document.createElement('div'); g.className = 'padGroup';
     g.title = label;
-    const bMinus = document.createElement('button'); bMinus.textContent = row.children[1].textContent;
-    bMinus.title = label + ' ' + row.children[1].textContent;
+    const bMinus = document.createElement('button'); bMinus.textContent = g1;
+    bMinus.title = label + ' ' + g1;
     bMinus.onclick = () => row.children[1].click();
-    const bPlus = document.createElement('button'); bPlus.textContent = row.children[3].textContent;
-    bPlus.title = label + ' ' + row.children[3].textContent;
+    const bPlus = document.createElement('button'); bPlus.textContent = g2;
+    bPlus.title = label + ' ' + g2;
     bPlus.onclick = () => row.children[3].click();
     g.append(bMinus, bPlus);
     shiftRow.appendChild(g);
@@ -957,9 +1126,9 @@ function buildAxisPad() {
     if (!row) continue;
     const g = document.createElement('div'); g.className = 'padGroup';
     g.title = label;
-    const bMinus = document.createElement('button'); bMinus.innerHTML = rotIconSVG(u, v, -1) || row.children[1].textContent;
+    const bMinus = document.createElement('button'); bMinus.innerHTML = rotIconSVG(u, v, -1, camRotOverride) || row.children[1].textContent;
     bMinus.onclick = () => row.children[1].click();
-    const bPlus = document.createElement('button'); bPlus.innerHTML = rotIconSVG(u, v, 1) || row.children[3].textContent;
+    const bPlus = document.createElement('button'); bPlus.innerHTML = rotIconSVG(u, v, 1, camRotOverride) || row.children[3].textContent;
     bPlus.onclick = () => row.children[3].click();
     g.append(bMinus, bPlus);
     rotRow.appendChild(g);
@@ -1212,7 +1381,9 @@ document.getElementById('exportls').onclick = async () => {
     ` (точок ${j.total}, торкнуто ${j.touched})`;
 };
 
+document.getElementById('splitToggle').onclick = () => setSplitMode(!splitMode);
 document.getElementById('reset').onclick = () => {
+  if (splitMode) setSplitMode(false);
   camIndex = -1;
   camZoom = 1; camPanX = 0; camPanY = 0;
   [...document.getElementById('cams').children].forEach(x => x.classList.remove('on'));
@@ -1281,16 +1452,17 @@ function templateReset() {
 // нічим не прив'язані до екрана, підказка була б безглуздою - та сама логіка,
 // що й у buildAxisPad). Показує лише ті осі зсуву, які реально видно рухомими
 // з поточного ракурсу (screenPlanar), поворот - всі три завжди.
-function buildTplPad() {
+function buildTplPad(camRotOverride) {
   const pad = document.getElementById('tplPad');
-  if (camIndex < 0 || !shown['template'] || !templatePts) { pad.hidden = true; return; }
+  const haveCam = camRotOverride || camIndex >= 0;
+  if (!haveCam || !shown['template'] || !templatePts) { pad.hidden = true; return; }
   pad.hidden = false;
 
   const shiftRow = document.getElementById('tplShift'); shiftRow.innerHTML = '';
   const shiftDefs = [['зсв X', [1, 0, 0]], ['зсв Y', [0, 1, 0]], ['зсв Z', [0, 0, 1]]];
   shiftDefs.forEach(([label, axis], i) => {
-    if (screenPlanar(axis) < 0.35) return;
-    const [g1, g2] = shiftGlyphs(axis);
+    if (screenPlanar(axis, camRotOverride) < 0.35) return;
+    const [g1, g2] = shiftGlyphs(axis, camRotOverride);
     const g = document.createElement('div'); g.className = 'padGroup'; g.title = label;
     const bMinus = document.createElement('button'); bMinus.textContent = g1;
     bMinus.onclick = () => { templateTranslate(axis.map(a => -a * tplStep)); tplTotals.t[i] -= tplStep; draw(); };
@@ -1308,9 +1480,9 @@ function buildTplPad() {
   ];
   rotDefs.forEach(([label, axis, u, v], i) => {
     const g = document.createElement('div'); g.className = 'padGroup'; g.title = label;
-    const bMinus = document.createElement('button'); bMinus.innerHTML = rotIconSVG(u, v, -1) || '⟲';
+    const bMinus = document.createElement('button'); bMinus.innerHTML = rotIconSVG(u, v, -1, camRotOverride) || '⟲';
     bMinus.onclick = () => { templateRotate(axis.map(a => -a * tplStep)); tplTotals.rot[i] -= tplStep; draw(); };
-    const bPlus = document.createElement('button'); bPlus.innerHTML = rotIconSVG(u, v, 1) || '⟳';
+    const bPlus = document.createElement('button'); bPlus.innerHTML = rotIconSVG(u, v, 1, camRotOverride) || '⟳';
     bPlus.onclick = () => { templateRotate(axis.map(a => a * tplStep)); tplTotals.rot[i] += tplStep; draw(); };
     g.append(bMinus, bPlus);
     rotRow.appendChild(g);
@@ -1365,6 +1537,12 @@ function currentTargetName() {
 // у в'ювері лишалась стара лінія з іншого набору, ніби вона стосується
 // нового (реальна плутанина, не лише естетика).
 function clearViewer(placeholderName) {
+  splitMode = false; preSplit = null;
+  document.getElementById('splitToggle').classList.remove('on');
+  document.getElementById('splitToggle').disabled = true;
+  document.getElementById('viewModeSingle').hidden = false;
+  document.getElementById('paneLeftWrap').hidden = true;
+  document.getElementById('paneBackLabel').hidden = true;
   scene = null; sceneName = null;
   camIndex = -1; camZoom = 1; camPanX = 0; camPanY = 0;
   group_sel = []; sel_point = null;
@@ -1415,9 +1593,7 @@ async function refreshWizard() {
   const someMarks = st.marks.back || st.marks.left;
   const ms = document.getElementById('markstatus');
   ms.innerHTML = ['back', 'left']
-    .map(v => `<div>${st.marks[v] ? '✓' : '—'} розмітка ${v}</div>`).join('')
-    + '<div style="margin-top:6px;color:#7c8aa0">необов\'язково - підвищує точність розрахунку,'
-    + ' але не потрібна для нього</div>';
+    .map(v => `<div>${st.marks[v] ? '✓' : '—'} розмітка ${v}</div>`).join('');
   w3.className = 'wmark' + (allMarks ? ' ok' : '');
   w3.textContent = allMarks ? 'є' : (someMarks ? 'частково' : 'немає (необов\'язково)');
 

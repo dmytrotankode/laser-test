@@ -13,6 +13,15 @@
           background:#111827; border-right:1px solid #1f2937; }
   #view { flex:1; position:relative; }
   canvas { display:block; width:100%; height:100%; }
+  /* режим "2 ракурси" - back+left поруч в одному #view, спільна плаваюча
+     панель (axisPad/tplPad) лишається absolute над усім #view як і була. */
+  #viewCanvases { position:absolute; inset:0; display:flex; }
+  .paneWrap { position:relative; flex:1; min-width:0; }
+  .paneWrap + .paneWrap { border-left:1px solid #1f2937; }
+  .paneLabel { position:absolute; top:8px; left:10px; font-size:11px; z-index:5;
+    color:#7c8aa0; background:rgba(11,15,22,.6); padding:2px 6px; border-radius:4px;
+    pointer-events:none; }
+  .paneLabel.active { color:#86efac; }   /* яка з двох панелей зараз активна - неяскраво */
   h1 { font-size:15px; margin:0 0 10px; letter-spacing:.02em; }
   h2 { font-size:12px; text-transform:uppercase; letter-spacing:.08em;
        color:#7c8aa0; margin:16px 0 6px; font-weight:600; }
@@ -184,7 +193,7 @@
       <div class="wstep" id="wstep-2">
         <button class="whead" data-step="2">2. Розмітка лінії згину <span class="wmark" id="w3mark"></span></button>
         <div class="wbody">
-          <div id="markstatus" style="font-size:12px;color:#9fb0c7"></div>
+          <div id="markstatus" style="font-size:13px"></div>
           <div style="margin-top:8px">
             <button id="markopen" style="width:100%">Відкрити розмітку</button>
           </div>
@@ -193,7 +202,7 @@
       <div class="wstep" id="wstep-3">
         <button class="whead" data-step="3">3. Розрахунок <span class="wmark" id="w2mark"></span></button>
         <div class="wbody">
-          <div id="inputcheck" style="font-size:12px;color:#9fb0c7"></div>
+          <div id="inputcheck" style="font-size:13px"></div>
           <button id="dogenerate">Розрахувати</button>
           <div id="genmsg" style="color:#64748b;font-size:12px;min-height:16px"></div>
         </div>
@@ -206,14 +215,17 @@
           <div id="curveWarn" hidden style="color:#f59e0b;font-size:12px;margin:2px 0 8px;line-height:1.5"></div>
 
           <h2>Ракурс</h2>
-          <div style="display:flex;gap:4px;margin-bottom:6px">
-            <button id="reset" style="width:auto;flex:1">Загальний</button>
-            <div id="cams" style="display:flex;gap:4px;flex:2"></div>
-          </div>
-          <div id="photoAdjust" hidden style="margin:2px 0 8px">
-            <div class="prow"><b style="width:78px">Яскравість</b><input type="range" id="pa_bright" min="50" max="200" value="100" style="flex:1"><span id="pa_brightval" style="width:38px;text-align:right;font-family:monospace;font-size:11px">100%</span></div>
-            <div class="prow"><b style="width:78px">Контраст</b><input type="range" id="pa_contrast" min="50" max="200" value="100" style="flex:1"><span id="pa_contrastval" style="width:38px;text-align:right;font-family:monospace;font-size:11px">100%</span></div>
-            <button id="pa_reset">Скинути</button>
+          <button id="splitToggle" disabled style="margin-bottom:6px">2 ракурси (back + left)</button>
+          <div id="viewModeSingle">
+            <div style="display:flex;gap:4px;margin-bottom:6px">
+              <button id="reset" style="width:auto;flex:1">Загальний</button>
+              <div id="cams" style="display:flex;gap:4px;flex:2"></div>
+            </div>
+            <div id="photoAdjust" hidden style="margin:2px 0 8px">
+              <div class="prow"><b style="width:78px">Яскравість</b><input type="range" id="pa_bright" min="50" max="200" value="100" style="flex:1"><span id="pa_brightval" style="width:38px;text-align:right;font-family:monospace;font-size:11px">100%</span></div>
+              <div class="prow"><b style="width:78px">Контраст</b><input type="range" id="pa_contrast" min="50" max="200" value="100" style="flex:1"><span id="pa_contrastval" style="width:38px;text-align:right;font-family:monospace;font-size:11px">100%</span></div>
+              <button id="pa_reset">Скинути</button>
+            </div>
           </div>
 
           <div id="place" hidden>
@@ -257,7 +269,16 @@
     </div>
   </div>
   <div id="view">
-    <canvas id="c"></canvas>
+    <div id="viewCanvases">
+      <div class="paneWrap" id="paneBackWrap">
+        <canvas id="c"></canvas>
+        <div class="paneLabel" id="paneBackLabel" hidden>back</div>
+      </div>
+      <div class="paneWrap" id="paneLeftWrap" hidden>
+        <canvas id="c2"></canvas>
+        <div class="paneLabel" id="paneLeftLabel">left</div>
+      </div>
+    </div>
     <div id="hud"></div>
     <div id="axisPad" hidden>
       <div class="padSection" id="padShift"></div>
@@ -319,9 +340,8 @@
     <button id="mregen">Згенерувати шаблон</button>
     <div id="autoAdjBox" hidden>
       <h2>Автолінія (чернетка)</h2>
-      <p class="muted" style="margin:0 0 8px">Жовта - шаблонна форма моделі (не підганяється під
-        фото). Підправте панеллю над фото і натисніть "Застосувати", або малюйте свою лінію
-        нижче як завжди.</p>
+      <p class="muted" style="margin:0 0 8px">Жовта лінія - шаблонна форма моделі. Підправте і
+        натисніть "Застосувати". Також можливе малювання лінії згину від руки.</p>
       <button id="ad_apply">Застосувати як лінію</button>
       <button id="ad_pnp" style="border:1px dashed #3b6cf6;background:transparent">
         Тест: клік по точках</button>
