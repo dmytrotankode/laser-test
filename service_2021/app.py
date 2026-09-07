@@ -24,6 +24,7 @@ import sys
 import io
 import json
 import datetime
+import subprocess
 
 import cv2
 import numpy as np
@@ -830,29 +831,102 @@ def export_ls(name):
                    total=n_total, touched=n_touched)
 
 
+# ------------------------------------------------------------ методи розрахунку
+# Модульність (обговорено 2026-09-07): кожен метод - ОКРЕМИЙ ПРОЦЕС з однаковим
+# контрактом (python <entry> --variant <ім'я> --in <archive/<ім'я>> --out <.LS>),
+# щоб зовнішні методи (від інших розробників) підключались без жодних змін тут
+# - і щоб наш власний ("виробничий") метод працював ТАК САМО, а не як виняток
+# (реальна вимога користувача). pipeline/generate.py сам НЕ змінювався - лише
+# обгорнутий у methods/production/run.py.
+METHODS_PATH = os.path.join(BASE, 'calib', 'methods.json')
+LAST_METHOD_PATH = os.path.join(BASE, 'data', 'last_method.json')
+
+
+def _load_methods():
+    with open(METHODS_PATH, encoding='utf-8') as f:
+        return json.load(f)['methods']
+
+
+def _default_method_id():
+    methods = _load_methods()
+    if not methods:
+        return None
+    if os.path.exists(LAST_METHOD_PATH):
+        with open(LAST_METHOD_PATH, encoding='utf-8') as f:
+            last = json.load(f).get('id')
+        if any(m['id'] == last for m in methods):
+            return last
+    return methods[0]['id']
+
+
+def _save_last_method(method_id):
+    os.makedirs(os.path.dirname(LAST_METHOD_PATH), exist_ok=True)
+    with open(LAST_METHOD_PATH, 'w', encoding='utf-8') as f:
+        json.dump({'id': method_id}, f)
+
+
+@app.route('/api/methods')
+def list_methods():
+    """Для випадаючого списку методу на кроці 3 - перелік + який обрати за
+    замовчуванням (останній використаний, а не завжди перший - реальна
+    вимога користувача)."""
+    return jsonify(methods=_load_methods(), default=_default_method_id())
+
+
+def _run_method(method_id, variant, out_path):
+    methods = {m['id']: m for m in _load_methods()}
+    m = methods.get(method_id)
+    if not m:
+        raise ValueError(f'невідомий метод: {method_id}')
+    entry = os.path.join(BASE, m['entry'])
+    in_dir = os.path.join(BASE, 'archive', variant)
+    cmd = [sys.executable, entry, '--variant', variant, '--in', in_dir, '--out', out_path]
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    if r.returncode != 0 or not os.path.exists(out_path):
+        raise RuntimeError(f'{m["name"]} впав: {(r.stderr or r.stdout)[-2000:]}')
+    return out_path
+
+
 @app.route('/api/generate/<name>', methods=['POST'])
 def generate_ls(name):
-    """Посчитать линию реза с нуля через свой пайплайн (pipeline/generate.py) и
-    (пере)собрать сцену из результата - как build_scene.py, полностью
-    перезаписывает scene.json. Использовать только для варианта без сохранённых
-    правок (или когда затирание правок - осознанное решение)."""
+    """Порахувати лінію реза з нуля обраним методом (окремий процес - див.
+    _run_method) і (пере)зібрати сцену з результату - як build_scene.py,
+    повністю переписує scene.json. Використовувати лише для варіанта без
+    збережених правок (або коли затирання правок - усвідомлене рішення)."""
     name = _safe_name(name)
     d = request.get_json(silent=True) or {}
-    recipe_name = d.get('recipe', 'production_2026-08-27')
-    from pipeline import generate as gen
-    try:
-        ls_path, report = gen.generate(name, recipe_name)
-    except Exception as e:
-        return jsonify(error=f'{type(e).__name__}: {e}'), 400
+    method_id = d.get('method') or _default_method_id()
+    if not method_id:
+        return jsonify(error='немає жодного зареєстрованого методу розрахунку'), 400
 
-    recipe = gen.load_recipe(recipe_name)
+    from pipeline import generate as gen
+    out_path = os.path.join(BASE, 'data', 'generated', f'{name}_{method_id}.LS')
+    try:
+        ls_path = _run_method(method_id, name, out_path)
+    except Exception as e:
+        return jsonify(error=str(e)), 400
+    _save_last_method(method_id)
+
+    # Камери для build_scene - завжди та сама фізична калібровка, незалежно
+    # від того, яким методом порахована лінія (метод не міняє, де стоять
+    # камери реально).
+    recipe = gen.load_recipe('production_2026-08-27')
     calib_dir = os.path.join(gen.CALIB, 'cameras', recipe['camera_calibration'])
     cams = {v: os.path.join(calib_dir, f'cam_{v}.npy') for v in ('back', 'left', 'top')}
     photo_dir = os.path.join(gen.ARCHIVE, name)
     photos = {v: os.path.join(photo_dir, f'{v}.png') for v in ('back', 'left', 'top')}
     build_scene.build(name, ls_path, cams, photos)
 
-    return jsonify(status='ok', file=os.path.basename(ls_path), report=report)
+    # Запам'ятати, яким методом порахований САМЕ ЦЕЙ набір - у scene.json,
+    # окремо від "останній обраний глобально" (last_method.json вище).
+    scene_path = os.path.join(scene.SCENES, name, 'scene.json')
+    with open(scene_path, encoding='utf-8') as f:
+        doc = json.load(f)
+    doc['method'] = method_id
+    with open(scene_path, 'w', encoding='utf-8') as f:
+        json.dump(doc, f, ensure_ascii=False)
+
+    return jsonify(status='ok', file=os.path.basename(ls_path), method=method_id)
 
 
 _NAME_RE = re.compile(r'^[A-Za-z0-9_.-]{1,64}$')

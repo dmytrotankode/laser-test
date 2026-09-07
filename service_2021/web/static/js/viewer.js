@@ -1938,8 +1938,9 @@ document.getElementById('dogenerate').onclick = async () => {
 
   msg.textContent = 'рахую...';
   try {
+    const method = document.getElementById('methodSelect').value;
     const r = await fetch(`/api/generate/${name}`, { method: 'POST',
-      headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method }) });
     const j = await r.json();
     if (!r.ok) { msg.textContent = 'помилка: ' + (j.error || r.status); return; }
     msg.textContent = `готово: ${j.file}`;
@@ -1972,7 +1973,23 @@ async function reloadSceneList() {
   return list;
 }
 
+// Модульність методів розрахунку (обговорено 2026-09-07) - список тягнеться
+// з calib/methods.json через сервер, вибір за замовчуванням - останній
+// використаний (сервер сам це пам'ятає, тут лише виставляємо select).
+async function loadMethods() {
+  const j = await (await fetch('/api/methods')).json();
+  const sel = document.getElementById('methodSelect');
+  sel.innerHTML = '';
+  for (const m of j.methods) {
+    const o = document.createElement('option');
+    o.value = m.id; o.textContent = m.name;
+    sel.appendChild(o);
+  }
+  if (j.default) sel.value = j.default;
+}
+
 (async () => {
+  await loadMethods();
   const list = await reloadSceneList();
   const sel = document.getElementById('scenes');
   sel.onchange = async () => {
