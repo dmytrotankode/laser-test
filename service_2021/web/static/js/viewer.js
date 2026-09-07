@@ -256,7 +256,13 @@ function setSplitMode(on) {
   // Загальний/back/left/top підсвічуватись не повинна (реальний звіт: плутало).
   [...document.getElementById('cams').children].forEach((x, j) => x.classList.toggle('on', !splitMode && j === camIndex));
   document.getElementById('reset').classList.toggle('on', !splitMode && camIndex < 0);
-  document.getElementById('photoAdjust').hidden = camIndex < 0 || splitMode;
+  // Яскравість/контраст - той самий фільтр canvas ("photoBrightness/photoContrast",
+  // без збереження), який drawSingle() застосовує НЕЗАЛЕЖНО від того, cv/ctx
+  // зараз вказують на #c чи (через withPane2) на #c2 - тому одне налаштування
+  // тут одразу діє на ОБИДВІ панелі split, окремого повзунка на кожну не треба
+  // (реальний запит: "має бути спільне налаштування"). Раніше ховалось в split
+  // взагалі - реальний звіт, що це виглядало як "не працює".
+  document.getElementById('photoAdjust').hidden = camIndex < 0;
   buildGroupEditor(); buildPointEditor();
   draw();
 }
