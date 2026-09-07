@@ -295,8 +295,8 @@ function refreshAutoPosePanel() {
   const left = autoPoseCorr.filter(c => c.view === 'left').length;
   const done = back >= 2 && left >= 2;
   msg.textContent = done
-    ? `клацнуто back:${back} left:${left} - можна розв'язувати`
-    : `клацни де насправді має проходити лінія - back:${back}/2 left:${left}/2`;
+    ? `Позначено: back:${back} left:${left} - можна розв'язувати`
+    : `Вкажіть щонайменше 2 точки на кожному ракурсі, де насправді проходить лінія - back:${back}/2 left:${left}/2`;
   document.getElementById('autoPoseSolve').disabled = !done;
 }
 
