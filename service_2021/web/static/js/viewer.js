@@ -384,7 +384,9 @@ document.getElementById('autoPoseSolve').onclick = async () => {
 // окремий маршрут на сервері) - навмисно, щоб можна було прибрати кожну ідею
 // окремо, якщо виявиться нестабільною, не займаючи іншу.
 function updateFitMarksVisibility() {
-  const has = (markLines.back && markLines.back.length >= 2) || (markLines.left && markLines.left.length >= 2);
+  // Потрібні ОБИДВА ракурси - з одного 2D-контур не визначає позу однозначно
+  // (сервер це й так перевіряє, тут лише щоб кнопка не з'являлась даремно).
+  const has = (markLines.back && markLines.back.length >= 2) && (markLines.left && markLines.left.length >= 2);
   document.getElementById('fitMarksBtn').hidden = !has;
   if (!has) document.getElementById('fitMarksMsg').textContent = '';
 }

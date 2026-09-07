@@ -568,7 +568,13 @@ def auto_pose(name, cidx):
             out.append(uv[0] - img[i])
         return np.concatenate(out)
 
-    r = least_squares(resid, np.r_[np.zeros(6), 0.0], method='lm', max_nfev=400)
+    # Ті самі межі, що й fit_marks нижче (±35°/±100мм/74-135%) - вибрані там
+    # проти виродженого розв'язку конкретно для симетричної polyline-відстані,
+    # тут (звичайна точкова репроекція) такого ризику нема, але межі не
+    # заважають реальним правкам і однаково безпечніше мати їх скрізь, де є
+    # цей самий 7-параметричний least_squares.
+    bounds = (np.r_[[-0.6]*3, [-100.0]*3, -0.3], np.r_[[0.6]*3, [100.0]*3, 0.3])
+    r = least_squares(resid, np.r_[np.zeros(6), 0.0], method='trf', bounds=bounds, max_nfev=800)
     R = cv2.Rodrigues(r.x[:3])[0]
     yaw, pitch, roll = geometry.ypr_from_rot(R)
     totals = dict(rot=[roll, pitch, yaw], t=r.x[3:6].tolist(), scale=float(np.exp(r.x[6]) * 100.0))
@@ -579,12 +585,19 @@ def auto_pose(name, cidx):
 def fit_marks(name, cidx):
     """ОДНА кнопка, БЕЗ кліків (обговорено 2026-09-07) - підганяє ПОТОЧНУ лінію
     (з ручними правками, вже застосованим auto_pose - байдуже) під уже
-    збережену ручну розмітку лінії згину (крок 2/3), тим самим членом
-    невязки, що вже реально працює в generate() (contour_fit.resid_of, member
-    "back/left fold-line marks" - E.dist_to_polyline проти near_arc-видимих
-    точок), лише тут - на живих точках сцени, а не на CAD-ободі, і без
-    решти членів (силует/контур top), бо мета тут - узгодити з розміткою САМЕ
-    ту лінію, що вже є, а не перерахувати позу з нуля.
+    збережену ручну розмітку лінії згину (крок 2/3), схожим членом невязки,
+    що й у generate() (contour_fit.resid_of, mark-term - E.dist_to_polyline
+    проти near_arc-видимих точок), лише тут - на живих точках сцени, а не на
+    CAD-ободі, і без решти членів (силует/контур top).
+
+    ВІДМІННІСТЬ від resid_of: там відстань лише В ОДИН бік (розмітка->лінія) -
+    карає, якщо лінія НЕ ДОХОДИТЬ до розмітки, але не бачить, якщо лінія
+    ВИЛІЗЛА за розмітку (тим точкам розмітки й так є до чого прилипнути
+    ближче до середини). Тут - СИМЕТРИЧНО в обидва боки (див. mark_dist_mm),
+    саме тому, що масштаб/краї - єдине, що тут підганяється (без силуету/
+    контуру top, які в generate() частково компенсують цю асиметрію) -
+    реальний звіт: "масштаб трохи не витримується", саме на краях
+    (лоб/потилиця/вуха).
 
     Незалежно від /auto_pose (окрема кнопка, окрема функція застосування на
     клієнті) - навмисно, щоб ідеї можна було прибирати чи лишати кожну
@@ -605,8 +618,15 @@ def fit_marks(name, cidx):
     from pipeline import generate as gen, contour_fit, camera_model as CM, geometry, line_marks
     var_marks = line_marks.load_marks().get(name, {})
     used = [w for w in ('back', 'left') if w in var_marks]
-    if not used:
-        return jsonify(error='для цього набору немає збереженої розмітки лінії згину'), 400
+    # Розмітка лише З ОДНОГО боку не визначає 7-параметричну позу однозначно
+    # (один 2D-контур відповідає багатьом 3D позам) - без другого виду
+    # оптимізатор просто тікає кудись у межі обмежень (перевірено на
+    # реальних даних: back-only дав поворот -57°, зсув до упору в 100мм,
+    # "покращення" суто числове, без фізичного сенсу). Тому - обидва або
+    # відмова, а не спроба на одному.
+    if len(used) < 2:
+        return jsonify(error='потрібна розмітка з ОБОХ ракурсів (back і left) - '
+                              'з одного 2D-контур не визначає позу однозначно'), 400
 
     recipe = gen.load_recipe('production_2026-08-27')
     calib_dir = os.path.join(gen.CALIB, 'cameras', recipe['camera_calibration'])
@@ -614,13 +634,21 @@ def fit_marks(name, cidx):
     center = P0.mean(0)
 
     def mark_dist_mm(P):
+        # Симетрично в ОБИДВА боки (розмітка->лінія і лінія->розмітка), не лише
+        # в один, як contour_fit.resid_of. Один напрямок карає НЕДОхід лінії до
+        # кінця розмітки (там розмітці нема до чого прилипнути), але зовсім не
+        # бачить, якщо лінія навпаки ВИЛІЗЛА за розмітку (розмітці й так є до
+        # чого прилипнути ближче до середини) - реальний звіт користувача:
+        # масштаб "трохи не витримується", саме на краях (лоб/потилиця/вуха).
         out = []
         for w in used:
             pc, f = cams[w]
             uv, z = CM.project(P, pc[:3], pc[3:6], f)
             vis = CM.near_arc(uv, z)
-            d = np.abs(CM.dist_to_polyline(contour_fit.resample(var_marks[w]), vis))
-            out.append(d * float(np.median(z)) / f)
+            marks_uv = contour_fit.resample(var_marks[w])
+            d1 = np.abs(CM.dist_to_polyline(marks_uv, vis))
+            d2 = np.abs(CM.dist_to_polyline(vis, marks_uv))
+            out.append(np.concatenate([d1, d2]) * float(np.median(z)) / f)
         return np.concatenate(out)
 
     def resid(p7):
@@ -630,7 +658,15 @@ def fit_marks(name, cidx):
         return mark_dist_mm(P)
 
     before_mm = float(mark_dist_mm(P0).mean())
-    r = least_squares(resid, np.r_[np.zeros(6), 0.0], method='lm', max_nfev=400)
+    # Межі (метод 'trf', не 'lm' - 'lm' bounds не підтримує) - без них
+    # симетрична (в обидва боки) відстань вище має вироджений розв'язок:
+    # СХЛОПНУТИ лінію майже в точку десь на розмітці робить обидва напрямки
+    # відстані малими одночасно (перевірено на реальних даних - виходило
+    # scale=0.08%, зсув 2650мм - лінія фізично зникала). ±35° / ±100мм /
+    # 74-135% з запасом покривають будь-яку реальну "доводочну" правку,
+    # не залишаючи вироджений розв'язок математично доступним.
+    bounds = (np.r_[[-0.6]*3, [-100.0]*3, -0.3], np.r_[[0.6]*3, [100.0]*3, 0.3])
+    r = least_squares(resid, np.r_[np.zeros(6), 0.0], method='trf', bounds=bounds, max_nfev=800)
     R = cv2.Rodrigues(r.x[:3])[0]
     s = float(np.exp(r.x[6]))
     P1 = (P0 - center) @ R.T * s + center + r.x[3:6]
