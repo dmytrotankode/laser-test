@@ -504,6 +504,72 @@ def mark_solve_pnp():
     return jsonify(x=vis[:, 0].tolist(), y=vis[:, 1].tolist(), totals=totals)
 
 
+@app.route('/api/scene/<name>/curve/<int:cidx>/auto_pose', methods=['POST'])
+def auto_pose(name, cidx):
+    """ЕКСПЕРИМЕНТАЛЬНО (варіант 3 з обговорення 2026-09-07, "авто-доведення") -
+    оператор клацає кілька точок одразу на back І на left (з двох ракурсів split-
+    режиму), кожен клік означає "оцю точку лінії реально видно ТУТ", і замість
+    ручного пересування панеллю рахується ОДНА жорстка поза (поворот+зсув, без
+    масштабу), що найкраще узгоджує ВСІ клацання одразу - scipy.least_squares по
+    репроекції, той самий принцип, що contour_fit.resid_of, тільки на вже
+    ПОТОЧНИХ точках лінії (з їхніми ручними правками), а не на CAD-ободі.
+
+    Навмисно ІЗОЛЬОВАНО від pipeline/contour_fit.py: не змінює оптимізатор
+    підгонки, не викликається з generate(), нічого не пише на диск сама (як і
+    /api/mark/solve_pnp - лише рахує й повертає). Повертає totals (rot/t/scale)
+    у ТОМУ САМОМУ форматі, що й /api/mark/solve_pnp - клієнт застосовує їх тим
+    самим поворотом/зсувом навколо центроїда, що й ручні кнопки групової
+    панелі, тому "Скасувати"/"Зберегти" продовжують працювати без жодних змін.
+    Якщо ідея виявиться нестабільною - видалити цей маршрут і відповідний
+    блок у mark.js/viewer.js можна незалежно від решти застосунку.
+    """
+    d = request.get_json(force=True) or {}
+    corr = d.get('corr') or []
+    if len(corr) < 4:
+        return jsonify(error='потрібно мінімум 4 точки (бажано з обох ракурсів)'), 400
+
+    p = os.path.join(scene.SCENES, name, 'scene.json')
+    if not os.path.exists(p):
+        abort(404)
+    with open(p, encoding='utf-8') as f:
+        doc = json.load(f)
+    if not (0 <= cidx < len(doc['curves'])):
+        abort(404)
+    c = doc['curves'][cidx]
+    P0 = np.array(c['points'], dtype=float)
+    n = len(P0)
+    for item in corr:
+        if item.get('view') not in ('back', 'left') or not (0 <= item.get('idx', -1) < n):
+            return jsonify(error='некоректні дані кореспонденції'), 400
+
+    from scipy.optimize import least_squares
+    from pipeline import generate as gen, contour_fit, camera_model as CM, geometry
+    recipe = gen.load_recipe('production_2026-08-27')
+    calib_dir = os.path.join(gen.CALIB, 'cameras', recipe['camera_calibration'])
+    cams = contour_fit.marker_cams(calib_dir)
+
+    center = P0.mean(0)
+    views = [item['view'] for item in corr]
+    img = np.array([item['img'] for item in corr], dtype=float)
+    obj0 = P0[[item['idx'] for item in corr]]
+
+    def resid(p6):
+        R = cv2.Rodrigues(p6[:3])[0]
+        obj = (obj0 - center) @ R.T + center + p6[3:6]
+        out = []
+        for i, view in enumerate(views):
+            pc, f = cams[view]
+            uv, _ = CM.project(obj[i:i + 1], pc[:3], pc[3:6], f)
+            out.append(uv[0] - img[i])
+        return np.concatenate(out)
+
+    r = least_squares(resid, np.zeros(6), method='lm', max_nfev=400)
+    R = cv2.Rodrigues(r.x[:3])[0]
+    yaw, pitch, roll = geometry.ypr_from_rot(R)
+    totals = dict(rot=[roll, pitch, yaw], t=r.x[3:6].tolist(), scale=100.0)
+    return jsonify(totals=totals, cost=float(r.cost), n=len(corr))
+
+
 _TEMPLATE_LINE_3D_CACHE = {}
 
 

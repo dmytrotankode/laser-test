@@ -27,6 +27,18 @@ let activePane = 'back';    // яка панель востаннє була а�
 const pane2 = { camIdx: -1, zoom: 1, panX: 0, panY: 0 };
 let preSplit = null;        // збережений одноракурсний стан (camIndex/zoom/pan) - повернутись при виході
 
+// ЕКСПЕРИМЕНТАЛЬНО (варіант 3, "авто-доведення", обговорено 2026-09-07) -
+// клацнути кілька точок одразу на back+left замість ручного пересування
+// панеллю; /api/scene/.../auto_pose рахує ОДНУ жорстку позу під усі
+// клацання. Повністю ізольовано: свій прапорець/масив, свій маршрут на
+// сервері, застосовує результат ЧЕРЕЗ ту саму rotFromDeg-математику, що й
+// ручні кнопки - "Скасувати"/"Зберегти" в group-редакторі це не зачіпає.
+// Якщо нестабільно - прибрати autoPoseMode/autoPoseCorr/recordAutoPoseClick/
+// applyAutoPoseTotals і кнопки #autoPoseToggle/#autoPosePanel, більше нічого
+// не займає.
+let autoPoseMode = false;
+const autoPoseCorr = [];    // [{view, idx, img:[u,v]}, ...]
+
 let scene = null;           // документ сцены
 let sceneName = null;
 // Поле зрения узкое намеренно: на 45 градусах купол по краям кадра заметно
@@ -233,7 +245,9 @@ function setSplitMode(on) {
     splitMode = false;
     if (preSplit) ({ camIndex, camZoom, camPanX, camPanY } = preSplit);
   }
+  if (!splitMode) setAutoPoseMode(false);   // авто-доведення лише в split - вимкнути й прибрати клацання
   document.getElementById('splitToggle').classList.toggle('on', splitMode);
+  document.getElementById('autoPoseToggle').hidden = !splitMode;
   document.getElementById('paneLeftWrap').hidden = !splitMode;
   document.getElementById('paneBackLabel').hidden = !splitMode;
   // camIndex у split-режимі технічно дорівнює камері "back" (щоб уся наявна
@@ -246,6 +260,82 @@ function setSplitMode(on) {
   buildGroupEditor(); buildPointEditor();
   draw();
 }
+
+// ------------------------------------------------ ЕКСПЕРИМЕНТ: авто-доведення
+function setAutoPoseMode(on) {
+  autoPoseMode = on;
+  autoPoseCorr.length = 0;
+  document.getElementById('autoPoseToggle').classList.toggle('on', on);
+  document.getElementById('autoPosePanel').hidden = !on;
+  refreshAutoPosePanel();
+  draw();
+}
+document.getElementById('autoPoseToggle').onclick = () => setAutoPoseMode(!autoPoseMode);
+document.getElementById('autoPoseCancel').onclick = () => setAutoPoseMode(false);
+document.getElementById('autoPoseUndo').onclick = () => { autoPoseCorr.pop(); refreshAutoPosePanel(); draw(); };
+
+function refreshAutoPosePanel() {
+  const msg = document.getElementById('autoPoseMsg');
+  const back = autoPoseCorr.filter(c => c.view === 'back').length;
+  const left = autoPoseCorr.filter(c => c.view === 'left').length;
+  msg.textContent = autoPoseCorr.length < 4
+    ? `клацнуто back:${back} left:${left} - потрібно мінімум 4 (бажано з обох)`
+    : `клацнуто back:${back} left:${left} - можна розв'язувати`;
+  document.getElementById('autoPoseSolve').disabled = autoPoseCorr.length < 4;
+}
+
+// Клік у режимі авто-доведення: НЕ вибирає точку для правки (як звичайний
+// клік), а записує кореспонденцію "найближча ІСНУЮЧА точка лінії насправді
+// повинна бути тут" - той самий findPointAt(), що й для вибору точки, плюс
+// точні фото-пікселі самого кліку (через ту саму f=pr.fit, що й розмітка).
+function recordAutoPoseClick(e) {
+  if (!scene || camIndex < 0) return;
+  const best = findPointAt(e);
+  if (!best) return;
+  const rect = cv.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) * devicePixelRatio;
+  const my = (e.clientY - rect.top) * devicePixelRatio;
+  const f = projector().fit;
+  autoPoseCorr.push({ view: scene.cameras[camIndex].name, idx: best.pidx,
+    img: [(mx - f.ox) / f.k, (my - f.oy) / f.k] });
+}
+
+// Застосовує totals (rot/t/scale), що прийшли з сервера, ТІЄЮ Ж математикою
+// (rotFromDeg навколо центроїда поточної лінії), що й ручні кнопки групової
+// панелі - тому "Скасувати"/"Зберегти" в group-редакторі далі працюють як і
+// раніше, ніби це були звичайні натискання кнопок.
+function applyAutoPoseTotals(ci, totals) {
+  const c = scene.curves[ci];
+  const cen = c.points.reduce((a, p) => [0,1,2].map(k => a[k] + p[k]), [0,0,0])
+    .map(v => v / c.points.length);
+  const R = rotFromDeg(totals.rot);
+  for (let i = 0; i < c.points.length; i++) {
+    const p = c.points[i];
+    const rel = [0,1,2].map(k => p[k] - cen[k]);
+    const rot = [0,1,2].map(k => R[k][0]*rel[0] + R[k][1]*rel[1] + R[k][2]*rel[2]);
+    c.points[i] = [0,1,2].map(k => cen[k] + rot[k] + totals.t[k]);
+  }
+}
+
+document.getElementById('autoPoseSolve').onclick = async () => {
+  const ci = activeCurveIndex();
+  if (ci < 0 || !sceneName) return;
+  const btn = document.getElementById('autoPoseSolve');
+  btn.disabled = true; btn.textContent = 'рахую...';
+  try {
+    const r = await fetch(`/api/scene/${sceneName}/curve/${ci}/auto_pose`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ corr: autoPoseCorr }) });
+    const j = await r.json();
+    if (!r.ok) { document.getElementById('autoPoseMsg').textContent = 'помилка: ' + (j.error || r.status); return; }
+    applyAutoPoseTotals(ci, j.totals);
+    setAutoPoseMode(false);
+    buildGroupEditor();   // totals групової панелі рахуються "з початку правки" - скинути на 0, як і мало б
+    draw();
+  } finally {
+    btn.disabled = false; btn.textContent = "Розв'язати і застосувати";
+  }
+};
 
 // Свободная камера: смотрит на target, ось Y кадра вниз - как у настоящих.
 function orbitPose() {
@@ -503,6 +593,22 @@ function drawSingle(updatePanels = true) {
       }
     }
   }
+  // ЕКСПЕРИМЕНТ (авто-доведення) - хрестики там, куди вже клацнули на ЦЬОМУ
+  // ракурсі, щоб було видно, що вже зафіксовано, перш ніж тиснути "Розв'язати".
+  if (camIndex >= 0 && autoPoseMode) {
+    const camName = scene.cameras[camIndex].name;
+    const f = pr.fit;
+    ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 2 * devicePixelRatio * 0.8;
+    for (const item of autoPoseCorr) {
+      if (item.view !== camName) continue;
+      const sx = f.ox + f.k * item.img[0], sy = f.oy + f.k * item.img[1];
+      const r = 7 * devicePixelRatio * 0.8;
+      ctx.beginPath();
+      ctx.moveTo(sx - r, sy); ctx.lineTo(sx + r, sy);
+      ctx.moveTo(sx, sy - r); ctx.lineTo(sx, sy + r);
+      ctx.stroke();
+    }
+  }
   if (document.getElementById('grid').checked) drawGrid(pr);
   if (document.getElementById('axes').checked) drawAxes(pr);
 
@@ -630,7 +736,8 @@ cv.addEventListener('mousedown', e => {
 addEventListener('mouseup', e => {
   // Клик почти без движения мыши - выбор точки, а не вращение обзора.
   if (drag && Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 4) {
-    trySelectPoint(e);
+    if (autoPoseMode) { recordAutoPoseClick(e); refreshAutoPosePanel(); draw(); }
+    else trySelectPoint(e);
   }
   drag = null;
 });
@@ -653,7 +760,8 @@ addEventListener('mouseup', e => {
   // withPane2 встиг повернути глобальний стан на місце.
   if (drag2 && Math.hypot(e.clientX - drag2.x0, e.clientY - drag2.y0) < 4) {
     activePane = 'left';
-    withPane2(() => { sel_point = findPointAt(e); });
+    if (autoPoseMode) { withPane2(() => recordAutoPoseClick(e)); refreshAutoPosePanel(); }
+    else withPane2(() => { sel_point = findPointAt(e); });
     draw();
   }
   drag2 = null;
