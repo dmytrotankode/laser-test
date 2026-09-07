@@ -25,6 +25,7 @@ import io
 import json
 import datetime
 import subprocess
+import shutil
 
 import cv2
 import numpy as np
@@ -873,18 +874,51 @@ def list_methods():
     return jsonify(methods=_load_methods(), default=_default_method_id())
 
 
+def _stage_method_input(variant):
+    """Збирає для методу ОДНУ папку з усім, що йому може знадобитись - фото +
+    калібрування камер + розмітка (якщо є) - тим самим іменуванням, що вже
+    використовує incoming/<name>/ (discover.py), щоб зовнішній розробник міг
+    зібрати таку саму папку руками для локального тесту, без нашого сервера.
+    Раніше сюди йшов просто archive/<variant>/ - там БУЛИ фото, але НЕ було
+    калібрування камер (воно лежить окремо, в calib/cameras/) - зовнішній
+    метод не зміг би порахувати позу камери взагалі. Виправлено.
+    """
+    import tempfile
+    from pipeline import generate as gen
+    recipe = gen.load_recipe('production_2026-08-27')
+    calib_dir = os.path.join(gen.CALIB, 'cameras', recipe['camera_calibration'])
+    photo_dir = os.path.join(gen.ARCHIVE, variant)
+
+    d = tempfile.mkdtemp(prefix=f'method_in_{variant}_')
+    for v in ('back', 'left', 'top'):
+        src_photo = os.path.join(photo_dir, f'{v}.png')
+        if os.path.exists(src_photo):
+            shutil.copyfile(src_photo, os.path.join(d, f'{v}.png'))
+        src_cam = os.path.join(calib_dir, f'cam_{v}.npy')
+        if os.path.exists(src_cam):
+            shutil.copyfile(src_cam, os.path.join(d, f'cam_{v}.npy'))
+    for v in ('back', 'left'):
+        src_mark = os.path.join(BASE, 'lines', f'{variant}_{v}.json')
+        if os.path.exists(src_mark):
+            shutil.copyfile(src_mark, os.path.join(d, f'marks_{v}.json'))
+    return d
+
+
 def _run_method(method_id, variant, out_path):
     methods = {m['id']: m for m in _load_methods()}
     m = methods.get(method_id)
     if not m:
         raise ValueError(f'невідомий метод: {method_id}')
     entry = os.path.join(BASE, m['entry'])
-    in_dir = os.path.join(BASE, 'archive', variant)
-    cmd = [sys.executable, entry, '--variant', variant, '--in', in_dir, '--out', out_path]
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-    if r.returncode != 0 or not os.path.exists(out_path):
-        raise RuntimeError(f'{m["name"]} впав: {(r.stderr or r.stdout)[-2000:]}')
-    return out_path
+    in_dir = _stage_method_input(variant)
+    try:
+        cmd = [sys.executable, entry, '--variant', variant, '--in', in_dir, '--out', out_path]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        if r.returncode != 0 or not os.path.exists(out_path):
+            raise RuntimeError(f'{m["name"]} впав: {(r.stderr or r.stdout)[-2000:]}')
+        return out_path
+    finally:
+        shutil.rmtree(in_dir, ignore_errors=True)
 
 
 @app.route('/api/generate/<name>', methods=['POST'])
