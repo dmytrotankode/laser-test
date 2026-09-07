@@ -595,18 +595,23 @@ function drawSingle(updatePanels = true) {
   }
   // ЕКСПЕРИМЕНТ (авто-доведення) - хрестики там, куди вже клацнули на ЦЬОМУ
   // ракурсі, щоб було видно, що вже зафіксовано, перш ніж тиснути "Розв'язати".
+  // Темний контур під яскраво-лаймовим хрестиком - щоб було видно і на
+  // темному тлі канви, і на світлому фото (сам блакитний #22d3ee губився на
+  // фото - реальний звіт користувача).
   if (camIndex >= 0 && autoPoseMode) {
     const camName = scene.cameras[camIndex].name;
     const f = pr.fit;
-    ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 2 * devicePixelRatio * 0.8;
+    const r = 8 * devicePixelRatio * 0.8;
     for (const item of autoPoseCorr) {
       if (item.view !== camName) continue;
       const sx = f.ox + f.k * item.img[0], sy = f.oy + f.k * item.img[1];
-      const r = 7 * devicePixelRatio * 0.8;
-      ctx.beginPath();
-      ctx.moveTo(sx - r, sy); ctx.lineTo(sx + r, sy);
-      ctx.moveTo(sx, sy - r); ctx.lineTo(sx, sy + r);
-      ctx.stroke();
+      for (const [col, w] of [['#000', 4], ['#a3e635', 2]]) {
+        ctx.strokeStyle = col; ctx.lineWidth = w * devicePixelRatio * 0.8;
+        ctx.beginPath();
+        ctx.moveTo(sx - r, sy); ctx.lineTo(sx + r, sy);
+        ctx.moveTo(sx, sy - r); ctx.lineTo(sx, sy + r);
+        ctx.stroke();
+      }
     }
   }
   if (document.getElementById('grid').checked) drawGrid(pr);
