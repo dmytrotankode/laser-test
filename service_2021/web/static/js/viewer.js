@@ -262,9 +262,33 @@ function setSplitMode(on) {
 }
 
 // ------------------------------------------------ ЕКСПЕРИМЕНТ: авто-доведення
+// ФІКСОВАНІ орієнтири (за індексом уздовж ВИДИМОЇ - near-side - дуги цієї
+// камери, не всі 97 точок), а не "клікни біля існуючої точки": якщо лінія
+// реально сильно з'їхала, "туди, куди насправді треба" може бути далі, ніж
+// поріг пошуку найближчої точки - клік просто мовчки нічого не знаходив
+// (реальний звіт: "точки поставити не виходить"). Тепер послідовність
+// наперед визначена (3 на кожен ракурс), клік будь-де на фото просто
+// призначається НАСТУПНІЙ точці в черзі - відстань кліку від її поточного
+// (можливо, хибного) положення й Є сигналом правки, а не перешкодою.
+const autoPoseQueue = { back: [], left: [] };
+
+function autoPoseTargets(camIdx) {
+  const ci = activeCurveIndex();
+  if (ci < 0 || camIdx < 0) return [];
+  const c = scene.curves[ci];
+  const savedIdx = camIndex; camIndex = camIdx;
+  const near = nearSideMask(c, projector());
+  camIndex = savedIdx;
+  const idxs = near.map((v, i) => v ? i : -1).filter(i => i >= 0);
+  if (!idxs.length) return [];
+  return [0.15, 0.5, 0.85].map(f => idxs[Math.min(idxs.length - 1, Math.floor(f * idxs.length))]);
+}
+
 function setAutoPoseMode(on) {
   autoPoseMode = on;
   autoPoseCorr.length = 0;
+  autoPoseQueue.back = on ? autoPoseTargets(findCamIdx('back')) : [];
+  autoPoseQueue.left = on ? autoPoseTargets(findCamIdx('left')) : [];
   document.getElementById('autoPoseToggle').classList.toggle('on', on);
   document.getElementById('autoPosePanel').hidden = !on;
   refreshAutoPosePanel();
@@ -272,32 +296,38 @@ function setAutoPoseMode(on) {
 }
 document.getElementById('autoPoseToggle').onclick = () => setAutoPoseMode(!autoPoseMode);
 document.getElementById('autoPoseCancel').onclick = () => setAutoPoseMode(false);
-document.getElementById('autoPoseUndo').onclick = () => { autoPoseCorr.pop(); refreshAutoPosePanel(); draw(); };
+document.getElementById('autoPoseUndo').onclick = () => {
+  const item = autoPoseCorr.pop();
+  if (item) autoPoseQueue[item.view].unshift(item.idx);
+  refreshAutoPosePanel(); draw();
+};
 
 function refreshAutoPosePanel() {
   const msg = document.getElementById('autoPoseMsg');
   const back = autoPoseCorr.filter(c => c.view === 'back').length;
   const left = autoPoseCorr.filter(c => c.view === 'left').length;
-  msg.textContent = autoPoseCorr.length < 4
-    ? `клацнуто back:${back} left:${left} - потрібно мінімум 4 (бажано з обох)`
-    : `клацнуто back:${back} left:${left} - можна розв'язувати`;
-  document.getElementById('autoPoseSolve').disabled = autoPoseCorr.length < 4;
+  const done = !autoPoseQueue.back.length && !autoPoseQueue.left.length;
+  msg.textContent = done
+    ? `клацнуто back:${back}/3 left:${left}/3 - можна розв'язувати`
+    : `клацни жовті кружечки по черзі - back:${back}/3 left:${left}/3`;
+  document.getElementById('autoPoseSolve').disabled = !done;
 }
 
 // Клік у режимі авто-доведення: НЕ вибирає точку для правки (як звичайний
-// клік), а записує кореспонденцію "найближча ІСНУЮЧА точка лінії насправді
-// повинна бути тут" - той самий findPointAt(), що й для вибору точки, плюс
-// точні фото-пікселі самого кліку (через ту саму f=pr.fit, що й розмітка).
+// клік) і НЕ шукає найближчу точку - призначається НАСТУПНОМУ орієнтиру в
+// черзі цього ракурсу (autoPoseQueue), байдуже, наскільки далеко клікнули
+// від його поточного (можливо, хибного) положення на фото.
 function recordAutoPoseClick(e) {
   if (!scene || camIndex < 0) return;
-  const best = findPointAt(e);
-  if (!best) return;
+  const view = scene.cameras[camIndex].name;
+  const queue = autoPoseQueue[view];
+  if (!queue || !queue.length) return;
+  const idx = queue.shift();
   const rect = cv.getBoundingClientRect();
   const mx = (e.clientX - rect.left) * devicePixelRatio;
   const my = (e.clientY - rect.top) * devicePixelRatio;
   const f = projector().fit;
-  autoPoseCorr.push({ view: scene.cameras[camIndex].name, idx: best.pidx,
-    img: [(mx - f.ox) / f.k, (my - f.oy) / f.k] });
+  autoPoseCorr.push({ view, idx, img: [(mx - f.ox) / f.k, (my - f.oy) / f.k] });
 }
 
 // Застосовує totals (rot/t/scale), що прийшли з сервера, ТІЄЮ Ж математикою
@@ -612,6 +642,20 @@ function drawSingle(updatePanels = true) {
         ctx.moveTo(sx, sy - r); ctx.lineTo(sx, sy + r);
         ctx.stroke();
       }
+    }
+    // Жовті кружечки - НАСТУПНИЙ орієнтир у черзі цього ракурсу, на його
+    // ПОТОЧНОМУ (можливо, хибному) положенні - лише орієнтир, куди приблизно
+    // дивитись; сам клік можна ставити будь-де на фото, не обов'язково тут.
+    const c = scene.curves[activeCurveIndex()];
+    if (c) {
+      autoPoseQueue[camName].forEach((idx, qi) => {
+        const p = pr.p(c.points[idx]);
+        if (p[2] <= 1) return;
+        const rr = (qi === 0 ? 9 : 6) * devicePixelRatio * 0.8;
+        ctx.strokeStyle = qi === 0 ? '#facc15' : '#a16207';
+        ctx.lineWidth = 2.4 * devicePixelRatio * 0.8;
+        ctx.beginPath(); ctx.arc(p[0], p[1], rr, 0, 7); ctx.stroke();
+      });
     }
   }
   if (document.getElementById('grid').checked) drawGrid(pr);
