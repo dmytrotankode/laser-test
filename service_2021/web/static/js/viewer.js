@@ -339,11 +339,12 @@ function applyAutoPoseTotals(ci, totals) {
   const cen = c.points.reduce((a, p) => [0,1,2].map(k => a[k] + p[k]), [0,0,0])
     .map(v => v / c.points.length);
   const R = rotFromDeg(totals.rot);
+  const s = totals.scale / 100;
   for (let i = 0; i < c.points.length; i++) {
     const p = c.points[i];
     const rel = [0,1,2].map(k => p[k] - cen[k]);
     const rot = [0,1,2].map(k => R[k][0]*rel[0] + R[k][1]*rel[1] + R[k][2]*rel[2]);
-    c.points[i] = [0,1,2].map(k => cen[k] + rot[k] + totals.t[k]);
+    c.points[i] = [0,1,2].map(k => cen[k] + rot[k] * s + totals.t[k]);
   }
 }
 

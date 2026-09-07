@@ -509,10 +509,14 @@ def auto_pose(name, cidx):
     """ЕКСПЕРИМЕНТАЛЬНО (варіант 3 з обговорення 2026-09-07, "авто-доведення") -
     оператор клацає кілька точок одразу на back І на left (з двох ракурсів split-
     режиму), кожен клік означає "оцю точку лінії реально видно ТУТ", і замість
-    ручного пересування панеллю рахується ОДНА жорстка поза (поворот+зсув, без
-    масштабу), що найкраще узгоджує ВСІ клацання одразу - scipy.least_squares по
+    ручного пересування панеллю рахується ОДНА жорстка поза (поворот+зсув+
+    масштаб), що найкраще узгоджує ВСІ клацання одразу - scipy.least_squares по
     репроекції, той самий принцип, що contour_fit.resid_of, тільки на вже
     ПОТОЧНИХ точках лінії (з їхніми ручними правками), а не на CAD-ободі.
+
+    Масштаб параметризовано як exp(p[6]) (завжди додатний, стартує з 1.0) -
+    множник, а не зсув, тому голий p[6]=0 без exp дав би лінійну, а не
+    мультиплікативну поведінку навколо 1.0.
 
     Навмисно ІЗОЛЬОВАНО від pipeline/contour_fit.py: не змінює оптимізатор
     підгонки, не викликається з generate(), нічого не пише на диск сама (як і
@@ -553,9 +557,10 @@ def auto_pose(name, cidx):
     img = np.array([item['img'] for item in corr], dtype=float)
     obj0 = P0[[item['idx'] for item in corr]]
 
-    def resid(p6):
-        R = cv2.Rodrigues(p6[:3])[0]
-        obj = (obj0 - center) @ R.T + center + p6[3:6]
+    def resid(p7):
+        R = cv2.Rodrigues(p7[:3])[0]
+        s = np.exp(p7[6])
+        obj = (obj0 - center) @ R.T * s + center + p7[3:6]
         out = []
         for i, view in enumerate(views):
             pc, f = cams[view]
@@ -563,10 +568,10 @@ def auto_pose(name, cidx):
             out.append(uv[0] - img[i])
         return np.concatenate(out)
 
-    r = least_squares(resid, np.zeros(6), method='lm', max_nfev=400)
+    r = least_squares(resid, np.r_[np.zeros(6), 0.0], method='lm', max_nfev=400)
     R = cv2.Rodrigues(r.x[:3])[0]
     yaw, pitch, roll = geometry.ypr_from_rot(R)
-    totals = dict(rot=[roll, pitch, yaw], t=r.x[3:6].tolist(), scale=100.0)
+    totals = dict(rot=[roll, pitch, yaw], t=r.x[3:6].tolist(), scale=float(np.exp(r.x[6]) * 100.0))
     return jsonify(totals=totals, cost=float(r.cost), n=len(corr))
 
 
