@@ -1871,6 +1871,18 @@ document.getElementById('ns_cancel').onclick = () => { document.getElementById('
 // ракурс поки не налаштовано (calib/camera_serials.json). Кнопка все одно
 // корисна вже зараз: знімає й прямо каже, скільки камер знайшла і чому не
 // змогла розкласти по back/left/top, якщо мапа порожня.
+// Спільне завершення "Новий набір" - і після ручного "Завантажити", і після
+// автозйомки (обидва кладуть фото у archive/<name>/, далі однаково).
+async function _finishNewSet(name) {
+  if (document.getElementById('ns_pending').checked) {
+    await fetch(`/api/pending/${name}`, { method: 'POST' });
+  }
+  document.getElementById('newsetOverlay').hidden = true;
+  document.getElementById('rawname').value = name;
+  await refreshWizard();
+  wizExpand(2);
+}
+
 document.getElementById('ns_capture').onclick = async () => {
   const msg = document.getElementById('ns_capture_msg');
   const name = document.getElementById('ns_name').value.trim();
@@ -1884,6 +1896,12 @@ document.getElementById('ns_capture').onclick = async () => {
     const j = await r.json();
     if (!r.ok) { msg.textContent = 'помилка: ' + (j.error || r.status); return; }
     msg.textContent = `знято автоматично: ${j.saved.join(', ')}`;
+    // Автозйомка вже поклала фото на диск (archive/<name>/) - "Завантажити"
+    // тут більше нічого не робить (ручні поля файлів так і лишаються
+    // порожні), тому одразу завершуємо набір сама, без другого кліку.
+    // Реальний звіт: кнопка "Завантажити" не пускала далі саме тому, що
+    // жодного файлу в полях вибору не було.
+    await _finishNewSet(name);
   } catch (e) {
     msg.textContent = 'помилка: ' + e;
   } finally {
@@ -1912,14 +1930,8 @@ document.getElementById('ns_upload').onclick = async () => {
     if (!r.ok) { msg.textContent = `помилка (${kind}): ` + (j.error || r.status); return; }
     done.push(j.saved);
   }
-  if (document.getElementById('ns_pending').checked) {
-    await fetch(`/api/pending/${name}`, { method: 'POST' });
-  }
   msg.textContent = `завантажено: ${done.join(', ')}`;
-  document.getElementById('newsetOverlay').hidden = true;
-  document.getElementById('rawname').value = name;
-  await refreshWizard();
-  wizExpand(2);
+  await _finishNewSet(name);
 };
 
 // Немає реального потоку прогресу з бекенду (один блокуючий POST) - секундомір
