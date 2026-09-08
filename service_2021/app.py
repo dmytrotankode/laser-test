@@ -1072,6 +1072,86 @@ def upload(name, kind):
     return jsonify(status='ok', saved=f'{kind}.png', shape=list(img.shape))
 
 
+CAMERA_SERIALS_PATH = os.path.join(BASE, 'calib', 'camera_serials.json')
+
+
+@app.route('/api/capture/<name>', methods=['POST'])
+def capture(name):
+    """"Зробити фото автоматично" (обговорено 2026-09-07) - запускає
+    capture/run.py (ДООПРАЦЬОВАНА КОПІЯ кореневого capture.py, сам він не
+    чіпається) окремим процесом, забирає готові кадри й розкладає по
+    archive/<name>/back.png тощо - за тим самим правилом, що й ручне
+    завантаження (upload() вище), просто без ручного вибору файлу.
+
+    Camera -> ракурс береться з calib/camera_serials.json (заповнюється
+    один раз фізичною перевіркою на машині оператора - серійники поки
+    невідомі, тому цей маршрут працює й БЕЗ них: знімає, показує, що знайшов,
+    але не може розкласти по back/left/top, поки мапу не заповнено).
+
+    НІКОЛИ не валить сервер - будь-яка проблема (SDK відсутній, камер
+    менше, ніж треба, помилка окремої камери) повертається текстом
+    оператору, а не винятком.
+    """
+    name = _safe_name(name)
+    if _name_status(name)['calculated']:
+        return jsonify(error=f"«{name}» вже порахований - зйомка сюди "
+                             f"заборонена, щоб не переписати готову роботу"), 409
+
+    import tempfile
+    out_dir = tempfile.mkdtemp(prefix=f'capture_{name}_')
+    result_path = os.path.join(out_dir, 'result.json')
+    entry = os.path.join(BASE, 'capture', 'run.py')
+    try:
+        r = subprocess.run([sys.executable, entry, '--out', out_dir, '--result', result_path],
+                            capture_output=True, text=True, timeout=60)
+        if not os.path.exists(result_path):
+            return jsonify(error='Скрипт зйомки не відповів коректно: '
+                                 + (r.stderr or r.stdout or 'немає виводу')[-1500:]), 500
+        with open(result_path, encoding='utf-8') as f:
+            result = json.load(f)
+        if result.get('error'):
+            return jsonify(error=result['error']), 500
+
+        with open(CAMERA_SERIALS_PATH, encoding='utf-8') as f:
+            serial_map = json.load(f)
+        serial_to_view = {v: k for k, v in serial_map.items() if k != '_comment' and v}
+
+        found = {}         # ракурс -> шлях до тимчасового файлу
+        unmapped = []       # знято, але серійник не в мапі (чи мапа порожня)
+        for cam in result['cameras']:
+            if not cam.get('ok'):
+                continue
+            view = serial_to_view.get(cam['serial'])
+            if view:
+                found[view] = os.path.join(out_dir, cam['file'])
+            else:
+                unmapped.append(cam['serial'])
+
+        missing = [v for v in ('back', 'left', 'top') if v not in found]
+        if missing:
+            if not serial_to_view:
+                msg = (f"Знято камер: {len(result['cameras'])}, але зіставлення camera -> "
+                       f"ракурс ще не налаштоване (calib/camera_serials.json) - розкласти "
+                       f"по back/left/top автоматично не можу. Серійники знятих камер: "
+                       + ', '.join(c['serial'] for c in result['cameras'] if c.get('ok')))
+            else:
+                msg = f"Не знайдено камеру для ракурсу: {', '.join(missing)}. Перевірте з'єднання."
+                if unmapped:
+                    msg += f" (знято, але не впізнано серійники: {', '.join(unmapped)})"
+            return jsonify(error=msg), 409
+
+        from pipeline import generate as gen
+        dst_dir = os.path.join(gen.ARCHIVE, name)
+        os.makedirs(dst_dir, exist_ok=True)
+        for view, src in found.items():
+            shutil.copyfile(src, os.path.join(dst_dir, f'{view}.png'))
+        return jsonify(status='ok', saved=list(found.keys()))
+    except subprocess.TimeoutExpired:
+        return jsonify(error='Зйомка не відповіла за 60с - перевірте з\'єднання з камерами'), 504
+    finally:
+        shutil.rmtree(out_dir, ignore_errors=True)
+
+
 PENDING_PATH = os.path.join(BASE, 'data', 'pending.json')
 
 

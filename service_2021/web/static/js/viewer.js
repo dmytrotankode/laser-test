@@ -1867,6 +1867,30 @@ async function openNewSet() {
 document.getElementById('newsetopen').onclick = openNewSet;
 document.getElementById('ns_cancel').onclick = () => { document.getElementById('newsetOverlay').hidden = true; };
 
+// Автозйомка (обговорено 2026-09-07) - камери на машині оператора, camera->
+// ракурс поки не налаштовано (calib/camera_serials.json). Кнопка все одно
+// корисна вже зараз: знімає й прямо каже, скільки камер знайшла і чому не
+// змогла розкласти по back/left/top, якщо мапа порожня.
+document.getElementById('ns_capture').onclick = async () => {
+  const msg = document.getElementById('ns_capture_msg');
+  const name = document.getElementById('ns_name').value.trim();
+  if (!name) { msg.textContent = "спершу вкажіть назву набору"; return; }
+  await checkNsName();
+  if (_nsTaken) { msg.textContent = `«${name}» вже порахований - оберіть іншу назву`; return; }
+  const btn = document.getElementById('ns_capture');
+  btn.disabled = true; msg.textContent = 'знімаю...';
+  try {
+    const r = await fetch(`/api/capture/${name}`, { method: 'POST' });
+    const j = await r.json();
+    if (!r.ok) { msg.textContent = 'помилка: ' + (j.error || r.status); return; }
+    msg.textContent = `знято автоматично: ${j.saved.join(', ')}`;
+  } catch (e) {
+    msg.textContent = 'помилка: ' + e;
+  } finally {
+    btn.disabled = false;
+  }
+};
+
 document.getElementById('ns_upload').onclick = async () => {
   const msg = document.getElementById('ns_msg');
   const name = document.getElementById('ns_name').value.trim();
