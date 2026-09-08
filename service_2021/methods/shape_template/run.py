@@ -1,7 +1,9 @@
-"""Метод 2 (обговорено 2026-09-08, доопрацьовано 2026-09-08 за реальним
-тестуванням) - береться ГОТОВИЙ еталонний .LS для однієї з двох відомих
-форм заготовки (archive/v1 або archive/v4) і підганяється під розмітку
-лінії згину (крок 2) двома ракурсами (back+left).
+"""Метод 2 (обговорено 2026-09-08, доопрацьовано 2026-09-08 і 2026-09-09 за
+реальним тестуванням) - береться ГОТОВИЙ еталонний .LS для однієї з двох
+відомих форм заготовки (яка саме archive/vN відповідає якій формі -
+calib/shape_templates.json, НЕ f'v{shape}' - форма "4" це archive/v22 чи
+v23, а не v4) і підганяється під розмітку лінії згину (крок 2) двома
+ракурсами (back+left).
 
 Контракт (той самий, що й для будь-якого методу) + один додатковий параметр:
     python run.py --variant <ім'я> --in <папка> --out <шлях до .LS> --shape <1|4>
@@ -28,6 +30,7 @@
     само, як у Методі 1, без жодної спеціальної логіки саме під пірсинг.
 """
 import argparse
+import json
 import os
 import sys
 
@@ -65,10 +68,19 @@ def main():
     calib_dir = os.path.join(gen.CALIB, 'cameras', recipe['camera_calibration'])
     cams = contour_fit.marker_cams(calib_dir)
 
-    ref_variant = f'v{args.shape}'
+    # НЕ f'v{shape}' - реальна плутанина: "форма 4" це archive/v22 (чи v23),
+    # а не archive/v4 (v4 - насправді форма 1, як і майже все інше в
+    # архіві). Мапа - calib/shape_templates.json.
+    shape_map_path = os.path.join(SERVICE_ROOT, 'calib', 'shape_templates.json')
+    with open(shape_map_path, encoding='utf-8') as f:
+        shape_map = json.load(f)
+    ref_variant = shape_map.get(args.shape)
+    if not ref_variant:
+        print(f'Немає еталона для форми {args.shape} у {shape_map_path}', file=sys.stderr)
+        sys.exit(1)
     ref_path = os.path.join(gen.ARCHIVE, ref_variant, 'ground_truth.ls')
     if not os.path.exists(ref_path):
-        print(f'Немає еталонного файлу для форми {args.shape}: {ref_path}', file=sys.stderr)
+        print(f'Еталонний файл для форми {args.shape} ({ref_variant}) не знайдено: {ref_path}', file=sys.stderr)
         sys.exit(1)
 
     prog = geometry.load(ref_path)
