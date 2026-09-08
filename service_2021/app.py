@@ -904,7 +904,11 @@ def _stage_method_input(variant):
     return d
 
 
-def _run_method(method_id, variant, out_path):
+def _run_method(method_id, variant, out_path, params=None):
+    """params - додаткові, СВОЇ для конкретного методу аргументи (напр.
+    Метод 2 потребує обрану форму заготовки - схема оголошена в
+    calib/methods.json під "params", тут лише передається далі в CLI як
+    --<name> <значення>, без жодного знання про конкретні методи."""
     methods = {m['id']: m for m in _load_methods()}
     m = methods.get(method_id)
     if not m:
@@ -913,6 +917,11 @@ def _run_method(method_id, variant, out_path):
     in_dir = _stage_method_input(variant)
     try:
         cmd = [sys.executable, entry, '--variant', variant, '--in', in_dir, '--out', out_path]
+        for spec in m.get('params', []):
+            val = (params or {}).get(spec['name'])
+            if val is None or val == '':
+                raise ValueError(f'{m["name"]}: не вказано параметр "{spec.get("label", spec["name"])}"')
+            cmd += [f'--{spec["name"]}', str(val)]
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         if r.returncode != 0 or not os.path.exists(out_path):
             raise RuntimeError(f'{m["name"]} впав: {(r.stderr or r.stdout)[-2000:]}')
@@ -936,7 +945,7 @@ def generate_ls(name):
     from pipeline import generate as gen
     out_path = os.path.join(BASE, 'data', 'generated', f'{name}_{method_id}.LS')
     try:
-        ls_path = _run_method(method_id, name, out_path)
+        ls_path = _run_method(method_id, name, out_path, params=d.get('params'))
     except Exception as e:
         return jsonify(error=str(e)), 400
     _save_last_method(method_id)

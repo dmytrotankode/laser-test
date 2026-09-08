@@ -1975,8 +1975,9 @@ document.getElementById('dogenerate').onclick = async () => {
   msg.textContent = 'рахую...';
   try {
     const method = document.getElementById('methodSelect').value;
+    const params = collectMethodParams();
     const r = await fetch(`/api/generate/${name}`, { method: 'POST',
-      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method }) });
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, params }) });
     const j = await r.json();
     if (!r.ok) { msg.textContent = 'помилка: ' + (j.error || r.status); return; }
     msg.textContent = `готово: ${j.file}`;
@@ -2012,16 +2013,53 @@ async function reloadSceneList() {
 // Модульність методів розрахунку (обговорено 2026-09-07) - список тягнеться
 // з calib/methods.json через сервер, вибір за замовчуванням - останній
 // використаний (сервер сам це пам'ятає, тут лише виставляємо select).
+let _methodsById = {};
+
+// Деякі методи мають власні додаткові параметри (напр. Метод 2 - яку форму
+// заготовки взяти за еталон) - схема приходить із calib/methods.json
+// ("params"), тут лише узагальнено відмальовується select/input під кожен
+// оголошений параметр, без жодного коду, специфічного саме для Методу 2.
+function renderMethodParams() {
+  const box = document.getElementById('methodParams');
+  box.innerHTML = '';
+  const m = _methodsById[document.getElementById('methodSelect').value];
+  const params = (m && m.params) || [];
+  box.hidden = !params.length;
+  for (const p of params) {
+    const row = document.createElement('div');
+    row.className = 'prow';
+    if (p.type === 'select') {
+      row.innerHTML = `<b>${p.label}</b><select data-param="${p.name}">`
+        + p.options.map(o => `<option value="${o}">${o}</option>`).join('') + '</select>';
+    } else {
+      row.innerHTML = `<b>${p.label}</b><input data-param="${p.name}">`;
+    }
+    box.appendChild(row);
+  }
+}
+
+function collectMethodParams() {
+  const out = {};
+  document.querySelectorAll('#methodParams [data-param]').forEach(el => {
+    out[el.dataset.param] = el.value;
+  });
+  return out;
+}
+
 async function loadMethods() {
   const j = await (await fetch('/api/methods')).json();
   const sel = document.getElementById('methodSelect');
   sel.innerHTML = '';
+  _methodsById = {};
   for (const m of j.methods) {
+    _methodsById[m.id] = m;
     const o = document.createElement('option');
     o.value = m.id; o.textContent = m.name;
     sel.appendChild(o);
   }
   if (j.default) sel.value = j.default;
+  sel.onchange = renderMethodParams;
+  renderMethodParams();
 }
 
 (async () => {
