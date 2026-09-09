@@ -1004,6 +1004,11 @@ function layerRow(name, color, key, defaultOn = true) {
 
 async function loadScene(name) {
   setSplitMode(false);   // нова сцена - інші індекси камер, pane2.camIdx з попередньої більше не діє
+  // Повідомлення "готово: <файл>" від "Вивантажити .LS" стосується КОНКРЕТНОГО
+  // набору - реальний звіт користувача: перейшов на інший (раніше рахований)
+  // набір, побачив те саме повідомлення від попереднього і скачав його файл
+  // ще раз, переплутавши. Тому чистимо його щоразу, коли міняється сцена.
+  document.getElementById('exportmsg').innerHTML = '';
   scene = await (await fetch('/api/scene/' + name)).json();
   sceneName = name;
   scene.curves = scene.curves || []; scene.points = scene.points || [];
@@ -2023,7 +2028,7 @@ async function openSavedOverlay() {
   box.innerHTML = list.map(s => `
     <label class="saved_row">
       <input type="checkbox" data-saved="${s.name}">
-      <span class="nm">${s.name}${s.note ? ' — ' + s.note : ''}</span>
+      <span class="nm">${s.name}</span>
     </label>`).join('') || '<div class="muted" style="font-size:12px">немає порахованих наборів</div>';
   document.getElementById('saved_msg').textContent = '';
 }
@@ -2037,7 +2042,7 @@ document.getElementById('saved_delete').onclick = async () => {
   const names = [...document.querySelectorAll('#savedList [data-saved]:checked')].map(cb => cb.dataset.saved);
   const msg = document.getElementById('saved_msg');
   if (!names.length) { msg.textContent = 'нічого не вибрано'; return; }
-  if (!confirm(`Ви точно хочете видалити? Це не можна скасувати. Кількість наборів: ${names.length}`)) return;
+  if (!confirm(`Ви точно хочете видалити? Кількість наборів: ${names.length}`)) return;
   msg.textContent = 'видалення...';
   try {
     await fetch('/api/scenes/delete', {
@@ -2074,7 +2079,7 @@ function renderMethodParams() {
     const row = document.createElement('div');
     row.className = 'prow';
     if (p.type === 'select') {
-      row.innerHTML = `<b>${p.label}</b><select data-param="${p.name}" style="flex:none;width:60px">`
+      row.innerHTML = `<b style="width:auto;margin-right:8px">${p.label}</b><select data-param="${p.name}" style="flex:none;width:60px">`
         + p.options.map(o => `<option value="${o}">${o}</option>`).join('') + '</select>';
     } else {
       row.innerHTML = `<b>${p.label}</b><input data-param="${p.name}">`;
