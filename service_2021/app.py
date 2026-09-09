@@ -958,7 +958,14 @@ def generate_ls(name):
     cams = {v: os.path.join(calib_dir, f'cam_{v}.npy') for v in ('back', 'left', 'top')}
     photo_dir = os.path.join(gen.ARCHIVE, name)
     photos = {v: os.path.join(photo_dir, f'{v}.png') for v in ('back', 'left', 'top')}
-    build_scene.build(name, ls_path, cams, photos)
+    # Якщо оператор при додаванні набору завантажив еталонний .LS
+    # (archive/<name>/ground_truth.ls, kind=reference) - показати його в
+    # Об'єктах поруч із розрахунком (build_scene.build уже вміє це, просто
+    # тут раніше не передавали шлях).
+    reference_path = os.path.join(photo_dir, 'ground_truth.ls')
+    if not os.path.exists(reference_path):
+        reference_path = None
+    build_scene.build(name, ls_path, cams, photos, reference_path=reference_path)
 
     # Запам'ятати, яким методом порахований САМЕ ЦЕЙ набір - у scene.json,
     # окремо від "останній обраний глобально" (last_method.json вище).

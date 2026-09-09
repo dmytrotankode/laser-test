@@ -19,7 +19,8 @@ function freshTplTotals() { return { rot: [0, 0, 0], t: [0, 0, 0], scale: 100 };
 const M = { img: new Image(), scale: 0.25, ox: 0, oy: 0, manual: [],
            drag: null, variant: null, view: null, touched: false, drawing: false,
            auto: null, tplTotals: freshTplTotals(), refFull: null,
-           startTotals: freshTplTotals(), lastAppliedTotals: null };
+           startTotals: freshTplTotals(), lastAppliedTotals: null,
+           brightness: 100, contrast: 100 };
 const $m = id => document.getElementById(id);
 
 // Середні totals з попередніх розміток цього ракурсу (/api/mark/avg_totals) -
@@ -64,7 +65,11 @@ function mdraw() {
   mctx.fillRect(0, 0, mcv.width, mcv.height);
   if (!M.img.width) return;
   mctx.imageSmoothingEnabled = M.scale < 1;
+  if (M.brightness !== 100 || M.contrast !== 100) {
+    mctx.filter = `brightness(${M.brightness}%) contrast(${M.contrast}%)`;
+  }
   mctx.drawImage(M.img, M.ox, M.oy, M.img.width * M.scale, M.img.height * M.scale);
+  mctx.filter = 'none';
 
   // Жовта чернетка - гладкий контур CAD-обода на номінальній позі (без
   // підгонки, /api/mark/template), а не шумна піксельна трасування. Яскрава
@@ -341,6 +346,16 @@ $m('mclear').addEventListener('click', () => {
   mstatus('вашу лінію очищено (на диску лишилась, доки не збережете)');
 });
 $m('mfit').addEventListener('click', () => { M.touched = false; mresize(true); });
+$m('ma_bright').oninput = e => {
+  M.brightness = +e.target.value;
+  $m('ma_brightval').textContent = M.brightness + '%';
+  mdraw();
+};
+$m('ma_contrast').oninput = e => {
+  M.contrast = +e.target.value;
+  $m('ma_contrastval').textContent = M.contrast + '%';
+  mdraw();
+};
 
 // Крок - той самий 0.1/1/5/10, що й у груповій правці лінії різу (viewer.js),
 // використовується напряму як мм (зсув), градуси (поворот) чи % (масштаб) -
