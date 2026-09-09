@@ -3,12 +3,14 @@
   "methods": [
     {
       "id": "production",
-      "name": "Метод 1 (виробничий - підбір сусіда з архіву)",
+      "name": "Метод 1",
+      "_desc": "виробничий - підбір сусіда з архіву",
       "entry": "methods/production/run.py"
     },
     {
       "id": "shape_template",
-      "name": "Метод 2 (шаблон форми 1/4 - лише масштаб і зсув по розмітці)",
+      "name": "Метод 2",
+      "_desc": "шаблон форми 1/4 - поворот+масштаб+зсув по розмітці лінії згину",
       "entry": "methods/shape_template/run.py",
       "params": [
         {"name": "shape", "label": "Форма заготовки", "type": "select", "options": ["1", "4"]}

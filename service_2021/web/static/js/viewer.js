@@ -1766,7 +1766,7 @@ async function refreshWizard() {
     .map(v => `<div>${st.photos[v] ? '✓' : '✗'} фото ${v}</div>`).join('');
   const allPhotos = st.photos.back && st.photos.left && st.photos.top;
   w2.className = 'wmark ' + (st.calculated ? 'ok' : (allPhotos ? '' : 'bad'));
-  w2.textContent = st.calculated ? 'порахована' : (allPhotos ? 'готово рахувати' : 'бракує фото');
+  w2.textContent = st.calculated ? 'розрахована' : (allPhotos ? 'готово рахувати' : 'бракує фото');
 
   // Розмітка НЕОБОВ'ЯЗКОВА (2026-08-29) - на виробництві 300 шлемів/день,
   // 3 хвилини на ручну розмітку кожного зверху ще й доведення - забагато.
@@ -2000,7 +2000,7 @@ function rebuildSceneSelect(list) {
   sel.innerHTML = '';
   for (const s of list) {
     const o = document.createElement('option');
-    o.value = s.name; o.textContent = `${s.name} — ${s.note || ''}`;
+    o.value = s.name; o.textContent = s.name;
     sel.appendChild(o);
   }
 }
@@ -2037,7 +2037,7 @@ document.getElementById('saved_delete').onclick = async () => {
   const names = [...document.querySelectorAll('#savedList [data-saved]:checked')].map(cb => cb.dataset.saved);
   const msg = document.getElementById('saved_msg');
   if (!names.length) { msg.textContent = 'нічого не вибрано'; return; }
-  if (!confirm(`Видалити ${names.length} набір(и/ів) назавжди? Це не можна скасувати.`)) return;
+  if (!confirm(`Ви точно хочете видалити? Це не можна скасувати. Кількість наборів: ${names.length}`)) return;
   msg.textContent = 'видалення...';
   try {
     await fetch('/api/scenes/delete', {
@@ -2074,7 +2074,7 @@ function renderMethodParams() {
     const row = document.createElement('div');
     row.className = 'prow';
     if (p.type === 'select') {
-      row.innerHTML = `<b>${p.label}</b><select data-param="${p.name}">`
+      row.innerHTML = `<b>${p.label}</b><select data-param="${p.name}" style="flex:none;width:60px">`
         + p.options.map(o => `<option value="${o}">${o}</option>`).join('') + '</select>';
     } else {
       row.innerHTML = `<b>${p.label}</b><input data-param="${p.name}">`;
