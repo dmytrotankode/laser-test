@@ -356,6 +356,12 @@ $m('ma_contrast').oninput = e => {
   $m('ma_contrastval').textContent = M.contrast + '%';
   mdraw();
 };
+$m('ma_reset').onclick = () => {
+  M.brightness = 100; M.contrast = 100;
+  $m('ma_bright').value = 100; $m('ma_contrast').value = 100;
+  $m('ma_brightval').textContent = '100%'; $m('ma_contrastval').textContent = '100%';
+  mdraw();
+};
 
 // Крок - той самий 0.1/1/5/10, що й у груповій правці лінії різу (viewer.js),
 // використовується напряму як мм (зсув), градуси (поворот) чи % (масштаб) -

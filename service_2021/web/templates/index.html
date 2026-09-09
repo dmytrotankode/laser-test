@@ -368,10 +368,6 @@
     <h1>Розмітка лінії згину</h1>
     <button id="mfit">Вписати у вікно</button>
     <button id="mregen">Згенерувати шаблон</button>
-    <div style="margin:8px 0">
-      <div class="prow"><b style="width:78px">Яскравість</b><input type="range" id="ma_bright" min="50" max="200" value="100" style="flex:1"><span id="ma_brightval" style="width:38px;text-align:right;font-family:monospace;font-size:11px">100%</span></div>
-      <div class="prow"><b style="width:78px">Контраст</b><input type="range" id="ma_contrast" min="50" max="200" value="100" style="flex:1"><span id="ma_contrastval" style="width:38px;text-align:right;font-family:monospace;font-size:11px">100%</span></div>
-    </div>
     <div id="autoAdjBox" hidden>
       <h2>Автолінія (чернетка)</h2>
       <p class="muted" style="margin:0 0 8px">Жовта лінія - шаблонна форма моделі. Підправте і
@@ -390,6 +386,10 @@
       <button id="mclear" style="flex:0 0 32%">Очистити</button>
     </div>
     <div id="mstatus" class="muted" style="min-height:32px;margin-top:8px"></div>
+    <h2>Яскравість/контраст фото</h2>
+    <div class="prow"><b style="width:78px">Яскравість</b><input type="range" id="ma_bright" min="50" max="200" value="100" style="flex:1"><span id="ma_brightval" style="width:38px;text-align:right;font-family:monospace;font-size:11px">100%</span></div>
+    <div class="prow"><b style="width:78px">Контраст</b><input type="range" id="ma_contrast" min="50" max="200" value="100" style="flex:1"><span id="ma_contrastval" style="width:38px;text-align:right;font-family:monospace;font-size:11px">100%</span></div>
+    <button id="ma_reset">Скинути</button>
     <button id="mclose" style="margin-top:10px">Закрити й повернутись</button>
   </div>
   <div id="markMain">
