@@ -2024,6 +2024,7 @@ async function openSavedOverlay() {
   document.getElementById('saved_all').checked = false;
   document.getElementById('saved_msg').textContent = 'завантаження...';
   const list = await reloadSceneList();
+  document.getElementById('saved_count').textContent = `Всього наборів: ${list.length}`;
   const box = document.getElementById('savedList');
   box.innerHTML = list.map(s => `
     <label class="saved_row">
