@@ -2010,6 +2010,51 @@ async function reloadSceneList() {
   return list;
 }
 
+// ------------------------------------------------------- модалка "Збережені набори"
+// Керування (перегляд + видалення) вже порахованих наборів - той самий
+// список, що й у дропдауні "1. Набір", просто з чекбоксами й кнопкою
+// видалення. Підтвердження з кількістю - бо видалення остаточне.
+async function openSavedOverlay() {
+  document.getElementById('savedOverlay').hidden = false;
+  document.getElementById('saved_all').checked = false;
+  document.getElementById('saved_msg').textContent = 'завантаження...';
+  const list = await reloadSceneList();
+  const box = document.getElementById('savedList');
+  box.innerHTML = list.map(s => `
+    <label class="saved_row">
+      <input type="checkbox" data-saved="${s.name}">
+      <span class="nm">${s.name}${s.note ? ' — ' + s.note : ''}</span>
+    </label>`).join('') || '<div class="muted" style="font-size:12px">немає порахованих наборів</div>';
+  document.getElementById('saved_msg').textContent = '';
+}
+
+document.getElementById('savedOpen').onclick = openSavedOverlay;
+document.getElementById('saved_close').onclick = () => { document.getElementById('savedOverlay').hidden = true; };
+document.getElementById('saved_all').onchange = e => {
+  document.querySelectorAll('#savedList [data-saved]').forEach(cb => { cb.checked = e.target.checked; });
+};
+document.getElementById('saved_delete').onclick = async () => {
+  const names = [...document.querySelectorAll('#savedList [data-saved]:checked')].map(cb => cb.dataset.saved);
+  const msg = document.getElementById('saved_msg');
+  if (!names.length) { msg.textContent = 'нічого не вибрано'; return; }
+  if (!confirm(`Видалити ${names.length} набір(и/ів) назавжди? Це не можна скасувати.`)) return;
+  msg.textContent = 'видалення...';
+  try {
+    await fetch('/api/scenes/delete', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ names })
+    });
+  } catch (e) {
+    msg.textContent = 'помилка: ' + e;
+    return;
+  }
+  if (names.includes(currentTargetName())) {
+    document.getElementById('rawname').value = '';
+  }
+  await openSavedOverlay();
+  await refreshWizard();
+};
+
 // Модульність методів розрахунку (обговорено 2026-09-07) - список тягнеться
 // з calib/methods.json через сервер, вибір за замовчуванням - останній
 // використаний (сервер сам це пам'ятає, тут лише виставляємо select).

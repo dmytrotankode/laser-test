@@ -78,6 +78,36 @@ def scenes():
     return jsonify(out)
 
 
+@app.route('/api/scenes/delete', methods=['POST'])
+def scenes_delete():
+    """Остаточне видалення набору(ів) з модалки "Збережені набори" (крок 1) -
+    прибирає все, що з набором пов'язано: архівні фото, сцену, розмітку,
+    згенеровані .LS. Підтвердження - на клієнті, тут вже без питань."""
+    from pipeline import generate as gen
+    names = [_safe_name(n) for n in (request.get_json(force=True) or {}).get('names', [])]
+    deleted = []
+    for name in names:
+        for d in (os.path.join(gen.ARCHIVE, name), os.path.join(scene.SCENES, name)):
+            if os.path.isdir(d):
+                shutil.rmtree(d)
+        for v in ('back', 'left'):
+            p = os.path.join(BASE, 'lines', f'{name}_{v}.json')
+            if os.path.exists(p):
+                os.remove(p)
+        gen_dir = os.path.join(BASE, 'data', 'generated')
+        if os.path.isdir(gen_dir):
+            for f in os.listdir(gen_dir):
+                if f == f'{name}.LS' or f.startswith(f'{name}_'):
+                    os.remove(os.path.join(gen_dir, f))
+        pending = _load_pending()
+        if name in pending:
+            pending.remove(name)
+            with open(PENDING_PATH, 'w', encoding='utf-8') as f:
+                json.dump(pending, f, ensure_ascii=False)
+        deleted.append(name)
+    return jsonify(status='ok', deleted=deleted)
+
+
 @app.route('/api/pipeline/status/<name>')
 def pipeline_status(name):
     """Для кроків 2-3 мастер-панелі: що вже є для цього варіанта на диску, а

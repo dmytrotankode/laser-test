@@ -70,6 +70,21 @@
   #calcText { color:#dbe3ef; font-size:14px; text-align:center; max-width:340px;
               white-space:pre-line; line-height:1.5; }
 
+  /* модалка "Збережені набори" - керування (видалення) вже порахованих
+     наборів; той самий центрований-по-екрану патерн, що й #newsetOverlay. */
+  #savedOverlay { position:fixed; inset:0; z-index:60; display:flex;
+                  align-items:center; justify-content:center; background:rgba(5,8,14,.72); }
+  #savedOverlay[hidden] { display:none; }
+  #savedBox { width:420px; max-height:80vh; overflow:auto; padding:16px;
+              background:#111827; border:1px solid #2b3648; border-radius:10px; }
+  #savedList { max-height:50vh; overflow:auto; margin:10px 0; }
+  .saved_row { display:flex; align-items:center; gap:8px; padding:4px 0;
+               border-bottom:1px solid #1f2937; font-size:13px; }
+  .saved_row .nm { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #scenesRow { display:flex; align-items:center; gap:6px; }
+  #scenesRow select { flex:1; }
+  #savedOpen { flex:none; width:auto; padding:6px 9px; font-size:15px; line-height:1; }
+
   /* модалка "новий набір" - навмисно окрема від того, що зараз завантажено */
   #newsetOverlay { position:fixed; inset:0; z-index:60; display:flex;
                    align-items:center; justify-content:center; background:rgba(5,8,14,.72); }
@@ -189,7 +204,10 @@
       <div class="wstep" id="wstep-1">
         <button class="whead" data-step="1">1. Набір <span class="wmark" id="w1mark"></span></button>
         <div class="wbody">
-          <select id="scenes"></select>
+          <div id="scenesRow">
+            <select id="scenes"></select>
+            <button id="savedOpen" title="Збережені набори - перегляд і видалення">🗂</button>
+          </div>
           <input id="rawname" type="hidden" value="">
 
           <div id="pendingBox" style="margin:4px 0 8px"></div>
@@ -354,11 +372,26 @@
     <div class="ns_row"><b>еталон .LS</b><input type="file" id="ns_ref"></div>
     <p style="color:#7c8aa0;font-size:11px;margin:2px 0 10px">* обов'язкові для розрахунку; еталон - необов'язково,
       якщо є записана раніше програма для цих самих фото.</p>
-    <label><input type="checkbox" id="ns_pending"> запам'ятати цей набір у списку</label>
+    <label><input type="checkbox" id="ns_pending"> показувати в списку "в процесі", поки не порахований</label>
     <div id="ns_msg" style="color:#7c8aa0;font-size:12px;min-height:32px;margin-top:4px"></div>
     <div style="display:flex;gap:6px">
       <button id="ns_upload" style="flex:1">Завантажити</button>
       <button id="ns_cancel" style="flex:0 0 32%">Скасувати</button>
+    </div>
+  </div>
+</div>
+
+<div id="savedOverlay" hidden>
+  <div id="savedBox">
+    <h2 style="text-transform:none;font-size:15px;color:#dbe3ef;letter-spacing:0;margin:0 0 4px">Збережені набори</h2>
+    <p style="color:#7c8aa0;font-size:12px;margin:0 0 8px">Видалення прибирає фото, сцену, розмітку і згенеровані
+      .LS цього набору назавжди - скасувати не можна.</p>
+    <label style="font-size:12px;color:#9fb0c7"><input type="checkbox" id="saved_all"> вибрати всі</label>
+    <div id="savedList"></div>
+    <div id="saved_msg" style="color:#7c8aa0;font-size:12px;min-height:16px"></div>
+    <div style="display:flex;gap:6px">
+      <button id="saved_delete" style="flex:1;background:#7f1d1d;border-color:#991b1b">Видалити вибрані</button>
+      <button id="saved_close" style="flex:0 0 32%">Закрити</button>
     </div>
   </div>
 </div>
