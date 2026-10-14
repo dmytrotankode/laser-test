@@ -329,6 +329,8 @@ def main():
         x = solve(targets, x, visible(P))
 
     final = shape(x)
+    out_dir = os.path.dirname(args.out) or '.'
+    os.makedirs(out_dir, exist_ok=True)       # до картинки: інакше в новій установці її нікуди писати
     try:
         save_debug(args.out + '.debug.jpg', args.in_dir, cams, marks, targets['top'], start, final)
     except Exception as e:                  # картинка - лише для перегляду, розрахунок не ламає
@@ -348,8 +350,6 @@ def main():
             X = rigid(xr, np.asarray(dict(zip(ids_full, cut_full))[point_id])[None])[0]
         return X + geometry.NOMINAL_STANDOFF * np.asarray(axis_by_id[point_id])
 
-    out_dir = os.path.dirname(args.out) or '.'
-    os.makedirs(out_dir, exist_ok=True)
     tmp_out = ls_template.write_ls(ref_path, out_dir, point_fn, f'method4_{args.variant}')
     if tmp_out != args.out:
         os.replace(tmp_out, args.out)
