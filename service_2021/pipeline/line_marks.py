@@ -30,6 +30,9 @@ def load_marks():
         if len(pts) < 3:
             continue
         variant, view = _mark_name(os.path.basename(f)[:-5])
-        p = np.array(sorted(pts, key=lambda q: q[0]), float)
+        # У ПОРЯДКУ ПРОВЕДЕННЯ, не сортувати за x: лінія навколо вуха не
+        # монотонна за x, сортування робило з неї зигзаг (resample() далі
+        # іде вздовж ламаної). Інтерфейс зберігає саме порядок проведення.
+        p = np.array(pts, float)
         out.setdefault(variant, {})[view] = p
     return out

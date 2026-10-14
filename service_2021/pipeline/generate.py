@@ -35,6 +35,46 @@ def load_recipe(name):
         return json.load(f)
 
 
+# Який рецепт (= розстановка камер + калібровка + еталони) у якого набору.
+# 30.09.2026 стенд переставили (шолом 180°, камера back на інший бік) - фото
+# до і після знято різними камерами в різній системі координат, тому рецепт -
+# властивість НАБОРУ, а не процесу: записується в archive/<набір>/recipe.txt
+# при створенні набору і далі не змінюється. Набір без цього файлу - старий
+# (усі набори до 14.10.2026), йому лишається LEGACY_RECIPE.
+LEGACY_RECIPE = 'production_2026-08-27'
+ACTIVE = os.path.join(CALIB, 'recipes', 'active.json')
+
+
+def new_set_recipe():
+    """Рецепт для наборів, що створюються зараз (calib/recipes/active.json)."""
+    with open(ACTIVE, encoding='utf-8') as f:
+        return json.load(f)['new_sets']
+
+
+def recipe_name_for(variant):
+    p = os.path.join(ARCHIVE, variant or '', 'recipe.txt') if variant else None
+    if p and os.path.exists(p):
+        with open(p, encoding='utf-8') as f:
+            name = f.read().strip()
+        if name:
+            return name
+    return LEGACY_RECIPE
+
+
+def stamp_recipe(variant):
+    """Закріпити поточний рецепт за НОВИМ набором (якщо ще не закріплено)."""
+    p = os.path.join(ARCHIVE, variant, 'recipe.txt')
+    if not os.path.exists(p):
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, 'w', encoding='utf-8') as f:
+            f.write(new_set_recipe() + '\n')
+    return recipe_name_for(variant)
+
+
+def recipe_for(variant):
+    return load_recipe(recipe_name_for(variant))
+
+
 def load_library(name):
     with open(os.path.join(CALIB, 'libraries', name, 'variants.json'), encoding='utf-8') as f:
         return json.load(f)

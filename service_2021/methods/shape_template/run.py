@@ -82,6 +82,16 @@ def main():
     from pipeline import (generate as gen, contour_fit, camera_model as CM, geometry,
                            line_marks, neighbor, ls_template)
 
+    # Архів v1-v26 (і всі еталони цього методу) записаний у СТАРІЙ розстановці
+    # стенду (до 30.09.2026: шолом розвернуто на 180 град., інша система
+    # координат робота) - на новій розстановці результат був би безглуздим,
+    # тож чесна відмова замість тихо неправильної лінії.
+    if not gen.load_recipe(args.recipe).get('archive_compatible', True):
+        print('Цей метод працює лише з наборами, знятими ДО 30.09.2026 (стара '
+              'розстановка камер і шолома - на ній записано архів еталонів). '
+              'Для нових наборів оберіть Метод 3.', file=sys.stderr)
+        sys.exit(1)
+
     var_marks = line_marks.load_marks().get(args.variant, {})
     used = [w for w in ('back', 'left') if w in var_marks]
     if len(used) < 2:
@@ -125,12 +135,25 @@ def main():
     # Без офсету лінії згину (fold_radial/fold_up) - фітуємо пряму лінію
     # реза проти розмітки, той самий член невязки, що й у /fit_marks (щоб
     # обидва цілились в ОДНЕ Й ТЕ САМЕ, а не в системно різні цілі).
+    n_vis = {w: len(CM.near_arc(*CM.project(cut_ring, cams[w][0][:3], cams[w][0][3:6], cams[w][1])))
+             for w in used}
+
     def mark_dist_mm(P):
         out = []
         for w in used:
             pc, f = cams[w]
             uv, z = CM.project(P, pc[:3], pc[3:6], f)
+            # Фіксована кількість точок (near_arc дає різну довжину залежно від
+            # пози - least_squares падав "could not broadcast", 14.10). Саме
+            # стільки, скільки near_arc дав на СТАРТІ, і передискретизація ЛИШЕ
+            # коли довжина справді змінилась - інакше точки ті самі, що й до
+            # виправлення. Поза тут визначена слабко (кільце "ковзає по куполу"):
+            # будь-яка зміна нев'язки, навіть 120 точок замість ~33, зсувала
+            # результат старих наборів на 1-3.5 мм при тій самій якості
+            # збігу з розміткою (перевірено 14.10).
             vis = CM.near_arc(uv, z)
+            if len(vis) != n_vis[w]:
+                vis = contour_fit.resample(vis, n_vis[w])
             marks_uv = contour_fit.resample(var_marks[w])
             d1 = np.abs(CM.dist_to_polyline(marks_uv, vis))
             d2 = np.abs(CM.dist_to_polyline(vis, marks_uv))

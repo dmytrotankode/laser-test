@@ -23,5 +23,8 @@ def load(name):
     """(R0, t0) from calib/cad_placement/<name>/placement.json."""
     with open(os.path.join(CALIB, name, 'placement.json'), encoding='utf-8') as f:
         pl = json.load(f)
+    if 'matrix' in pl:   # rig_2026-09-30: обчислена (не ручна) поза - одразу 4x4
+        T = np.array(pl['matrix'], dtype=float)
+        return T[:3, :3], T[:3, 3]
     T = np.array(S.placement_matrix(pl['rot_deg'], pl['translate'], pl['scale']))
     return T[:3, :3], T[:3, 3]

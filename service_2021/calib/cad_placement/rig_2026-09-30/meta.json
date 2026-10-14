@@ -1,0 +1,7 @@
+{
+  "created": "2026-10-14",
+  "method": "v1_2026-08-27, moved by the same rigid transform that takes TOR_XL_1009.LS (old rig) onto TOR_XL_1010_1.LS (new rig): rotation 177.6 deg about ~vertical, ring-to-ring mean 1.14 mm / max 2.56 mm after the move",
+  "source": "laserdot_3 work, 2026-10-14",
+  "format": "placement.json holds a full 4x4 'matrix' (CAD -> UFRAME2), not rot_deg/translate",
+  "notes": "Nominal start pose for the marking draft and the CAD layer in step 4 on the new rig. Not per-helmet; the operator still adjusts it."
+}

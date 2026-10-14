@@ -122,7 +122,9 @@ def pipeline_status(name):
     marks = {v: os.path.exists(os.path.join(BASE, 'lines', f'{name}_{v}.json'))
             for v in ('back', 'left')}
     calculated = os.path.exists(os.path.join(scene.SCENES, name, 'scene.json'))
-    return jsonify(photos=photos, marks=marks, calculated=calculated)
+    rname = gen.recipe_name_for(name)
+    return jsonify(photos=photos, marks=marks, calculated=calculated, recipe=rname,
+                   rig_label=gen.load_recipe(rname).get('rig_label', ''))
 
 
 # ---------------------------------------------------------------- розмітка лінії згину
@@ -195,7 +197,8 @@ def mark_lines(variant, view):
         with open(p, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=1)
         if totals:
-            _record_mark_totals(view, totals)
+            from pipeline import generate as gen
+            _record_mark_totals(view, dict(totals, recipe=gen.recipe_name_for(variant)))
         return jsonify(status='saved')
     if not os.path.exists(p):
         return jsonify(points=[])
@@ -237,8 +240,13 @@ def mark_avg_totals():
     СТАРТОВА поза для нової розмітки замість номінальних нулів (реальний
     запит: розмітка займає хвилини, а фізична установка з разу в раз схожа,
     тож хороший старт має суттєво скоротити ручне підганяння)."""
+    from pipeline import generate as gen
     view = request.args.get('view')
-    data = _load_mark_totals().get(view, [])
+    rname = gen.recipe_name_for(request.args.get('variant'))
+    # Лише пози з тієї самої розстановки камер: старі (до 14.10 - без поля
+    # recipe) належать LEGACY_RECIPE і новому стенду як старт не годяться.
+    data = [d for d in _load_mark_totals().get(view, [])
+            if d.get('recipe', gen.LEGACY_RECIPE) == rname]
     if not data:
         return jsonify(rot=[0.0, 0.0, 0.0], t=[0.0, 0.0, 0.0], scale=100.0, n=0)
     n = len(data)
@@ -296,7 +304,7 @@ def mark_compare():
 
 
 _TEMPLATE_LINE_CACHE = {}
-_MARK_CAMERAS_CACHE = None
+_MARK_CAMERAS_CACHE = {}   # {рецепт: камери} - з 14.10 рецепт свій у кожного набору
 
 
 @app.route('/api/mark/cameras')
@@ -312,17 +320,17 @@ def mark_cameras():
     самого стенду, однакова для всіх варіантів цього рецепту, тому її можна
     віддавати без прив'язки до конкретної сцени.
     """
-    global _MARK_CAMERAS_CACHE
-    if _MARK_CAMERAS_CACHE is None:
-        from pipeline import generate as gen, contour_fit
-        recipe = gen.load_recipe('production_2026-08-27')
+    from pipeline import generate as gen, contour_fit
+    rname = gen.recipe_name_for(request.args.get('variant'))
+    if rname not in _MARK_CAMERAS_CACHE:
+        recipe = gen.load_recipe(rname)
         calib_dir = os.path.join(gen.CALIB, 'cameras', recipe['camera_calibration'])
         cams = contour_fit.marker_cams(calib_dir)
-        _MARK_CAMERAS_CACHE = {
+        _MARK_CAMERAS_CACHE[rname] = {
             v: dict(rotation=pc[:3].tolist(), position=pc[3:6].tolist(), focal_px=float(f))
             for v, (pc, f) in cams.items()
         }
-    return jsonify(_MARK_CAMERAS_CACHE)
+    return jsonify(_MARK_CAMERAS_CACHE[rname])
 
 
 @app.route('/api/mark/template')
@@ -355,10 +363,11 @@ def mark_template():
     dx, dy, dz = arg('dx'), arg('dy'), arg('dz')
     scale = arg('scale', 100.0)
     identity = not (rx or ry or rz or dx or dy or dz) and scale == 100.0
-    if identity and view in _TEMPLATE_LINE_CACHE:
-        return jsonify(_TEMPLATE_LINE_CACHE[view])
     from pipeline import generate as gen, contour_fit, mesh_rim, cad_placement, camera_model as CM
-    recipe = gen.load_recipe('production_2026-08-27')
+    rname = gen.recipe_name_for(request.args.get('variant'))
+    if identity and (rname, view) in _TEMPLATE_LINE_CACHE:
+        return jsonify(_TEMPLATE_LINE_CACHE[(rname, view)])
+    recipe = gen.load_recipe(rname)
     calib_dir = os.path.join(gen.CALIB, 'cameras', recipe['camera_calibration'])
     cams = contour_fit.marker_cams(calib_dir)
     R0, t0 = cad_placement.load(recipe['cad_placement'])
@@ -392,7 +401,7 @@ def mark_template():
     result = dict(x=vis[:, 0].tolist(), y=vis[:, 1].tolist(),
                   pts3d=fold_world[idx].tolist())
     if identity:
-        _TEMPLATE_LINE_CACHE[view] = result
+        _TEMPLATE_LINE_CACHE[(rname, view)] = result
     return jsonify(result)
 
 
@@ -481,7 +490,7 @@ def mark_solve_pnp():
     obj = np.array([c['obj'] for c in corr], dtype=float)
     img = np.array([c['img'] for c in corr], dtype=float)
     from pipeline import generate as gen, contour_fit, mesh_rim, cad_placement, camera_model as CM, geometry
-    recipe = gen.load_recipe('production_2026-08-27')
+    recipe = gen.recipe_for(d.get('variant'))
     calib_dir = os.path.join(gen.CALIB, 'cameras', recipe['camera_calibration'])
     cams = contour_fit.marker_cams(calib_dir)
     pc, f = cams[view]
@@ -587,7 +596,7 @@ def auto_pose(name, cidx):
 
     from scipy.optimize import least_squares
     from pipeline import generate as gen, contour_fit, camera_model as CM, geometry
-    recipe = gen.load_recipe('production_2026-08-27')
+    recipe = gen.recipe_for(name)
     calib_dir = os.path.join(gen.CALIB, 'cameras', recipe['camera_calibration'])
     cams = contour_fit.marker_cams(calib_dir)
     center = P0.mean(0)
@@ -672,10 +681,13 @@ def fit_marks(name, cidx):
         return jsonify(error='потрібна розмітка з ОБОХ ракурсів (back і left) - '
                               'з одного 2D-контур не визначає позу однозначно'), 400
 
-    recipe = gen.load_recipe('production_2026-08-27')
+    recipe = gen.recipe_for(name)
     calib_dir = os.path.join(gen.CALIB, 'cameras', recipe['camera_calibration'])
     cams = contour_fit.marker_cams(calib_dir)
     center = P0.mean(0)
+
+    n_vis = {w: len(CM.near_arc(*CM.project(P0, cams[w][0][:3], cams[w][0][3:6], cams[w][1])))
+             for w in used}
 
     def mark_dist_mm(P):
         # Симетрично в ОБИДВА боки (розмітка->лінія і лінія->розмітка), не лише
@@ -688,7 +700,15 @@ def fit_marks(name, cidx):
         for w in used:
             pc, f = cams[w]
             uv, z = CM.project(P, pc[:3], pc[3:6], f)
+            # Фіксована кількість точок: near_arc повертає різну довжину залежно
+            # від пози, і least_squares падав "could not broadcast" (спіймано
+            # 14.10 на новій розстановці камер). Довжина - як на старті, і
+            # передискретизація лише коли вона змінилась: старі набори
+            # рахуються точно як раніше (поза тут визначена слабко - див.
+            # methods/method3/run.py).
             vis = CM.near_arc(uv, z)
+            if len(vis) != n_vis[w]:
+                vis = contour_fit.resample(vis, n_vis[w])
             marks_uv = contour_fit.resample(var_marks[w])
             d1 = np.abs(CM.dist_to_polyline(marks_uv, vis))
             d2 = np.abs(CM.dist_to_polyline(vis, marks_uv))
@@ -734,17 +754,18 @@ def mark_template_3d():
     і у вільному огляді - на відміну від /api/mark/template, прив'язаного до
     пікселів одного конкретного фото.
     """
-    if 'points' in _TEMPLATE_LINE_3D_CACHE:
-        return jsonify(_TEMPLATE_LINE_3D_CACHE['points'])
     from pipeline import generate as gen, contour_fit, mesh_rim, cad_placement
-    recipe = gen.load_recipe('production_2026-08-27')
+    rname = gen.recipe_name_for(request.args.get('variant'))
+    if rname in _TEMPLATE_LINE_3D_CACHE:
+        return jsonify(_TEMPLATE_LINE_3D_CACHE[rname])
+    recipe = gen.load_recipe(rname)
     R0, t0 = cad_placement.load(recipe['cad_placement'])
     rim = mesh_rim.mesh_rim(gen.MODEL_3D)
     off = recipe['constants']['fold_radial_mm'] * contour_fit.radial(rim)
     off[:, 2] += recipe['constants']['fold_up_mm']
     fold_world = (rim + off) @ R0.T + t0
     result = dict(points=fold_world.tolist())
-    _TEMPLATE_LINE_3D_CACHE['points'] = result
+    _TEMPLATE_LINE_3D_CACHE[rname] = result
     return jsonify(result)
 
 
@@ -915,7 +936,7 @@ def _stage_method_input(variant):
     """
     import tempfile
     from pipeline import generate as gen
-    recipe = gen.load_recipe('production_2026-08-27')
+    recipe = gen.recipe_for(variant)
     calib_dir = os.path.join(gen.CALIB, 'cameras', recipe['camera_calibration'])
     photo_dir = os.path.join(gen.ARCHIVE, variant)
 
@@ -946,13 +967,22 @@ def _run_method(method_id, variant, out_path, params=None):
     entry = os.path.join(BASE, m['entry'])
     in_dir = _stage_method_input(variant)
     try:
+        from pipeline import generate as gen
         cmd = [sys.executable, entry, '--variant', variant, '--in', in_dir, '--out', out_path]
+        # --recipe лише тим, хто його оголосив (calib/methods.json "wants_recipe"):
+        # чужий метод зі строгим argparse упав би на невідомому аргументі.
+        if m.get('wants_recipe'):
+            cmd += ['--recipe', gen.recipe_name_for(variant)]
         for spec in m.get('params', []):
             val = (params or {}).get(spec['name'])
             if val is None or val == '':
                 raise ValueError(f'{m["name"]}: не вказано параметр "{spec.get("label", spec["name"])}"')
             cmd += [f'--{spec["name"]}', str(val)]
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        # UTF-8 явно: без цього Windows віддавав stderr методу як \u0426... -
+        # оператор бачив коди замість тексту помилки (спіймано 14.10).
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=600,
+                           encoding='utf-8', errors='replace',
+                           env=dict(os.environ, PYTHONIOENCODING='utf-8'))
         if r.returncode != 0 or not os.path.exists(out_path):
             raise RuntimeError(f'{m["name"]} впав: {(r.stderr or r.stdout)[-2000:]}')
         return out_path
@@ -983,7 +1013,7 @@ def generate_ls(name):
     # Камери для build_scene - завжди та сама фізична калібровка, незалежно
     # від того, яким методом порахована лінія (метод не міняє, де стоять
     # камери реально).
-    recipe = gen.load_recipe('production_2026-08-27')
+    recipe = gen.recipe_for(name)
     calib_dir = os.path.join(gen.CALIB, 'cameras', recipe['camera_calibration'])
     cams = {v: os.path.join(calib_dir, f'cam_{v}.npy') for v in ('back', 'left', 'top')}
     photo_dir = os.path.join(gen.ARCHIVE, name)
@@ -1003,6 +1033,7 @@ def generate_ls(name):
     with open(scene_path, encoding='utf-8') as f:
         doc = json.load(f)
     doc['method'] = method_id
+    doc['recipe'] = gen.recipe_name_for(name)
     with open(scene_path, 'w', encoding='utf-8') as f:
         json.dump(doc, f, ensure_ascii=False)
 
@@ -1103,6 +1134,7 @@ def upload(name, kind):
     from pipeline import generate as gen
     dst_dir = os.path.join(gen.ARCHIVE, name)
     os.makedirs(dst_dir, exist_ok=True)
+    gen.stamp_recipe(name)
     data = f.read()
 
     if kind == 'reference':
@@ -1189,6 +1221,7 @@ def capture(name):
         from pipeline import generate as gen
         dst_dir = os.path.join(gen.ARCHIVE, name)
         os.makedirs(dst_dir, exist_ok=True)
+        gen.stamp_recipe(name)
         for view, src in found.items():
             shutil.copyfile(src, os.path.join(dst_dir, f'{view}.png'))
         return jsonify(status='ok', saved=list(found.keys()))

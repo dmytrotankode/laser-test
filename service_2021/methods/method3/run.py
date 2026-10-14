@@ -60,16 +60,28 @@ def main():
               'у цього методу немає іншого джерела для пози.', file=sys.stderr)
         sys.exit(1)
 
-    if not os.path.exists(REF_PATH):
-        print(f'Еталонний файл не знайдено: {REF_PATH}', file=sys.stderr)
+    recipe = gen.load_recipe(args.recipe)
+    # Еталон - з рецепта: у кожної розстановки стенду свій (TOR_XL_1009 записаний
+    # у старій, TOR_XL_1010_1 - у новій, з 30.09.2026). Старий рецепт поля не
+    # має -> REF_PATH, як і раніше.
+    ref_path = (os.path.join(SERVICE_ROOT, recipe['method3_reference'])
+                if recipe.get('method3_reference') else REF_PATH)
+    if not os.path.exists(ref_path):
+        print(f'Еталонний файл не знайдено: {ref_path}', file=sys.stderr)
         sys.exit(1)
 
-    recipe = gen.load_recipe(args.recipe)
     calib_dir = os.path.join(gen.CALIB, 'cameras', recipe['camera_calibration'])
     cams = contour_fit.marker_cams(calib_dir)
 
-    prog = geometry.load(REF_PATH)
-    standoff, _ = geometry.fit_standoff(prog, neighbor._anchor_surface())
+    prog = geometry.load(ref_path)
+    # Відступ: fit_standoff порівнює форму з якорем v1 - а він у СТАРІЙ
+    # розстановці (розвернутий на 180 град.), ICP з нульового старту там не
+    # сходиться (перевірено 14.10: залишок 10 мм замість 0.8). Тому нова
+    # розстановка задає відступ прямо в рецепті (номінальні 10 мм).
+    if recipe.get('method3_standoff_mm') is not None:
+        standoff = float(recipe['method3_standoff_mm'])
+    else:
+        standoff, _ = geometry.fit_standoff(prog, neighbor._anchor_surface())
     cut_full, ids_full = geometry.cut_surface(prog, standoff, full=True)
     cut_full = np.asarray(cut_full, dtype=float)
     axis_by_id = dict(zip(ids_full, geometry.tool_axes(prog, ids_full)))
@@ -83,12 +95,25 @@ def main():
 
     # Без офсету лінії згину, без згладжування - пряма лінія реза проти
     # розмітки, той самий член невязки, що й у /fit_marks.
+    n_vis = {w: len(CM.near_arc(*CM.project(cut_ring, cams[w][0][:3], cams[w][0][3:6], cams[w][1])))
+             for w in used}
+
     def mark_dist_mm(P):
         out = []
         for w in used:
             pc, f = cams[w]
             uv, z = CM.project(P, pc[:3], pc[3:6], f)
+            # Фіксована кількість точок (near_arc дає різну довжину залежно від
+            # пози - least_squares падав "could not broadcast", 14.10). Саме
+            # стільки, скільки near_arc дав на СТАРТІ, і передискретизація ЛИШЕ
+            # коли довжина справді змінилась - інакше точки ті самі, що й до
+            # виправлення. Поза тут визначена слабко (кільце "ковзає по куполу"):
+            # будь-яка зміна нев'язки, навіть 120 точок замість ~33, зсувала
+            # результат старих наборів на 1-3.5 мм при тій самій якості
+            # збігу з розміткою (перевірено 14.10).
             vis = CM.near_arc(uv, z)
+            if len(vis) != n_vis[w]:
+                vis = contour_fit.resample(vis, n_vis[w])
             marks_uv = contour_fit.resample(var_marks[w])
             d1 = np.abs(CM.dist_to_polyline(marks_uv, vis))
             d2 = np.abs(CM.dist_to_polyline(vis, marks_uv))
@@ -126,7 +151,7 @@ def main():
 
     out_dir = os.path.dirname(args.out) or '.'
     os.makedirs(out_dir, exist_ok=True)
-    tmp_out = ls_template.write_ls(REF_PATH, out_dir, point_fn, f'method3_{args.variant}')
+    tmp_out = ls_template.write_ls(ref_path, out_dir, point_fn, f'method3_{args.variant}')
     if tmp_out != args.out:
         os.replace(tmp_out, args.out)
 

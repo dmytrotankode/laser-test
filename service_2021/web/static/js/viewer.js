@@ -1065,7 +1065,7 @@ async function loadScene(name) {
   templateBase = null; templatePts = null;
   tplTotals.rot = [0, 0, 0]; tplTotals.t = [0, 0, 0]; tplTotals.scale = 100;
   layers.appendChild(layerRow('шаблонна лінія (CAD, проба)', '#eab308', 'template', false));
-  fetch('/api/mark/template3d').then(r => r.json()).then(d => {
+  fetch(`/api/mark/template3d?variant=${encodeURIComponent(name)}`).then(r => r.json()).then(d => {
     if (d.points) { templateBase = d.points; templatePts = templateBase.map(p => p.slice()); }
     draw();
   }).catch(() => {});
@@ -1746,7 +1746,7 @@ function clearViewer(placeholderName) {
   document.getElementById('group').hidden = true;
   document.getElementById('point').hidden = true;
   HUD.textContent = placeholderName
-    ? `«${placeholderName}» ще не порахований\nперейдіть до кроку 2 і натисніть «Розрахувати»`
+    ? `«${placeholderName}» ще не порахований\nперейдіть до кроку 3 і натисніть «Розрахувати»`
     : '';
   draw();
 }
@@ -1768,7 +1768,8 @@ async function refreshWizard() {
 
   const ic = document.getElementById('inputcheck');
   ic.innerHTML = ['back', 'left', 'top']
-    .map(v => `<div>${st.photos[v] ? '✓' : '✗'} фото ${v}</div>`).join('');
+    .map(v => `<div>${st.photos[v] ? '✓' : '✗'} фото ${v}</div>`).join('')
+    + (st.rig_label ? `<div style="opacity:.7">камери: ${st.rig_label}</div>` : '');
   const allPhotos = st.photos.back && st.photos.left && st.photos.top;
   w2.className = 'wmark ' + (st.calculated ? 'ok' : (allPhotos ? '' : 'bad'));
   w2.textContent = st.calculated ? 'розрахована' : (allPhotos ? 'готово рахувати' : 'бракує фото');
@@ -1785,7 +1786,7 @@ async function refreshWizard() {
   ms.innerHTML = ['back', 'left']
     .map(v => `<div>${st.marks[v] ? '✓' : '—'} розмітка ${v}</div>`).join('');
   w3.className = 'wmark' + (allMarks ? ' ok' : '');
-  w3.textContent = allMarks ? 'є' : (someMarks ? 'частково' : 'немає (необов\'язково)');
+  w3.textContent = allMarks ? 'є' : (someMarks ? 'частково' : 'немає (потрібна для Методів 2 і 3)');
 
   const genBtn = document.getElementById('dogenerate');
   genBtn.disabled = !allPhotos;

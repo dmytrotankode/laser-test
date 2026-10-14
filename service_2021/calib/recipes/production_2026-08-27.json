@@ -12,5 +12,6 @@
     "nominal_standoff_mm": 10.0
   },
   "segmentation_backend": "rembg",
-  "feature_kind": "prof"
+  "feature_kind": "prof",
+  "rig_label": "стара розстановка (до 30.09.2026)"
 }

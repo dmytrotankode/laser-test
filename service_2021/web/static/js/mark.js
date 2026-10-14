@@ -30,7 +30,7 @@ const $m = id => document.getElementById(id);
 // (не обов'язково нулі).
 async function fetchStartTotals(view) {
   try {
-    const r = await (await fetch(`/api/mark/avg_totals?view=${view}`)).json();
+    const r = await (await fetch(`/api/mark/avg_totals?view=${view}&variant=${encodeURIComponent(M.variant || '')}`)).json();
     return { rot: r.rot, t: r.t, scale: r.scale };
   } catch (e) { return freshTplTotals(); }
 }
@@ -377,7 +377,8 @@ let AD_MULT = 1;
 async function fetchAutoTemplate(view, totals) {
   const t = totals || freshTplTotals();
   try {
-    const q = `?view=${view}&rx=${t.rot[0]}&ry=${t.rot[1]}&rz=${t.rot[2]}`
+    const q = `?view=${view}&variant=${encodeURIComponent(M.variant || '')}`
+      + `&rx=${t.rot[0]}&ry=${t.rot[1]}&rz=${t.rot[2]}`
       + `&dx=${t.t[0]}&dy=${t.t[1]}&dz=${t.t[2]}&scale=${t.scale}`;
     const res = await (await fetch(`/api/mark/template${q}`)).json();
     return (res && res.x && res.y) ? { x: res.x, y: res.y, pts3d: res.pts3d } : null;
@@ -480,7 +481,7 @@ async function pnpClick(ix, iy) {
   try {
     const res = await (await fetch('/api/mark/solve_pnp', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ view, correspondences }),
+      body: JSON.stringify({ view, correspondences, variant: M.variant }),
     })).json();
     if (res && res.x && res.y) {
       if (res.totals) {
@@ -514,10 +515,13 @@ $m('ad_pnp').addEventListener('click', () => { M.pnpMode ? pnpStop() : pnpStart(
 // працювали (реальний звіт користувача). /api/mark/cameras віддає ту саму
 // калібровку стенду незалежно від того, яка сцена (якщо взагалі якась)
 // зараз завантажена у в'ювері.
-let markCamerasCache = null;
+// Кеш - на набір: з 14.10 старі й нові набори зняті різними розстановками
+// камер (рецепт набору), спільний кеш давав би чужі камери.
+let markCamerasCache = null, markCamerasFor = null;
 async function ensureMarkCameras() {
-  if (!markCamerasCache) {
-    try { markCamerasCache = await (await fetch('/api/mark/cameras')).json(); }
+  if (!markCamerasCache || markCamerasFor !== M.variant) {
+    markCamerasFor = M.variant;
+    try { markCamerasCache = await (await fetch(`/api/mark/cameras?variant=${encodeURIComponent(M.variant || '')}`)).json(); }
     catch (e) { markCamerasCache = {}; }
   }
   return markCamerasCache;
@@ -531,11 +535,12 @@ async function ensureMarkCameras() {
 // розмітки з ТИМИ САМИМИ totals, що й поточна (near_arc-відсічена) чернетка,
 // щоб обидві лягали одна на одну там, де співпадають.
 const IMG_W = 4096, IMG_H = 3000;   // camera_model.IMG_W/IMG_H (фіксовані для всіх камер)
-let fullRimBase = null;
+let fullRimBase = null, fullRimFor = null;
 async function ensureFullRimBase() {
-  if (!fullRimBase) {
+  if (!fullRimBase || fullRimFor !== M.variant) {
+    fullRimBase = null; fullRimFor = M.variant;
     try {
-      const res = await (await fetch('/api/mark/template3d')).json();
+      const res = await (await fetch(`/api/mark/template3d?variant=${encodeURIComponent(M.variant || '')}`)).json();
       if (res && res.points) fullRimBase = res.points;
     } catch (e) { /* немає - просто без повного контуру */ }
   }

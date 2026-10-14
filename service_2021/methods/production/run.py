@@ -38,6 +38,16 @@ def main():
     args = ap.parse_args()
 
     from pipeline import generate as gen
+
+    # Архів v1-v26 (і всі еталони цього методу) записаний у СТАРІЙ розстановці
+    # стенду (до 30.09.2026: шолом розвернуто на 180 град., інша система
+    # координат робота) - на новій розстановці результат був би безглуздим,
+    # тож чесна відмова замість тихо неправильної лінії.
+    if not gen.load_recipe(args.recipe).get('archive_compatible', True):
+        print('Цей метод працює лише з наборами, знятими ДО 30.09.2026 (стара '
+              'розстановка камер і шолома - на ній записано архів еталонів). '
+              'Для нових наборів оберіть Метод 3.', file=sys.stderr)
+        sys.exit(1)
     ls_path, report = gen.generate(args.variant, args.recipe)
     os.makedirs(os.path.dirname(args.out) or '.', exist_ok=True)
     shutil.copyfile(ls_path, args.out)
