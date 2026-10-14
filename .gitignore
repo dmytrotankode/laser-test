@@ -40,6 +40,9 @@ laserdot_3/*
 !laserdot_3/*.md
 !laserdot_3/*.LS
 !laserdot_3/*.py
+!laserdot_3/sets_0510/
+laserdot_3/sets_0510/*/*
+!laserdot_3/sets_0510/*/*.LS
 
 # Промежуточные картинки экспериментов - генерируются скриптами рядом
 service_5056/scratch/**/*_contact.png
