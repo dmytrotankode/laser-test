@@ -24,9 +24,8 @@ from pipeline import generate as gen  # noqa: E402
 
 PY = sys.executable
 RUNS = [('Метод 3', 'methods/method3/run.py', []),
-        ('М4 край в обидва', 'methods/method4/run.py', ['--top', 'two']),
-        ('М4 лише не за край', 'methods/method4/run.py', ['--top', 'one']),
-        ('М4 асиметр.', 'methods/method4/run.py', ['--top', 'asym'])]
+        ('М4 без розтягу', 'methods/method4/run.py', ['--stretch', 'ні']),
+        ('М4 + розтяг', 'methods/method4/run.py', ['--stretch', 'так'])]
 DEFAULT_SETS = ['nabir-1005-001', 'nabir-1005-002', 'v21', 'v22', 'v23', 'v24', 'v25']
 
 

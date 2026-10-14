@@ -34,6 +34,11 @@
     фланець, що стирчить на 3-5 мм за лінію згину (тоді край - не лінія згину), і
     пошук краю часом чіпляється за шов на куполі.
   --top one (край лише «не пускає за силует») і asym - гірші за two (через шви).
+  + РОЗТЯГ по довжині/ширині (--stretch так, за замовчуванням з 14.10; загальний масштаб
+    тоді ±2 %, розтяг ±3 %): 1005-001 1.44 мм / найгірша 2.74 / <2 мм 86 %,
+    1005-002 1.34 / 2.63 / 85 %; по 7 шоломах 2.21 / 5.9 / 59 % (Метод 3: 2.53 / 5.4 / 44 %).
+    Найгірші точки на старих v23/v25 - там, де згори фланець і волокна (див. картинку
+    «що побачив метод»).
 
 Точки, кути інструмента (W/P/R), підвід/відвід - з еталона; рухаються всі разом.
 
@@ -156,6 +161,9 @@ def main():
     ap.add_argument('--out', required=True)
     ap.add_argument('--recipe', default='production_2026-08-27')
     ap.add_argument('--bend', default='ні', choices=['ні', 'так'])
+    ap.add_argument('--stretch', default='так', choices=['ні', 'так'],
+                    help='окремий масштаб уздовж і впоперек шолома (±3 %%): шоломи відрізняються '
+                         'пропорціями на 1-2 %%; розтяг уздовж майже не рухає вуха')
     ap.add_argument('--top', default='two', choices=['two', 'one', 'asym'],
                     help='two - край тягне в обидва боки; one - лише не пускає лінію ЗА край '
                          '(фланець може стирчати назовні - тоді край не лінія згину); '
@@ -207,12 +215,23 @@ def main():
     F = (np.c_[[np.ones_like(th)] + [g(k * th) for k in range(1, K + 1) for g in (np.cos, np.sin)]].T
          if K else np.zeros((len(th), 0)))
     nb = F.shape[1]
+    # Розтяг по осях шолома: e1 - довжина (лоб-потилиця), e2 - ширина (вухо-вухо), з SVD кільця.
+    # Масштаб від центру: уздовж e1 найбільше рухаються лоб і потилиця, вуха (біля центру
+    # по довжині) - майже ні; ширина рухає вуха ~1 мм на 1 %.
+    ns = 2 if args.stretch == 'так' else 0
+    _, _, Vt = np.linalg.svd(ring - rc)
+    i_s = 7 + 2 * nb                          # індекс перших параметрів розтягу
 
     def deform(p):
         X = ring.copy()
         if nb:
             X = X + radial * (F @ p[7:7 + nb])[:, None]
-            X[:, 2] += F @ p[7 + nb:]
+            X[:, 2] += F @ p[7 + nb:i_s]
+        if ns:
+            L = (X - rc) @ Vt.T
+            L[:, 0] *= np.exp(p[i_s])
+            L[:, 1] *= np.exp(p[i_s + 1])
+            X = L @ Vt + rc
         return X
 
     def rigid(p, X):
@@ -260,13 +279,18 @@ def main():
                     k = len(mk)
                     d2 = d2 * ((j > END_TRIM * k) & (j < (1 - END_TRIM) * k))
                 out.append(np.r_[d1 / np.sqrt(len(d1)), d2 / np.sqrt(len(d2))] * mm * 10)
-            out.append(p[7:] * 0.05)
+            out.append(p[7:i_s] * 0.05)
+            out.append(p[i_s:] * 5.0)            # розтяг: м'яко тримати біля нуля (1 % ~ 0.05 мм нев'язки)
             return np.concatenate(out)
         return res
 
-    n_par = 7 + 2 * nb
-    lo = np.r_[[-0.6] * 3, [-150.0] * 3, -0.35, [-BEND_LIMIT_MM] * (2 * nb)]
-    hi = np.r_[[0.6] * 3, [150.0] * 3, 0.35, [BEND_LIMIT_MM] * (2 * nb)]
+    n_par = 7 + 2 * nb + ns
+    # Загальний масштаб і розтяг по осях частково дублюють одне одного: без обмеження
+    # підгонка на v25 «схитрувала» - загальний 95 % + ширина +3 % (тобто шолом на 5 %
+    # коротший; реальні шоломи відрізняються на 1-2 %). Тому з розтягом загальний - ±2 %.
+    s_lim = 0.02 if ns else 0.35
+    lo = np.r_[[-0.6] * 3, [-150.0] * 3, -s_lim, [-BEND_LIMIT_MM] * (2 * nb), [-0.03] * ns]
+    hi = np.r_[[0.6] * 3, [150.0] * 3, s_lim, [BEND_LIMIT_MM] * (2 * nb), [0.03] * ns]
 
     def solve(targets, x0, vis_idx):
         x0 = np.clip(np.r_[x0, np.zeros(n_par - len(x0))][:n_par], lo + 1e-9, hi - 1e-9)
@@ -320,7 +344,8 @@ def main():
     if tmp_out != args.out:
         os.replace(tmp_out, args.out)
     print(f'rot(deg)={np.degrees(x[:3]).round(3).tolist()} scale={np.exp(x[6]) * 100:.2f}% '
-          f'shift={x[3:6].round(2).tolist()} bend={x[7:].round(2).tolist()}', file=sys.stderr)
+          f'shift={x[3:6].round(2).tolist()} bend={x[7:i_s].round(2).tolist()} '
+          f'stretch(len,wid)%={(np.exp(x[i_s:]) * 100 - 100).round(2).tolist()}', file=sys.stderr)
     print(args.out)
 
 
