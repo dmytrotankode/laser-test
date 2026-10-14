@@ -32,6 +32,13 @@
       "_desc": "один фіксований еталон (TOR_XL_1009.LS, чистий з програми) - поворот+масштаб+зсув по розмітці, без офсету і без згладжування",
       "entry": "methods/method3/run.py",
       "wants_recipe": true
+    },
+    {
+      "id": "method4",
+      "name": "Метод 4 (експеримент)",
+      "_desc": "Метод 3 + край шолома на фото згори (автоматично) як третій ракурс. Див. methods/method4/run.py - статус і цифри",
+      "entry": "methods/method4/run.py",
+      "wants_recipe": true
     }
   ]
 }
