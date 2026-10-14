@@ -1,0 +1,31 @@
+{
+  "created": "2026-10-14",
+  "method": "joint marker calibration of all three cameras (laserdot_3/calib_joint.py): each dot = nozzle + t * tool axis, t shared across views (prior 10.5 +- 2 mm), reprojection error in mm, fixed focal lengths",
+  "source": "laserdot_3/photos (30.09.2026) + laserdot_3/points_pendant.csv + laserdot_3/pixels.json",
+  "format": "[rvec(3), position(3), focal_px] as float64, numpy.save",
+  "rig": "helmet rotated 180 deg, back camera moved to the opposite side, left/top unchanged; robot user frame differs from marker_2026-08-21 (~70 mm offset)",
+  "quality": {
+    "back": {
+      "points": 26,
+      "resid_median_mm": 0.26,
+      "resid_max_mm": 0.76,
+      "loo_median_mm": 0.46,
+      "loo_max_mm": 0.97
+    },
+    "left": {
+      "points": 19,
+      "resid_median_mm": 0.2,
+      "resid_max_mm": 0.53,
+      "loo_median_mm": 0.45,
+      "loo_max_mm": 1.67
+    },
+    "top": {
+      "points": 18,
+      "resid_median_mm": 0.38,
+      "resid_max_mm": 0.72,
+      "loo_median_mm": 0.61,
+      "loo_max_mm": 1.48
+    }
+  },
+  "notes": "NOT valid for scenes shot before 30.09.2026 (old rig) - those use marker_2026-08-21."
+}
