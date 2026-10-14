@@ -16,5 +16,7 @@
   "archive_compatible": false,
   "method3_reference": "methods/method3/TOR_XL_1010_1.LS",
   "method3_standoff_mm": 10.0,
-  "rig_label": "нова розстановка (з 30.09.2026)"
+  "rig_label": "нова розстановка (з 30.09.2026)",
+  "mark_template": "reference",
+  "mark_fold_along_axis_mm": 2.3
 }

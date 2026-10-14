@@ -198,7 +198,9 @@ def mark_lines(variant, view):
             json.dump(data, f, ensure_ascii=False, indent=1)
         if totals:
             from pipeline import generate as gen
-            _record_mark_totals(view, dict(totals, recipe=gen.recipe_name_for(variant)))
+            rname = gen.recipe_name_for(variant)
+            _record_mark_totals(view, dict(totals, recipe=rname,
+                                           template=gen.load_recipe(rname).get('mark_template', 'cad')))
         return jsonify(status='saved')
     if not os.path.exists(p):
         return jsonify(points=[])
@@ -245,8 +247,11 @@ def mark_avg_totals():
     rname = gen.recipe_name_for(request.args.get('variant'))
     # Лише пози з тієї самої розстановки камер: старі (до 14.10 - без поля
     # recipe) належать LEGACY_RECIPE і новому стенду як старт не годяться.
+    # ...і лише відносно того самого шаблону: зсув/поворот рахуються від шаблону, а з
+    # 14.10 на новій розстановці шаблон - еталонний .LS, а не CAD (пози від CAD тут не годяться).
+    tmpl = gen.load_recipe(rname).get('mark_template', 'cad')
     data = [d for d in _load_mark_totals().get(view, [])
-            if d.get('recipe', gen.LEGACY_RECIPE) == rname]
+            if d.get('recipe', gen.LEGACY_RECIPE) == rname and d.get('template', 'cad') == tmpl]
     if not data:
         return jsonify(rot=[0.0, 0.0, 0.0], t=[0.0, 0.0, 0.0], scale=100.0, n=0)
     n = len(data)
@@ -370,11 +375,7 @@ def mark_template():
     recipe = gen.load_recipe(rname)
     calib_dir = os.path.join(gen.CALIB, 'cameras', recipe['camera_calibration'])
     cams = contour_fit.marker_cams(calib_dir)
-    R0, t0 = cad_placement.load(recipe['cad_placement'])
-    rim = mesh_rim.mesh_rim(gen.MODEL_3D)
-    off = recipe['constants']['fold_radial_mm'] * contour_fit.radial(rim)
-    off[:, 2] += recipe['constants']['fold_up_mm']
-    fold_world = (rim + off) @ R0.T + t0
+    fold_world = _fold_template_world(recipe)
     if not identity:
         rxr, ryr, rzr = np.radians([rx, ry, rz])
         cx, sx = np.cos(rxr), np.sin(rxr)
@@ -403,6 +404,34 @@ def mark_template():
     if identity:
         _TEMPLATE_LINE_CACHE[(rname, view)] = result
     return jsonify(result)
+
+
+def _fold_template_world(recipe):
+    """Шаблон ЛІНІЇ ЗГИНУ в координатах верстата - чернетка розмітки (крок 2) і жовта
+    «шаблонна лінія» (крок 4).
+
+    Старий стенд: обід CAD-моделі + константи зсуву (як і було). Новий (рецепт з
+    "mark_template": "reference"): лінія різу ЕТАЛОННОГО .LS, зсунута на
+    mark_fold_along_axis_mm уздовж осі інструмента (лінія згину ~ різ + 2.3 мм, з 12.08).
+    Чому: CAD-обід за формою відрізняється від справжніх шоломів у середньому на ~5.5 мм
+    навіть у найкращій позі (виміряно 14.10 на 1010_1, 0510_1, 0510_2) - чернетка не
+    лягала, як її не крути; еталон відрізняється на ~1 мм. І стоїть він у позі
+    еталонного шолома, тобто вже близько до реальної.
+    """
+    from pipeline import generate as gen, contour_fit, mesh_rim, cad_placement
+    if recipe.get('mark_template') == 'reference':
+        import ls_points
+        prog = ls_points.read_ring(os.path.join(BASE, recipe['method3_reference']))
+        P = np.array([q[2] for q in prog]) + float(recipe.get('mark_fold_along_axis_mm', 0.0)) * np.array([q[3] for q in prog])
+        Q = np.r_[P, P[:1]]                         # рівномірно 400 точок по замкненому кільцю
+        d = np.r_[0, np.cumsum(np.linalg.norm(np.diff(Q, axis=0), axis=1))]
+        t = np.linspace(0, d[-1], 400, endpoint=False)
+        return np.c_[[np.interp(t, d, Q[:, i]) for i in range(3)]].T
+    R0, t0 = cad_placement.load(recipe['cad_placement'])
+    rim = mesh_rim.mesh_rim(gen.MODEL_3D)
+    off = recipe['constants']['fold_radial_mm'] * contour_fit.radial(rim)
+    off[:, 2] += recipe['constants']['fold_up_mm']
+    return (rim + off) @ R0.T + t0
 
 
 def _near_arc_idx(z):
@@ -517,11 +546,7 @@ def mark_solve_pnp():
                                   useExtrinsicGuess=True, flags=cv2.SOLVEPNP_ITERATIVE)
     if not ok:
         return jsonify(error="не вдалося розв'язати позу за цими точками"), 400
-    rim = mesh_rim.mesh_rim(gen.MODEL_3D)
-    R0, t0 = cad_placement.load(recipe['cad_placement'])
-    off = recipe['constants']['fold_radial_mm'] * contour_fit.radial(rim)
-    off[:, 2] += recipe['constants']['fold_up_mm']
-    fold_world = (rim + off) @ R0.T + t0
+    fold_world = _fold_template_world(recipe)
     Rm = cv2.Rodrigues(rvec)[0]
     tv = tvec.reshape(3)
     Xc = fold_world @ Rm.T + tv
@@ -759,11 +784,7 @@ def mark_template_3d():
     if rname in _TEMPLATE_LINE_3D_CACHE:
         return jsonify(_TEMPLATE_LINE_3D_CACHE[rname])
     recipe = gen.load_recipe(rname)
-    R0, t0 = cad_placement.load(recipe['cad_placement'])
-    rim = mesh_rim.mesh_rim(gen.MODEL_3D)
-    off = recipe['constants']['fold_radial_mm'] * contour_fit.radial(rim)
-    off[:, 2] += recipe['constants']['fold_up_mm']
-    fold_world = (rim + off) @ R0.T + t0
+    fold_world = _fold_template_world(recipe)
     result = dict(points=fold_world.tolist())
     _TEMPLATE_LINE_3D_CACHE[rname] = result
     return jsonify(result)

@@ -161,6 +161,9 @@ def main():
     ap.add_argument('--out', required=True)
     ap.add_argument('--recipe', default='production_2026-08-27')
     ap.add_argument('--bend', default='ні', choices=['ні', 'так'])
+    ap.add_argument('--fold', type=float, default=0.0,
+                    help='зсув лінії ЗГИНУ від лінії РІЗУ вздовж осі інструмента, мм (з 12.08: ~+2.3); '
+                         'розмітка back/left порівнюється з (різ + fold*вісь)')
     ap.add_argument('--stretch', default='так', choices=['ні', 'так'],
                     help='окремий масштаб уздовж і впоперек шолома (±3 %%): шоломи відрізняються '
                          'пропорціями на 1-2 %%; розтяг уздовж майже не рухає вуха')
@@ -204,8 +207,9 @@ def main():
     cut_full = np.asarray(cut_full, float)
     axis_by_id = dict(zip(ids_full, geometry.tool_axes(prog, ids_full)))
     center = cut_full.mean(0)
-    ring, _ = geometry.cut_surface(prog, standoff, full=False)
+    ring, ring_ids0 = geometry.cut_surface(prog, standoff, full=False)
     ring = np.asarray(ring, float)
+    ring_axes = np.asarray(geometry.tool_axes(prog, ring_ids0), float)
 
     # плавний вигин: радіальний і висотний зсув як ряд Фур'є за кутом навколо шолома
     K = BEND_HARMONICS if args.bend == 'так' else 0
@@ -241,6 +245,10 @@ def main():
     def shape(p):
         return rigid(p, deform(p))
 
+    def fold_shape(p):
+        # лінія згину = різ + fold вздовж осі інструмента (вісь повертається разом з позою)
+        return rigid(p, deform(p) + args.fold * ring_axes) if args.fold else shape(p)
+
     g = cv2.GaussianBlur(cv2.imread(top_path, cv2.IMREAD_GRAYSCALE).astype(np.float32), (0, 0), 2.0)
     grads = (cv2.Sobel(g, cv2.CV_32F, 1, 0, ksize=3), cv2.Sobel(g, cv2.CV_32F, 0, 1, ksize=3))
 
@@ -248,10 +256,12 @@ def main():
         def res(p):
             P = shape(p)
             D = dense(P, 600)
+            PF = fold_shape(p)
+            DF = dense(PF, 600) if args.fold else D
             out = []
             for w, mk in targets.items():
                 pc, f = cams[w]
-                uv, z = CM.project(D, pc[:3], pc[3:6], f)
+                uv, z = CM.project(D if w == 'top' else DF, pc[:3], pc[3:6], f)
                 mm = float(np.median(z)) / f
                 d1 = cKDTree(uv).query(mk)[0]
                 if w == 'top' and args.top != 'two':
@@ -274,7 +284,7 @@ def main():
                     uvr, _ = CM.project(P, pc[:3], pc[3:6], f)
                     d2 = np.minimum(cKDTree(mk).query(uvr)[0], EDGE_CLIP_MM / mm)
                 else:
-                    uvr, _ = CM.project(P[vis_idx[w]], pc[:3], pc[3:6], f)
+                    uvr, _ = CM.project(PF[vis_idx[w]], pc[:3], pc[3:6], f)
                     d2, j = cKDTree(mk).query(uvr)
                     k = len(mk)
                     d2 = d2 * ((j > END_TRIM * k) & (j < (1 - END_TRIM) * k))
