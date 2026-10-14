@@ -1034,6 +1034,16 @@ def generate_ls(name):
         doc = json.load(f)
     doc['method'] = method_id
     doc['recipe'] = gen.recipe_name_for(name)
+    # Метод може залишити картинку «що я побачив» (<out>.debug.jpg) - кладемо її до
+    # набору, щоб оператор глянув очима (крок 4, посилання «Що побачив метод»).
+    dbg_src, dbg_dst = ls_path + '.debug.jpg', os.path.join(scene.SCENES, name, 'method_debug.jpg')
+    if os.path.exists(dbg_src):
+        shutil.copyfile(dbg_src, dbg_dst)
+        doc['method_debug'] = 'method_debug.jpg'
+    else:
+        doc.pop('method_debug', None)
+        if os.path.exists(dbg_dst):
+            os.remove(dbg_dst)
     with open(scene_path, 'w', encoding='utf-8') as f:
         json.dump(doc, f, ensure_ascii=False)
 

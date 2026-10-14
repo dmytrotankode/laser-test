@@ -108,6 +108,47 @@ def edge_points(img_blur_grads, uv):
     return np.array(out)
 
 
+def save_debug(path, in_dir, cams, marks, edge, start, final):
+    """Картинка «що побачив Метод 4» - три фото поруч (обрізані навколо шолома):
+    рожева - розмітка оператора, червона - старт (як Метод 3), блакитна - результат;
+    згори: зелені точки - знайдений край, який ВРАХОВАНО, помаранчеві - край далі 3 мм
+    від результату (вважається викидом - волокна, шов, фланець - і майже не впливає)."""
+    from pipeline import camera_model as CM
+    tiles = []
+    for w in ('back', 'left', 'top'):
+        img = cv2.cvtColor(cv2.imread(os.path.join(in_dir, f'{w}.png'), cv2.IMREAD_GRAYSCALE), cv2.COLOR_GRAY2BGR)
+        pc, f = cams[w]
+        lines = []
+        for P, col, th in ((start, (0, 0, 255), 3), (final, (255, 220, 0), 4)):
+            uv, z = CM.project(dense(P, 800), pc[:3], pc[3:6], f)
+            if w != 'top':
+                k = near_idx(z)
+                uv = uv[np.sort(k)]
+            lines.append(uv)
+            for p in uv:
+                cv2.circle(img, (int(p[0]), int(p[1])), th, col, -1)
+        if w in marks:
+            cv2.polylines(img, [marks[w].astype(np.int32)], False, (255, 0, 255), 4)
+        if w == 'top':
+            uvf, z = CM.project(dense(final, 800), pc[:3], pc[3:6], f)
+            mm = float(np.median(z)) / f
+            d = cKDTree(uvf).query(edge)[0] * mm
+            for p, dd in zip(edge, d):
+                cv2.circle(img, (int(p[0]), int(p[1])), 7, (0, 200, 0) if dd <= EDGE_CLIP_MM else (0, 140, 255), -1)
+        a = np.vstack(lines)
+        x0, y0 = np.maximum(a.min(0) - 200, 0).astype(int)
+        x1, y1 = np.minimum(a.max(0) + 200, [img.shape[1], img.shape[0]]).astype(int)
+        crop = img[y0:y1, x0:x1]
+        crop = cv2.resize(crop, None, fx=1400 / crop.shape[1], fy=1400 / crop.shape[1])
+        cv2.putText(crop, w, (15, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.6, (0, 255, 255), 4)
+        tiles.append(crop)
+    legend = np.zeros((150, 1400, 3), np.uint8)
+    for i, (txt, col) in enumerate((('rozheva: vasha rozmitka   chervona: start (yak Metod 3)   blakytna: rezultat Metodu 4', (255, 255, 255)),
+                                    ('zgory: zeleni - znaidenyi krai, vrakhovano;  pomaranchevi - dali 3 mm, ignoruietsia', (255, 255, 255)))):
+        cv2.putText(legend, txt, (15, 50 + 60 * i), cv2.FONT_HERSHEY_SIMPLEX, 1.0, col, 2)
+    cv2.imwrite(path, np.vstack(tiles + [legend]), [cv2.IMWRITE_JPEG_QUALITY, 85])
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--variant', required=True)
@@ -244,6 +285,7 @@ def main():
     x = np.zeros(7)
     x = solve(dict(marks), x, visible(ring))[:7]
     x = np.r_[x, np.zeros(n_par - 7)]
+    start = shape(x)
     # 2. двічі: край згори біля поточної лінії -> підгонка під три ракурси
     for _ in range(2):
         P = shape(x)
@@ -253,6 +295,10 @@ def main():
         x = solve(targets, x, visible(P))
 
     final = shape(x)
+    try:
+        save_debug(args.out + '.debug.jpg', args.in_dir, cams, marks, targets['top'], start, final)
+    except Exception as e:                  # картинка - лише для перегляду, розрахунок не ламає
+        print(f'debug image: {e}', file=sys.stderr)
     disp_by_id = {}
     ring_ids = geometry.cut_surface(prog, standoff, full=False)[1]
     for pid, X in zip(ring_ids, final):

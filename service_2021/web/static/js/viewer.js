@@ -1010,6 +1010,14 @@ async function loadScene(name) {
   // ще раз, переплутавши. Тому чистимо його щоразу, коли міняється сцена.
   document.getElementById('exportmsg').innerHTML = '';
   scene = await (await fetch('/api/scene/' + name)).json();
+  // Картинка «що побачив метод» - якщо метод її залишив (зараз - Метод 4)
+  const dbg = document.getElementById('methodDebug');
+  if (scene.method_debug) {
+    dbg.href = `/asset/${encodeURIComponent(name)}/${scene.method_debug}?t=${Date.now()}`;
+    dbg.hidden = false;
+  } else {
+    dbg.hidden = true;
+  }
   sceneName = name;
   scene.curves = scene.curves || []; scene.points = scene.points || [];
   scene.meshes = scene.meshes || []; scene.cameras = scene.cameras || [];
