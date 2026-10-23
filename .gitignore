@@ -63,3 +63,9 @@ service_5056/scratch/new0810/*.png
 
 # Разметка эталонных линий - данные сессии, а не код (сервис 3030 создаёт их сам)
 service_3030/data/lines/*.json
+# прогони на виробництві: лише .LS, розмітка і опис (фото - на диску)
+!laserdot_3/runs/
+laserdot_3/runs/*/*
+!laserdot_3/runs/*/*.LS
+!laserdot_3/runs/*/*.json
+!laserdot_3/runs/*/*.md
