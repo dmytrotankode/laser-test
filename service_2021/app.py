@@ -1024,6 +1024,13 @@ def generate_ls(name):
         return jsonify(error='немає жодного зареєстрованого методу розрахунку'), 400
 
     from pipeline import generate as gen
+    for v in ('back', 'left', 'top'):
+        ph = os.path.join(gen.ARCHIVE, name, f'{v}.png')
+        if os.path.exists(ph):
+            im = cv2.imread(ph, cv2.IMREAD_UNCHANGED)
+            problem = _photo_problem(im.shape) if im is not None else f'не вдалося прочитати {v}.png'
+            if problem:
+                return jsonify(error=f'{v}: {problem}'), 400
     out_path = os.path.join(BASE, 'data', 'generated', f'{name}_{method_id}.LS')
     try:
         ls_path = _run_method(method_id, name, out_path, params=d.get('params'))
@@ -1140,6 +1147,46 @@ def _decode_upload_image(filename, data):
     return arr
 
 
+def _photo_problem(shape):
+    """Текст помилки (укр.), якщо фото не повнорозмірний кадр камери, інакше None.
+
+    Калібровка камер і вся геометрія - у пікселях ПОВНОГО кадру 4096x3000.
+    Спіймано 23.10 (nabir-1023-001): фото 1280x937 (зменшені пересилкою) сервіс
+    прийняв мовчки, і розрахована лінія лягла «десь збоку» - у 3.2 раза не в тому
+    масштабі. Краще відмовити одразу, ніж дати оператору неправильний .LS.
+    """
+    from pipeline import camera_model as CM
+    h, w = shape[:2]
+    if (w, h) == (CM.IMG_W, CM.IMG_H):
+        return None
+    same_aspect = abs(w / h - CM.IMG_W / CM.IMG_H) < 0.01
+    why = ('схоже, фото зменшене - наприклад, пересилкою в месенджері або скріншотом'
+           if same_aspect else 'інші пропорції - схоже, фото обрізане або з іншої камери')
+    return (f'фото {w}×{h} пікселів, а камери знімають {CM.IMG_W}×{CM.IMG_H}: {why}. '
+            f'Розрахунок прив\'язаний до повного кадру - з таким фото лінія ляже неправильно. '
+            f'Завантажте оригінал з камери (.raw або .png {CM.IMG_W}×{CM.IMG_H}).')
+
+
+def _ls_problem(data):
+    """Текст помилки (укр.), якщо .LS не читається як програма різу, інакше None."""
+    import tempfile
+    import ls_points
+    fd, tmp = tempfile.mkstemp(suffix='.ls')
+    try:
+        with os.fdopen(fd, 'wb') as out:
+            out.write(data)
+        n = len(ls_points.read_ring(tmp))
+    except Exception as e:                          # noqa: BLE001 - будь-що = не читається
+        return f'файл .LS не вдалося прочитати: {e}'
+    finally:
+        os.remove(tmp)
+    if n < 10:
+        return (f'у файлі .LS знайдено лише {n} точок кільця - це не схоже на програму різу '
+                f'(очікується текстовий .LS з рядками P[..]{{ X = .. Y = .. Z = .. W = .. P = .. R = .. }}; '
+                f'бінарний .tp сервіс не читає)')
+    return None
+
+
 @app.route('/api/upload/<name>/<kind>', methods=['POST'])
 def upload(name, kind):
     """Покласти одне фото (back/left/top, .raw або звичайне) чи еталонний
@@ -1163,20 +1210,27 @@ def upload(name, kind):
         return jsonify(error='файл не передано'), 400
 
     from pipeline import generate as gen
+    data = f.read()
+    # Перевірка ДО створення набору: те, що сервіс не зможе правильно обробити,
+    # відкидається одразу, з поясненням, а не мовчки дає неправильну лінію.
+    if kind == 'reference':
+        problem = _ls_problem(data)
+    else:
+        try:
+            img = _decode_upload_image(f.filename, data)
+        except ValueError as e:
+            return jsonify(error=str(e)), 400
+        problem = _photo_problem(img.shape)
+    if problem:
+        return jsonify(error=problem), 400
+
     dst_dir = os.path.join(gen.ARCHIVE, name)
     os.makedirs(dst_dir, exist_ok=True)
     gen.stamp_recipe(name)
-    data = f.read()
-
     if kind == 'reference':
         with open(os.path.join(dst_dir, 'ground_truth.ls'), 'wb') as out:
             out.write(data)
         return jsonify(status='ok', saved='ground_truth.ls')
-
-    try:
-        img = _decode_upload_image(f.filename, data)
-    except ValueError as e:
-        return jsonify(error=str(e)), 400
     cv2.imwrite(os.path.join(dst_dir, f'{kind}.png'), img)
     return jsonify(status='ok', saved=f'{kind}.png', shape=list(img.shape))
 
